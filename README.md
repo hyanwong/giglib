@@ -9,6 +9,8 @@ In [`tskit`](tskit.dev) we use edge annotations to describe which pieces of DNA 
 It should be possible to extend this to track the L & R in the edge *child*, and the L & R in the edge *parent* separately.
 The left and right values in each case refer to the coordinate system of the child and parent respectively.
 
+I'm calling an extended tree-sequence-like structure such as this, a GIG ("General (or Genetic) Inheritance Graph").
+
 ### Inversions
 
 The easiest example is an inversion. This would be an edge like
