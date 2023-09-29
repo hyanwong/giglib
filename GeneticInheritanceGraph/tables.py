@@ -145,11 +145,15 @@ class IndividualTable(BaseTable):
     RowClass = IndividualTableRow
 
 class TableCollection:
-    def __init__(self):
+    """
+    A collection of tables describing a Genetic Inheritance Graph (GIG),
+    similar to a tskit TableCollection.
+    """
+    def __init__(self, time_units=None):
         self.nodes = NodeTable()
         self.intervals = IntervalTable()
         self.individuals = IndividualTable()
-        self.time_units = "unknown"
+        self.time_units = "unknown" if time_units is None else time_units
 
     def __str__(self):
         # To do: make this look nicer
@@ -159,10 +163,15 @@ class TableCollection:
         ])
 
     @classmethod
-    def from_tree_sequence(cls, ts, timedelta=0):
+    def from_tree_sequence(cls, ts, *, chromosome=None, timedelta=0, **kwargs):
         """
-        Import from a tree sequence. NB: timedelta is a hack until we can set entire columns
-        like in tskit
+        Create a GIG TableCollection from a tree sequence.
+
+        :param tskit.TreeSequence ts: The tree sequence on which to base the new TableCollection
+        :param int chromosome: The chromosome number to use for all intervals
+        :param float timedelta: A value to add to all node times (this is a hack until we can
+            set entire columns like in tskit, see #issues/19)
+        :param kwargs: Other parameters passed to the TableCollection constructor
         """
         tables = ts.tables
         gig_tables = cls()
@@ -180,5 +189,8 @@ class TableCollection:
             obj["time"] += timedelta
             gig_tables.nodes.append(obj)
         for row in tables.edges:
-            gig_tables.intervals.append(row)
+            obj = row.asdict()
+            if chromosome is not None:
+                obj["parent_chromosome"] = obj["child_chromosome"] = chromosome
+            gig_tables.intervals.append(obj)
         return gig_tables
