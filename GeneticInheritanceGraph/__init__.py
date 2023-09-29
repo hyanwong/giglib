@@ -5,3 +5,6 @@ if sys.version_info[0] < 3:
 
 from .tables import NULL
 from .tables import TableCollection
+from .util import set_print_options
+
+_print_options = {"max_lines": 40}
