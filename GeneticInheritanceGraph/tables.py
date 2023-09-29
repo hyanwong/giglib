@@ -44,14 +44,27 @@ class BaseTable:
 
     def __str__(self):
         headers, rows = self._text_header_and_rows(limit=20)
-        return tskit.util.unicode_table(rows, header=headers, row_separator=False)
-
+        unicode = tskit.util.unicode_table(rows, header=headers, row_separator=False)
+        # hack to change hardcoded package name
+        newstr = []
+        for line in unicode.split("\n"):
+            if "skipped (tskit" in line:
+                line = line.replace("skipped (tskit", f"skipped ({__package__}")
+                if len(line) > linelen_unicode:
+                    line = line[:linelen_unicode-1] + line[-1]
+            else:
+                linelen_unicode = len(line)
+            newstr.append(line)
+        return "\n".join(newstr)
+    
     def _repr_html_(self):
         """
         Called e.g. by jupyter notebooks to render tables
         """
-        headers, rows = self._text_header_and_rows(limit=20)
-        return tskit.util.html_table(rows, header=headers)
+        from . import _print_options  # pylint: disable=import-outside-toplevel
+        headers, rows = self._text_header_and_rows(limit=_print_options["max_lines"])
+        html = tskit.util.html_table(rows, header=headers)
+        return html.replace("tskit.set_print_options", f"{__package__}.set_print_options")
 
     def __getitem__(self, index):
         return self.data[index]

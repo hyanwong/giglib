@@ -12,3 +12,14 @@ def truncate_rows(num_rows, limit=None):
         [-1],
         range(num_rows - (limit - (limit // 2)), num_rows),
     )
+
+def set_print_options(*, max_lines=40):
+    """
+    Set the options for printing to strings and HTML
+
+    :param integer max_lines: The maximum number of lines to print from a table, beyond
+    this number the middle of the table will be skipped.
+    """
+    # avoid circular import complaints
+    from . import _print_options  # pylint: disable=import-outside-toplevel
+    _print_options["max_lines"] = max_lines
