@@ -29,6 +29,7 @@ A tandem duplication is represented by two edges, one for each duplicated region
 Or a non-adjacent duplication:
 ```
 {parent: P, child: C, child_lft: 250, child_rgt: 350, parent_lft: 100, parent_rgt: 200}
+```
 
 ### Deletions
 
