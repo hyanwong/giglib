@@ -6,6 +6,7 @@ from .util import truncate_rows
 
 NULL = -1
 
+
 @dataclasses.dataclass
 class IntervalTableRow:
     parent: int
@@ -24,12 +25,15 @@ class NodeTableRow:
     flags: int = 0
     individual: int = NULL
 
+
 @dataclasses.dataclass
 class IndividualTableRow:
     parents: tuple = ()
 
+
 class BaseTable:
     RowClass = None
+
     def __init__(self):
         # TODO - at the moment we store each row as a separate dataclass object,
         # in the self.data list. This is not very efficient, but it is simple. We
@@ -38,8 +42,7 @@ class BaseTable:
         # do this without diving into C implementations.
         self.data = []
 
-    @property
-    def num_rows(self):
+    def __len__(self):
         return len(self.data)
 
     def __str__(self):
@@ -47,24 +50,27 @@ class BaseTable:
         unicode = tskit.util.unicode_table(rows, header=headers, row_separator=False)
         # hack to change hardcoded package name
         newstr = []
+        linelen_unicode = unicode.find("\n")
+        assert linelen_unicode != -1
         for line in unicode.split("\n"):
             if "skipped (tskit" in line:
                 line = line.replace("skipped (tskit", f"skipped ({__package__}")
                 if len(line) > linelen_unicode:
-                    line = line[:linelen_unicode-1] + line[-1]
-            else:
-                linelen_unicode = len(line)
+                    line = line[: linelen_unicode - 1] + line[-1]
             newstr.append(line)
         return "\n".join(newstr)
-    
+
     def _repr_html_(self):
         """
         Called e.g. by jupyter notebooks to render tables
         """
         from . import _print_options  # pylint: disable=import-outside-toplevel
+
         headers, rows = self._text_header_and_rows(limit=_print_options["max_lines"])
         html = tskit.util.html_table(rows, header=headers)
-        return html.replace("tskit.set_print_options", f"{__package__}.set_print_options")
+        return html.replace(
+            "tskit.set_print_options", f"{__package__}.set_print_options"
+        )
 
     def __getitem__(self, index):
         return self.data[index]
@@ -84,18 +90,21 @@ class BaseTable:
 
     def append(self, obj) -> int:
         """
-        Append a row to a BaseTable by picking the required fields from a passed-in object.
-        The object can be a dict or an object (e.g. a tskit TableRow) with an .asdict() method
+        Append a row to a BaseTable by picking required fields from a passed-in object.
+        The object can be a dict, a dataclass, or an object with an .asdict() method.
 
         :return: The row ID of the newly added row
 
         Example:
-            new_id = table.append({"dataclass_field1": "foo", "dataclass_field2": "bar"})
+            new_id = table.append({"field1": "foo", "field2": "bar"})
         """
         try:
             obj = obj.asdict()
         except AttributeError:
-            pass
+            try:
+                obj = dataclasses.asdict(obj)
+            except TypeError:
+                pass
         new_dict = {k: v for k, v in obj.items() if k in self.RowClass.__annotations__}
         self.data.append(self.RowClass(**new_dict))
         return len(self.data) - 1
@@ -103,25 +112,27 @@ class BaseTable:
     def _text_header_and_rows(self, limit=None):
         headers = ("id",) + tuple(self.RowClass.__annotations__.keys())
         rows = []
-        row_indexes = truncate_rows(self.num_rows, limit)
+        row_indexes = truncate_rows(len(self), limit)
         for j in row_indexes:
             if j == -1:
-                rows.append(f"__skipped__{self.num_rows-limit}")
+                rows.append(f"__skipped__{len(self)-limit}")
             else:
                 row = self[j]
-                rows.append([str(j)] + [f"{x}" for x in dataclasses.asdict(row).values()])
+                rows.append(
+                    [str(j)] + [f"{x}" for x in dataclasses.asdict(row).values()]
+                )
         return headers, rows
-
 
 
 class IntervalTable(BaseTable):
     RowClass = IntervalTableRow
+
     def append(self, obj) -> int:
         """
-        Append a row to a BaseTable by picking the required fields from a passed-in object.
-        The object can be a dict or an object (e.g. a tskit TableRow) with an .asdict() method.
-        If a `left` field is present in the object, is it placed in the parent_left and child_left
-        attributes of this row (and similarly for a `right` field)
+        Append a row to a BaseTable by picking required fields from a passed-in object.
+        The object can be a dict, a dataclass, or an object with an .asdict() method.
+        If a `left` field is present in the object, is it placed in the ``parent_left``
+        and ``child_left`` attributes of this row (and similarly for a ``right`` field)
 
         :return: The row ID of the newly added row
 
@@ -138,17 +149,21 @@ class IntervalTable(BaseTable):
         self.data.append(self.RowClass(**new_dict))
         return len(self.data) - 1
 
+
 class NodeTable(BaseTable):
     RowClass = NodeTableRow
+
 
 class IndividualTable(BaseTable):
     RowClass = IndividualTableRow
 
-class TableCollection:
+
+class TableGroup:
     """
-    A collection of tables describing a Genetic Inheritance Graph (GIG),
+    A group of tables describing a Genetic Inheritance Graph (GIG),
     similar to a tskit TableCollection.
     """
+
     def __init__(self, time_units=None):
         self.nodes = NodeTable()
         self.intervals = IntervalTable()
@@ -157,21 +172,23 @@ class TableCollection:
 
     def __str__(self):
         # To do: make this look nicer
-        return "\n\n".join([
-            "== NODES ==\n" + str(self.nodes),
-            "== INTERVALS ==\n" + str(self.intervals),
-        ])
+        return "\n\n".join(
+            [
+                "== NODES ==\n" + str(self.nodes),
+                "== INTERVALS ==\n" + str(self.intervals),
+            ]
+        )
 
     @classmethod
     def from_tree_sequence(cls, ts, *, chromosome=None, timedelta=0, **kwargs):
         """
-        Create a GIG TableCollection from a tree sequence.
+        Create a GIG TableGroup from a tree sequence.
 
-        :param tskit.TreeSequence ts: The tree sequence on which to base the new TableCollection
+        :param tskit.TreeSequence ts: The tree sequence on which to base the TableGroup
         :param int chromosome: The chromosome number to use for all intervals
-        :param float timedelta: A value to add to all node times (this is a hack until we can
-            set entire columns like in tskit, see #issues/19)
-        :param kwargs: Other parameters passed to the TableCollection constructor
+        :param float timedelta: A value to add to all node times (this is a hack until
+            we can set entire columns like in tskit, see #issues/19)
+        :param kwargs: Other parameters passed to the TableGroup constructor
         """
         tables = ts.tables
         gig_tables = cls()
@@ -185,11 +202,11 @@ class TableCollection:
             # If there is only one population, ignore it
             raise NotImplementedError
         for row in tables.nodes:
-            obj = row.asdict()
+            obj = dataclasses.asdict(row)
             obj["time"] += timedelta
             gig_tables.nodes.append(obj)
         for row in tables.edges:
-            obj = row.asdict()
+            obj = dataclasses.asdict(row)
             if chromosome is not None:
                 obj["parent_chromosome"] = obj["child_chromosome"] = chromosome
             gig_tables.intervals.append(obj)
