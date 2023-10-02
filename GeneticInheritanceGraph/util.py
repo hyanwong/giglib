@@ -1,5 +1,6 @@
 import itertools
 
+
 def truncate_rows(num_rows, limit=None):
     """
     Return a list of indexes into a set of rows, but if a ``limit`` is set, truncate the
@@ -13,6 +14,7 @@ def truncate_rows(num_rows, limit=None):
         range(num_rows - (limit - (limit // 2)), num_rows),
     )
 
+
 def set_print_options(*, max_lines=40):
     """
     Set the options for printing to strings and HTML
@@ -22,4 +24,5 @@ def set_print_options(*, max_lines=40):
     """
     # avoid circular import complaints
     from . import _print_options  # pylint: disable=import-outside-toplevel
+
     _print_options["max_lines"] = max_lines
