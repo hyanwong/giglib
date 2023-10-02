@@ -38,8 +38,7 @@ class BaseTable:
         # do this without diving into C implementations.
         self.data = []
 
-    @property
-    def num_rows(self):
+    def __len__(self):
         return len(self.data)
 
     def __str__(self):
@@ -103,10 +102,10 @@ class BaseTable:
     def _text_header_and_rows(self, limit=None):
         headers = ("id",) + tuple(self.RowClass.__annotations__.keys())
         rows = []
-        row_indexes = truncate_rows(self.num_rows, limit)
+        row_indexes = truncate_rows(len(self), limit)
         for j in row_indexes:
             if j == -1:
-                rows.append(f"__skipped__{self.num_rows-limit}")
+                rows.append(f"__skipped__{len(self)-limit}")
             else:
                 row = self[j]
                 rows.append([str(j)] + [f"{x}" for x in dataclasses.asdict(row).values()])
