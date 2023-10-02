@@ -1,0 +1,4 @@
+tskit
+msprime
+numpy
+networkx
