@@ -1,6 +1,6 @@
 import sys
 
-if sys.version_info[0] < 3:
+if sys.version_info[0] < 3:  # pragma: no cover
     raise Exception("Python 3 only")
 
 from .tables import NULL  # noqa: F401
