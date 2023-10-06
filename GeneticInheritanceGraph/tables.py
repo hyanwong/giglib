@@ -1,5 +1,6 @@
 import dataclasses
 
+import numpy as np
 import tskit
 
 from .util import truncate_rows
@@ -34,16 +35,22 @@ class IndividualTableRow:
 class BaseTable:
     RowClass = None
 
+    def __getattr__(self, name):
+        # Extract column by name. This is a bit of a hack: can be replaced later
+        if name not in self.RowClass.__annotations__:
+            raise AttributeError
+        return np.array([getattr(d, name) for d in self._data])
+
     def __init__(self):
         # TODO - at the moment we store each row as a separate dataclass object,
-        # in the self.data list. This is not very efficient, but it is simple. We
+        # in the self._data list. This is not very efficient, but it is simple. We
         # will probably want to follow the tskit paradigm of storing such that
         # each column can be accessed as a numpy array too. I'm not sure how to
         # do this without diving into C implementations.
-        self.data = []
+        self._data = []
 
     def __len__(self):
-        return len(self.data)
+        return len(self._data)
 
     def __str__(self):
         headers, rows = self._text_header_and_rows(limit=20)
@@ -73,7 +80,7 @@ class BaseTable:
         )
 
     def __getitem__(self, index):
-        return self.data[index]
+        return self._data[index]
 
     def add_row(self, *args, **kwargs) -> int:
         """
@@ -85,8 +92,8 @@ class BaseTable:
         Example:
             new_id = table.add_row(dataclass_field1="foo", dataclass_field2="bar")
         """
-        self.data.append(self.RowClass(*args, **kwargs))
-        return len(self.data) - 1
+        self._data.append(self.RowClass(*args, **kwargs))
+        return len(self._data) - 1
 
     def append(self, obj) -> int:
         """
@@ -106,8 +113,8 @@ class BaseTable:
             except TypeError:
                 pass
         new_dict = {k: v for k, v in obj.items() if k in self.RowClass.__annotations__}
-        self.data.append(self.RowClass(**new_dict))
-        return len(self.data) - 1
+        self._data.append(self.RowClass(**new_dict))
+        return len(self._data) - 1
 
     def _text_header_and_rows(self, limit=None):
         headers = ("id",) + tuple(self.RowClass.__annotations__.keys())
@@ -146,8 +153,8 @@ class IntervalTable(BaseTable):
         obj["child_left"] = obj["parent_left"] = obj["left"]
         obj["child_right"] = obj["parent_right"] = obj["right"]
         new_dict = {k: v for k, v in obj.items() if k in self.RowClass.__annotations__}
-        self.data.append(self.RowClass(**new_dict))
-        return len(self.data) - 1
+        self._data.append(self.RowClass(**new_dict))
+        return len(self._data) - 1
 
 
 class NodeTable(BaseTable):
