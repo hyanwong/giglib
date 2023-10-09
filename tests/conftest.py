@@ -1,7 +1,7 @@
 import GeneticInheritanceGraph as gig
 import msprime
 import pytest
-import tests.util_tests as util_tests
+import tests.gigutil as gigutil
 
 
 @pytest.fixture(scope="session")
@@ -9,6 +9,28 @@ def simple_ts():
     return msprime.sim_ancestry(
         2, recombination_rate=1, sequence_length=10, random_seed=1
     )
+
+
+@pytest.fixture(scope="session")
+def simple_ts_with_mutations():
+    ts = msprime.sim_ancestry(
+        2, recombination_rate=1, sequence_length=10, random_seed=1
+    )
+    mutated_ts = msprime.sim_mutations(ts, rate=0.1, random_seed=1)
+    return mutated_ts
+
+
+@pytest.fixture(scope="session")
+def ts_with_multiple_pops():
+    demography = msprime.Demography()
+    demography.add_population(name="A", initial_size=500)
+    demography.add_population(name="B", initial_size=500)
+    demography.add_population(name="C", initial_size=200)
+    demography.add_population_split(time=100, derived=["A", "B"], ancestral="C")
+    ts = msprime.sim_ancestry(
+        samples={"A": 1, "B": 1}, demography=demography, random_seed=1
+    )
+    return ts
 
 
 @pytest.fixture(scope="session")
@@ -50,8 +72,8 @@ def all_mutation_types_gig():
     ]
 
     table_group = gig.TableGroup()
-    table_group.intervals = util_tests.make_intervals_table(interval_data, table_group)
-    table_group.nodes = util_tests.make_nodes_table(node_data, table_group)
+    table_group.intervals = gigutil.make_intervals_table(interval_data, table_group)
+    table_group.nodes = gigutil.make_nodes_table(node_data, table_group)
     return table_group
 
 
@@ -74,6 +96,13 @@ def trivial_gig():
         (2, 0),
     ]
     table_group = gig.TableGroup()
-    table_group.intervals = util_tests.make_intervals_table(interval_data, table_group)
-    table_group.nodes = util_tests.make_nodes_table(node_data, table_group)
+    table_group.intervals = gigutil.make_intervals_table(interval_data, table_group)
+    table_group.nodes = gigutil.make_nodes_table(node_data, table_group)
     return table_group
+
+
+@pytest.fixture(scope="session")
+def gig_from_degree2_ts():
+    ts = msprime.simulate(10, recombination_rate=0.2, random_seed=1)
+    assert ts.num_trees == 2
+    return gig.TableGroup.from_tree_sequence(ts)
