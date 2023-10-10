@@ -1,5 +1,7 @@
 import GeneticInheritanceGraph as gig
 
+# Utilities for creating and editing gigs
+
 
 def make_intervals_table(arr, table_group):
     """
