@@ -1,6 +1,7 @@
 import dataclasses
 
 import numpy as np
+import pandas as pd
 import tskit
 
 from .util import truncate_rows
@@ -129,6 +130,13 @@ class BaseTable:
                     [str(j)] + [f"{x}" for x in dataclasses.asdict(row).values()]
                 )
         return headers, rows
+
+    def _df(self):
+        """
+        Temporary hack to convert the table to a Pandas dataframe.
+        Shouldn't be used for anything besides exploratory work!
+        """
+        return pd.DataFrame([dataclasses.asdict(row) for row in self._data])
 
 
 class IntervalTable(BaseTable):
