@@ -5,3 +5,4 @@ tskit
 msprime
 numpy
 networkx
+pandas
