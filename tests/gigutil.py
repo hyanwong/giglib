@@ -3,12 +3,12 @@ import GeneticInheritanceGraph as gig
 # Utilities for creating and editing gigs
 
 
-def make_intervals_table(arr, table_group):
+def make_iedges_table(arr, tables):
     """
     Make an intervals table from a list of tuples.
     """
     for row in arr:
-        table_group.intervals.add_row(
+        tables.iedges.add_row(
             parent=row[0],
             child=row[1],
             child_left=row[2],
@@ -16,13 +16,13 @@ def make_intervals_table(arr, table_group):
             parent_left=row[4],
             parent_right=row[5],
         )
-    return table_group.intervals
+    return tables.iedges
 
 
-def make_nodes_table(arr, table_group):
+def make_nodes_table(arr, tables):
     """
     Make a nodes table from a list of tuples.
     """
     for row in arr:
-        table_group.nodes.add_row(time=row[0], flags=row[1], individual=gig.NULL)
-    return table_group.nodes
+        tables.nodes.add_row(time=row[0], flags=row[1], individual=gig.NULL)
+    return tables.nodes

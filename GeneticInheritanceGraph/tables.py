@@ -1,22 +1,24 @@
 import dataclasses
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import tskit
 
 from .util import truncate_rows
 
 NULL = -1
+NODE_IS_SAMPLE = tskit.NODE_IS_SAMPLE
 
 
 @dataclasses.dataclass
-class IntervalTableRow:
+class IEdgeTableRow:
     parent: int
     child: int
-    parent_left: float
-    child_left: float
-    parent_right: float
-    child_right: float
+    parent_left: int
+    child_left: int
+    parent_right: int
+    child_right: int
     parent_chromosome: int = None
     child_chromosome: int = None
 
@@ -139,8 +141,8 @@ class BaseTable:
         return pd.DataFrame([dataclasses.asdict(row) for row in self._data])
 
 
-class IntervalTable(BaseTable):
-    RowClass = IntervalTableRow
+class IEdgeTable(BaseTable):
+    RowClass = IEdgeTableRow
 
     def append(self, obj) -> int:
         """
@@ -152,28 +154,89 @@ class IntervalTable(BaseTable):
         :return: The row ID of the newly added row
 
         Example:
-            new_id = tables.intervals.append(ts.edge(0))
+            new_id = tables.iedges.append(ts.edge(0))
         """
         try:
             obj = obj.asdict()
         except AttributeError:
             pass
-        obj["child_left"] = obj["parent_left"] = obj["left"]
-        obj["child_right"] = obj["parent_right"] = obj["right"]
+        for side in ("left", "right"):
+            pos = obj.get(side, None)
+            if pos is None:
+                continue
+            if not isinstance(pos, int):
+                if pos.is_integer():
+                    pos = int(pos)
+                else:
+                    raise ValueError(
+                        f"{side} value {pos} is not an integer or integer-like"
+                    )
+            obj["child_" + side] = obj["parent_" + side] = pos
+
         new_dict = {k: v for k, v in obj.items() if k in self.RowClass.__annotations__}
         self._data.append(self.RowClass(**new_dict))
         return len(self._data) - 1
 
+    @property
+    def parent(self) -> npt.NDArray[np.int64]:
+        """
+        Return a numpy array of parent node IDs
+        """
+        return np.array([row.parent for row in self.data], dtype=np.int64)
+
+    @property
+    def child(self) -> npt.NDArray[np.int64]:
+        """
+        Return a numpy array of child node IDs
+        """
+        return np.array([row.child for row in self.data], dtype=np.int64)
+
+    @property
+    def child_left(self) -> npt.NDArray[np.int64]:
+        """
+        Return a numpy array of child node IDs
+        """
+        return np.array([row.child_left for row in self.data], dtype=np.int64)
+
+    @property
+    def child_right(self) -> npt.NDArray[np.int64]:
+        """
+        Return a numpy array of child node IDs
+        """
+        return np.array([row.child_right for row in self.data], dtype=np.int64)
+
+    @property
+    def parent_left(self) -> npt.NDArray[np.int64]:
+        """
+        Return a numpy array of child node IDs
+        """
+        return np.array([row.parent_left for row in self.data], dtype=np.int64)
+
+    @property
+    def parent_right(self) -> npt.NDArray[np.int64]:
+        """
+        Return a numpy array of child node IDs
+        """
+        return np.array([row.parent_right for row in self.data], dtype=np.int64)
+
 
 class NodeTable(BaseTable):
     RowClass = NodeTableRow
+
+    @property
+    def flags(self) -> npt.NDArray[np.uint32]:
+        return np.array([row.flags for row in self.data], dtype=np.uint32)
+
+    @property
+    def time(self) -> npt.NDArray[np.float64]:
+        return np.array([row.time for row in self.data], dtype=np.uint32)
 
 
 class IndividualTable(BaseTable):
     RowClass = IndividualTableRow
 
 
-class TableGroup:
+class Tables:
     """
     A group of tables describing a Genetic Inheritance Graph (GIG),
     similar to a tskit TableCollection.
@@ -181,7 +244,7 @@ class TableGroup:
 
     def __init__(self, time_units=None):
         self.nodes = NodeTable()
-        self.intervals = IntervalTable()
+        self.iedges = IEdgeTable()
         self.individuals = IndividualTable()
         self.time_units = "unknown" if time_units is None else time_units
 
@@ -190,39 +253,46 @@ class TableGroup:
         return "\n\n".join(
             [
                 "== NODES ==\n" + str(self.nodes),
-                "== INTERVALS ==\n" + str(self.intervals),
+                "== I-EDGES ==\n" + str(self.iedges),
             ]
         )
+
+    def samples(self):
+        """
+        Return the IDs of all samples in the graph
+        """
+        return np.where(self.nodes.flags & NODE_IS_SAMPLE)[0]
 
     @classmethod
     def from_tree_sequence(cls, ts, *, chromosome=None, timedelta=0, **kwargs):
         """
-        Create a GIG TableGroup from a tree sequence.
+        Create a GIG Tables object from a tree sequence.
 
-        :param tskit.TreeSequence ts: The tree sequence on which to base the TableGroup
-        :param int chromosome: The chromosome number to use for all intervals
+        :param tskit.TreeSequence ts: The tree sequence on which to base the Tables
+            object
+        :param int chromosome: The chromosome number to use for all interval edges
         :param float timedelta: A value to add to all node times (this is a hack until
             we can set entire columns like in tskit, see #issues/19)
-        :param kwargs: Other parameters passed to the TableGroup constructor
+        :param kwargs: Other parameters passed to the Tables constructor
         """
-        tables = ts.tables
-        gig_tables = cls()
-        if tables.migrations.num_rows > 0:
+        ts_tables = ts.tables
+        tables = cls()
+        if ts_tables.migrations.num_rows > 0:
             raise NotImplementedError
-        if tables.mutations.num_rows > 0:
+        if ts_tables.mutations.num_rows > 0:
             raise NotImplementedError
-        if tables.sites.num_rows > 0:
+        if ts_tables.sites.num_rows > 0:
             raise NotImplementedError
-        if tables.populations.num_rows > 1:
+        if ts_tables.populations.num_rows > 1:
             # If there is only one population, ignore it
             raise NotImplementedError
-        for row in tables.nodes:
+        for row in ts_tables.nodes:
             obj = dataclasses.asdict(row)
             obj["time"] += timedelta
-            gig_tables.nodes.append(obj)
-        for row in tables.edges:
+            tables.nodes.append(obj)
+        for row in ts_tables.edges:
             obj = dataclasses.asdict(row)
             if chromosome is not None:
                 obj["parent_chromosome"] = obj["child_chromosome"] = chromosome
-            gig_tables.intervals.append(obj)
-        return gig_tables
+            tables.iedges.append(obj)
+        return tables
