@@ -5,10 +5,9 @@ import numpy.typing as npt
 import pandas as pd
 import tskit
 
+from .constants import NODE_IS_SAMPLE
+from .constants import NULL
 from .util import truncate_rows
-
-NULL = -1
-NODE_IS_SAMPLE = tskit.NODE_IS_SAMPLE
 
 
 @dataclasses.dataclass
