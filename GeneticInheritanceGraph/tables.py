@@ -244,7 +244,7 @@ class NodeTable(BaseTable):
 
     @property
     def time(self) -> npt.NDArray[np.float64]:
-        return np.array([row.time for row in self.data], dtype=np.uint32)
+        return np.array([row.time for row in self.data], dtype=np.float64)
 
 
 class IndividualTable(BaseTable):

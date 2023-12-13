@@ -87,7 +87,7 @@ class TestBaseTable:
 
 
 class TestIEdgeTable:
-    def test_append_integer_coords(trivial_gig):
+    def test_append_integer_coords(self, trivial_gig):
         tables = gig.Tables()
         u = tables.nodes.add_row(flags=gig.NODE_IS_SAMPLE, time=0)
         tables.iedges.add_row(0, u, 0, 1, 1, 0)
@@ -106,7 +106,7 @@ class TestStringRepresentations:
     def test_identifiable_values_from_str(self):
         tables = gig.Tables()
         nodes = [(0, 3.1451), (1, 7.4234)]
-        iedge = [1, 0, 0.9876, 6.7890, 0.9876, 6.7890]
+        iedge = [1, 0, 222, 777, 322, 877]
         for node in nodes:
             tables.nodes.add_row(time=node[0], flags=node[1])
         tables.iedges.add_row(
