@@ -34,9 +34,9 @@ def ts_with_multiple_pops():
 
 
 @pytest.fixture(scope="session")
-def all_mutation_types_gig():
+def all_sv_types_gig():
     # p | c | c_left | c_right | p_left | p_right
-    interval_data = [
+    iedge_data = [
         (6, 0, 0, 300, 0, 300),
         (6, 1, 0, 300, 0, 300),
         (9, 6, 0, 200, 0, 200),
@@ -71,16 +71,16 @@ def all_mutation_types_gig():
         (6, 0),
     ]
 
-    table_group = gig.TableGroup()
-    table_group.intervals = gigutil.make_intervals_table(interval_data, table_group)
-    table_group.nodes = gigutil.make_nodes_table(node_data, table_group)
-    return table_group
+    tables = gig.Tables()
+    tables.iedges = gigutil.make_iedges_table(iedge_data, tables)
+    tables.nodes = gigutil.make_nodes_table(node_data, tables)
+    return tables
 
 
 @pytest.fixture(scope="session")
 def trivial_gig():
     # p | c | c_left | c_right | p_left | p_right
-    interval_data = [
+    iedge_data = [
         (4, 3, 0, 5, 0, 5),
         (3, 0, 3, 0, 0, 3),
         (3, 0, 3, 5, 3, 5),
@@ -95,14 +95,16 @@ def trivial_gig():
         (1, 0),
         (2, 0),
     ]
-    table_group = gig.TableGroup()
-    table_group.intervals = gigutil.make_intervals_table(interval_data, table_group)
-    table_group.nodes = gigutil.make_nodes_table(node_data, table_group)
-    return table_group
+    tables = gig.Tables()
+    tables.intervals = gigutil.make_iedges_table(iedge_data, tables)
+    tables.nodes = gigutil.make_nodes_table(node_data, tables)
+    return tables
 
 
 @pytest.fixture(scope="session")
 def gig_from_degree2_ts():
-    ts = msprime.simulate(10, recombination_rate=0.2, random_seed=1)
+    ts = msprime.sim_ancestry(
+        5, sequence_length=10, recombination_rate=0.02, random_seed=1
+    )
     assert ts.num_trees == 2
-    return gig.TableGroup.from_tree_sequence(ts)
+    return gig.Tables.from_tree_sequence(ts)
