@@ -87,7 +87,7 @@ class TestBaseTable:
 
 
 class TestIEdgeTable:
-    def test_append_integer_coords(self, trivial_gig):
+    def test_append_integer_coords(self):
         tables = gig.Tables()
         u = tables.nodes.add_row(flags=gig.NODE_IS_SAMPLE, time=0)
         tables.iedges.add_row(0, u, 0, 1, 1, 0)
