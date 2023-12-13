@@ -19,8 +19,17 @@ class IEdgeTableRow:
     child_left: int
     parent_right: int
     child_right: int
-    parent_chromosome: int = None
-    child_chromosome: int = None
+    edge: int = NULL
+    parent_chromosome: int = NULL
+    child_chromosome: int = NULL
+
+    @property
+    def parent_span(self):
+        return self.parent_right - self.parent_left
+
+    @property
+    def child_span(self):
+        return self.child_right - self.child_left
 
 
 @dataclasses.dataclass
@@ -219,6 +228,13 @@ class IEdgeTable(BaseTable):
         """
         return np.array([row.parent_right for row in self.data], dtype=np.int64)
 
+    @property
+    def edge(self) -> npt.NDArray[np.int64]:
+        """
+        Return a numpy array of edge IDs
+        """
+        return np.array([row.edge for row in self.data], dtype=np.int64)
+
 
 class NodeTable(BaseTable):
     RowClass = NodeTableRow
@@ -259,14 +275,15 @@ class Tables:
 
     def samples(self):
         """
-        Return the IDs of all samples in the graph
+        Return the IDs of all samples in the nodes table
         """
         return np.where(self.nodes.flags & NODE_IS_SAMPLE)[0]
 
     @classmethod
     def from_tree_sequence(cls, ts, *, chromosome=None, timedelta=0, **kwargs):
         """
-        Create a GIG Tables object from a tree sequence.
+        Create a GIG Tables object from a tree sequence. To create a GIG
+        directly, use GIG.from_tree_sequence() which simply wraps this method.
 
         :param tskit.TreeSequence ts: The tree sequence on which to base the Tables
             object

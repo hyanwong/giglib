@@ -1,4 +1,5 @@
 import GeneticInheritanceGraph as gig
+import msprime
 import numpy as np
 import pytest
 
@@ -39,6 +40,11 @@ class TestCreation:
         with pytest.raises(NotImplementedError):
             gig.Tables.from_tree_sequence(ts_with_multiple_pops)
 
+    def test_noninteger_positions(self):
+        bad_ts = msprime.simulate(10, recombination_rate=10, random_seed=1)
+        with pytest.raises(ValueError, match="not an integer"):
+            gig.Tables.from_tree_sequence(bad_ts)
+
 
 class TestExtractColumn:
     # Test extraction of columns from a gig
@@ -56,6 +62,12 @@ class TestExtractColumn:
         assert np.array_equal(trivial_gig.iedges.child_left, [0, 3, 3, 0, 0])
 
 
+class TestMethods:
+    def test_samples(self, simple_ts):
+        tables = gig.Tables.from_tree_sequence(simple_ts)
+        assert np.array_equal(tables.samples(), simple_ts.samples())
+
+
 class TestBaseTable:
     # Test various basic table methods
     def test_append_row_values(self, trivial_gig):
@@ -64,6 +76,25 @@ class TestBaseTable:
         assert len(trivial_gig.nodes) == 6
         assert trivial_gig.nodes.time[-1] == 3
         assert trivial_gig.nodes.flags[-1] == 0
+
+    def test_iteration(self, trivial_gig):
+        assert len(trivial_gig.nodes) > 0
+        for row in trivial_gig.nodes:
+            assert isinstance(row, gig.tables.NodeTableRow)
+        assert len(trivial_gig.iedges) > 0
+        for row in trivial_gig.iedges:
+            assert isinstance(row, gig.tables.IEdgeTableRow)
+
+
+class TestIEdgeTable:
+    def test_append_integer_coords(trivial_gig):
+        tables = gig.Tables()
+        u = tables.nodes.add_row(flags=gig.NODE_IS_SAMPLE, time=0)
+        tables.iedges.add_row(0, u, 0, 1, 1, 0)
+        assert tables.iedges.parent_left[0] == 0
+        assert tables.iedges.child_left[0] == 1
+        assert tables.iedges[0].child_span == -1
+        assert tables.iedges[0].parent_span == 1
 
 
 class TestStringRepresentations:
@@ -110,11 +141,16 @@ class TestStringRepresentations:
 
 
 class TestIEdgeAttributes:
+    def test_non_ts_attributes(self, simple_ts):
+        tables = gig.Tables.from_tree_sequence(simple_ts)
+        assert tables.iedges.edge.dtype == np.int64
+        assert np.all(tables.iedges.edge == gig.NULL)
+
     @pytest.mark.parametrize(
         "name",
         ["parent", "child", "parent_left", "parent_right", "child_left", "child_right"],
     )
-    def test_attributes(self, simple_ts, name):
+    def test_ts_attributes(self, simple_ts, name):
         tables = gig.Tables.from_tree_sequence(simple_ts)
         assert getattr(tables.iedges, name).dtype == np.int64
         suffix = name.split("_")[-1]
