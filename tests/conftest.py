@@ -1,4 +1,4 @@
-import GeneticInheritanceGraph as gig
+import GeneticInheritanceGraph as gigl
 import msprime
 import pytest
 import tests.gigutil as gigutil
@@ -35,6 +35,9 @@ def ts_with_multiple_pops():
 
 @pytest.fixture(scope="session")
 def all_sv_types_gig():
+    """
+    Contains a single deletion, a single duplication, and a single inversion
+    """
     # p | c | c_left | c_right | p_left | p_right
     iedge_data = [
         (6, 0, 0, 300, 0, 300),
@@ -71,10 +74,11 @@ def all_sv_types_gig():
         (6, 0),
     ]
 
-    tables = gig.Tables()
+    tables = gigl.Tables()
     tables.iedges = gigutil.make_iedges_table(iedge_data, tables)
     tables.nodes = gigutil.make_nodes_table(node_data, tables)
-    return tables
+    tables.sort()
+    return gigl.Graph(tables)
 
 
 @pytest.fixture(scope="session")
@@ -82,23 +86,24 @@ def trivial_gig():
     # p | c | c_left | c_right | p_left | p_right
     iedge_data = [
         (4, 3, 0, 5, 0, 5),
-        (3, 0, 3, 0, 0, 3),
+        (3, 0, 0, 3, 3, 0),
         (3, 0, 3, 5, 3, 5),
         (4, 1, 0, 5, 0, 5),
         (4, 2, 0, 5, 0, 5),
     ]
     # time | flags
     node_data = [
-        (0, 1),
-        (0, 1),
-        (0, 1),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
         (1, 0),
         (2, 0),
     ]
-    tables = gig.Tables()
-    tables.intervals = gigutil.make_iedges_table(iedge_data, tables)
+    tables = gigl.Tables()
+    tables.iedges = gigutil.make_iedges_table(iedge_data, tables)
     tables.nodes = gigutil.make_nodes_table(node_data, tables)
-    return tables
+    tables.sort()
+    return gigl.Graph(tables)
 
 
 @pytest.fixture(scope="session")
@@ -107,4 +112,4 @@ def gig_from_degree2_ts():
         5, sequence_length=10, recombination_rate=0.02, random_seed=1
     )
     assert ts.num_trees == 2
-    return gig.Tables.from_tree_sequence(ts)
+    return gigl.from_tree_sequence(ts)
