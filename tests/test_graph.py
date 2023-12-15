@@ -255,6 +255,11 @@ class TestMethods:
         for u in gig.samples():
             assert gig.sequence_length(u) == simple_ts.sequence_length
 
+    def test_sequence_length_root(self, all_sv_types_gig):
+        # root will have no upward edges
+        root = all_sv_types_gig.num_nodes - 1
+        assert all_sv_types_gig.sequence_length(root) == 200
+
     def test_no_sequence_length(self):
         tables = gigl.Tables()
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)

@@ -119,9 +119,9 @@ class Graph:
         last_parent = -1
         for ie in self.iedges:
             if ie.parent != last_parent:
-                self.child_range[ie.child, 0] = j
+                self.child_range[ie.parent, 0] = ie.id
             if last_parent != -1:
-                self.child_range[last_parent, 1] = j
+                self.child_range[last_parent, 1] = ie.id
             last_parent = ie.parent
         if last_parent != -1:
             self.child_range[last_parent, 1] = self.num_iedges
@@ -189,25 +189,36 @@ class Graph:
 
     def sample_resolve(self):
         """
-        Run the equivalent of the Hudson algorithm on a fixed GIG.
-        The stack lists intervals for each node, and is ordered by
-        node time (oldest first), so that we can collect all the valid
-        intervals pointing to a node before passing inheritance
-        information upwards
+        Sample resolve a GIG, keeping only those edge regions which
+        transmit information to the current samples. This is rather
+        like running the Hudson algorithm on a fixed graph, but without
+        counting up the number of samples under each node.
+
+        The algorithm is implemented by using a stack that contains intervals
+        for each node, ordered by node time (oldest first). When considering a
+        node, we pop the (youngest) node off the end of the stack, which
+        ensures that we have collect all the intervals with that node as a
+        parent, before passing inheritance information upwards
         """
+
+        # NB - for simplicity we put all nodes onto the stack at the start,
+        # and fill out their intervals as we go. An alternative
+        # would be to create a dynamic stack ordered by node time, e.g.
+        # stack = SortedDict(lambda k: -self.tables.nodes.time[k])
         stack = {u: P.empty() for u in np.argsort(-self.tables.nodes.time)}
         new_tables = self.tables.copy()
         new_tables.iedges.clear()
+        iedges = self.iedges
         while len(stack) > 0:
             u, intervals = stack.popitem()
             if self.nodes[u].is_sample():
-                intervals = P.closedopen(-np.inf, np.inf)
+                intervals = P.closedopen(0, np.inf)
 
             # NOTE: if we had an index here sorted by left coord
             # we could binary search to first match, and could
             # break once e_right > left (I think?)
             for j in range(*self.parent_range[u]):
-                ie = self.iedges[self.iedge_map_sorted_by_child[j]]
+                ie = iedges[self.iedge_map_sorted_by_child[j]]
                 assert ie.child == u
                 for i in intervals:
                     if ie.child_right > i.lower and i.upper > ie.child_left:
