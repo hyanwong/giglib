@@ -27,7 +27,7 @@ class Graph:
         the canonical way to do this is to use tables.Graph()
         """
         if not isinstance(tables, Tables):
-            raise ValueError("tables must be a GeneticInhertanceGraph.Tables object")
+            raise ValueError("tables must be a GeneticInheritanceGraph.Tables object")
         self.tables = tables
         self._validate()
 
@@ -59,7 +59,7 @@ class Graph:
         for i, ie in enumerate(self.iedges):
             if node_times[ie.parent] <= node_times[ie.child]:
                 raise ValueError(
-                    f"Edge {i}: child node {ie.child} older than parent {ie.parent}"
+                    f"Edge {i}: parent node {ie.parent} not older than child {ie.child}"
                 )
 
         # Check that all iedges have same absolute parent span as child span
@@ -71,9 +71,9 @@ class Graph:
             raise ValueError(f"iedges {bad} have different parent and child spans")
 
         # Check that parent left is always < parent right
-        if np.any(child_spans < 0):
+        if np.any(child_spans <= 0):
             raise ValueError(
-                f"parent_left > parent_right for iedges {np.where(child_spans < 0)[0]}"
+                f"child_left >= child_right for iedges {np.where(child_spans < 0)[0]}"
             )
 
         # Check iedges are sorted so that all parent IDs are adjacent
@@ -83,9 +83,14 @@ class Graph:
             raise ValueError("iedges are not sorted by parent ID")
 
         # Check iedges are also sorted by parent time
-        assert np.all(np.diff(self.tables.nodes.time[iedges_parent]) >= 0)
+        if np.any(np.diff(self.tables.nodes.time[iedges_parent]) < 0):
+            raise ValueError("iedges are not sorted by parent time")
 
-        # Create the cached variables
+        # TODO: Check within a parent, edges are sorted by child ID
+
+        # CREATE CACHED VARIABLES
+
+        # Should probably cache more stuff here, e.g. list of samples
 
         # index to sort edges so they are sorted by child time
         # and grouped by child id. Within each group with the same child ID,
@@ -121,6 +126,17 @@ class Graph:
         if last_parent != -1:
             self.child_range[last_parent, 1] = self.num_iedges
 
+        # Check every location has only one parent
+        for u in range(self.num_nodes):
+            prev_right = -np.inf
+            for ie in sorted(self.iedges_for_child(u), key=lambda x: x.child_left):
+                if ie.child_left < prev_right:
+                    raise ValueError(
+                        f"Node {u} has multiple or duplicate parents at position"
+                        f" {ie.child_left}"
+                    )
+                prev_right = ie.child_right
+
     @property
     def num_nodes(self):
         return len(self.tables.nodes)
@@ -130,7 +146,13 @@ class Graph:
         return len(self.tables.iedges)
 
     def samples(self):
+        # TODO - we should really cache this
         return self.tables.samples()
+
+    @property
+    def num_samples(self):
+        # TODO - we should really cache this
+        return len(self.tables.samples())
 
     @property
     def nodes(self):
@@ -269,9 +291,11 @@ class IEdge(IEdgeTableRow):
         Transform a position from child coordinates to parent coordinates.
         If this is an inversion and we are transforming a point position,
         then an edge such as [0, 10) -> (10, 0] means that position 9 gets
-        transformed to 0, and position 10 is not transformed at all.
+        transformed to 0, and position 10 is not transformed at all. This
+        means subtracting 1 from the returned (transformed) position.
 
-        If, on the other hand, we are transforming an interval
+        If, on the other hand, we are transforming an interval, then we
+        don't want to subtract the one.
         """
         if child_position < self.child_left or child_position > self.child_right:
             raise ValueError(

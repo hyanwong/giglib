@@ -11,6 +11,224 @@ class TestFunctions:
         assert np.all(gig.samples() == gig.tables.samples())
 
 
+class TestConstructor:
+    def test_from_empty_tables(self):
+        tables = gigl.Tables()
+        gig = tables.graph()
+        assert gig.num_nodes == 0
+        assert gig.num_iedges == 0
+
+    def test_from_tables(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(1, flags=0)
+        tables.iedges.add_row(
+            parent=1,
+            child=0,
+            child_left=0,
+            child_right=1,
+            parent_left=1,
+            parent_right=0,
+        )
+        gig = tables.graph()
+        assert gig.num_nodes == 2
+        assert gig.num_iedges == 1
+        assert gig.num_samples == 1
+
+    def test_from_bad(self):
+        with pytest.raises(
+            ValueError, match="must be a GeneticInheritanceGraph.Tables"
+        ):
+            gigl.Graph("not a tree sequence")
+
+    def test_bad_parent_child_time(self, simple_ts):
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(1, flags=gigl.NODE_IS_SAMPLE)
+        tables.iedges.add_row(
+            parent=0,
+            child=0,
+            child_left=0,
+            child_right=1,
+            parent_left=1,
+            parent_right=0,
+        )
+        with pytest.raises(ValueError, match="0 not older than child 0"):
+            tables.graph()
+
+    def test_negative_parent_child_id(self, simple_ts):
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(1, flags=gigl.NODE_IS_SAMPLE)
+        tables.iedges.add_row(
+            parent=1,
+            child=-1,
+            child_left=0,
+            child_right=1,
+            parent_left=1,
+            parent_right=0,
+        )
+        with pytest.raises(ValueError, match="negative"):
+            tables.graph()
+
+    def test_bigger_parent_child_id(self, simple_ts):
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(1, flags=gigl.NODE_IS_SAMPLE)
+        tables.iedges.add_row(
+            parent=10,
+            child=0,
+            child_left=0,
+            child_right=1,
+            parent_left=1,
+            parent_right=0,
+        )
+        with pytest.raises(ValueError, match="ID >= num nodes"):
+            tables.graph()
+
+    def test_unmatched_parent_child_spans(self, simple_ts):
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(1, flags=gigl.NODE_IS_SAMPLE)
+        tables.iedges.add_row(
+            parent=1,
+            child=0,
+            child_left=0,
+            child_right=2,
+            parent_left=1,
+            parent_right=0,
+        )
+        with pytest.raises(ValueError, match="spans"):
+            tables.graph()
+
+    def test_nonmatching_spans(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(1, flags=0)
+        tables.iedges.add_row(
+            parent=1,
+            child=0,
+            child_left=0,
+            child_right=0,
+            parent_left=1,
+            parent_right=0,
+        )
+        with pytest.raises(ValueError, match="spans"):
+            tables.graph()
+
+    def test_id_unsorted(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(2)
+        tables.iedges.add_row(
+            parent=1,
+            child=0,
+            child_left=0,
+            child_right=1,
+            parent_left=1,
+            parent_right=0,
+        )
+        tables.iedges.add_row(
+            parent=2,
+            child=0,
+            child_left=0,
+            child_right=1,
+            parent_left=1,
+            parent_right=0,
+        )
+        tables.iedges.add_row(
+            parent=1,
+            child=0,
+            child_left=1,
+            child_right=2,
+            parent_left=1,
+            parent_right=2,
+        )
+        with pytest.raises(ValueError, match="not sorted by parent ID"):
+            tables.graph()
+
+    def test_time_unsorted(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(2)
+        tables.iedges.add_row(
+            parent=2,
+            child=1,
+            child_left=0,
+            child_right=1,
+            parent_left=1,
+            parent_right=0,
+        )
+        tables.iedges.add_row(
+            parent=1,
+            child=0,
+            child_left=0,
+            child_right=1,
+            parent_left=1,
+            parent_right=0,
+        )
+        tables.iedges.add_row(
+            parent=1,
+            child=0,
+            child_left=1,
+            child_right=2,
+            parent_left=1,
+            parent_right=2,
+        )
+        with pytest.raises(ValueError, match="not sorted by parent time"):
+            tables.graph()
+
+    def test_duplicate_parents(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(2)
+        tables.iedges.add_row(
+            parent=1,
+            child=0,
+            child_left=0,
+            child_right=1,
+            parent_left=1,
+            parent_right=0,
+        )
+        tables.iedges.add_row(
+            parent=1,
+            child=0,
+            child_left=0,
+            child_right=1,
+            parent_left=1,
+            parent_right=0,
+        )
+        with pytest.raises(ValueError, match="multiple or duplicate parents"):
+            tables.graph()
+
+    def test_multiple_parents(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(2)
+        tables.iedges.add_row(
+            parent=1,
+            child=0,
+            child_left=0,
+            child_right=1,
+            parent_left=1,
+            parent_right=0,
+        )
+        tables.iedges.add_row(
+            parent=2,
+            child=0,
+            child_left=0,
+            child_right=1,
+            parent_left=1,
+            parent_right=0,
+        )
+        with pytest.raises(ValueError, match="multiple or duplicate parents"):
+            tables.graph()
+
+
 class TestMethods:
     def test_edge_iterator(self, simple_ts):
         gig = gigl.from_tree_sequence(simple_ts)

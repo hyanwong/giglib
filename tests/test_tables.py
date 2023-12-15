@@ -52,7 +52,15 @@ class TestCopy:
         tables_copy = tables.copy()
         assert tables_copy == tables
         assert tables_copy is not tables
+
+    def test_equals(self, trivial_gig):
+        tables = trivial_gig.tables
+        tables_copy = tables.copy()
+        assert tables_copy == tables
         tables_copy.iedges.clear()
+        assert tables_copy != tables
+        tables_copy = tables.copy()
+        tables_copy.time_units = "abcde"
         assert tables_copy != tables
 
 
@@ -189,6 +197,13 @@ class TestIEdgeAttributes:
         assert np.all(
             getattr(tables.iedges, name) == getattr(simple_ts, "edges_" + suffix)
         )
+
+
+class TestIndividualAttributes:
+    def test_asdict(self, simple_ts):
+        tables = gigl.Tables.from_tree_sequence(simple_ts)
+        for i, ind in enumerate(tables.individuals):
+            assert ind.asdict()["parents"] == simple_ts.individual(i).parents
 
 
 class TestNodeAttributes:
