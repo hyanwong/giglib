@@ -7,6 +7,7 @@ import dataclasses
 
 import numpy as np
 import portion as P
+from sortedcontainers import SortedDict
 
 from .tables import IEdgeTableRow
 from .tables import NodeTableRow
@@ -244,6 +245,167 @@ class Graph:
                         )
         new_tables.sort()
         return self.__class__(new_tables)
+
+    def find_mrca_regions(self, u, v, time_cutoff=None):
+        """
+        Find all regions between nodes u and v that share a most recent
+        common ancestor in the GIG which is more recent than time_cutoff.
+
+        Returns a dict of intervals, each of which is a region between u and v
+        """
+        # This is quite like the sample_resolve algorithm, only we can stop
+        # once we have found a match between two regions, and we don't
+        # need to go all the way back to the root, if a time_cutoff is
+        # specified. The complexity comes from having to track the original
+        # coordinates for each interval. For this we use a portion.IntervalDict.
+        shared_intervals = {}
+        if u == v:
+            L = self.sequence_length(u)
+            shared_intervals[u] = [
+                P.IntervalDict({P.closedopen(0, L): OriginalInterval(0)})
+            ] * 2
+            return shared_intervals
+
+        iedges = self.iedges
+        stack = BinaryIntervalStack(self, u, v)
+        node_times = self.tables.nodes.time
+        for idx, node_id, ivls in stack.reduce():
+            if time_cutoff is not None and node_times[node_id] > time_cutoff:
+                break
+            if idx == BinaryIntervalStack.SHARED:
+                # common ancestor found: we can save the shared intervals
+                shared = ivls[0].domain() & ivls[1].domain()
+                shared_intervals[node_id] = []
+                track_ancestry = {}
+                for i in BinaryIntervalStack.BOTH:
+                    mrca = ivls[i].copy()
+                    del ivls[i][shared]
+                    del mrca[~shared]
+                    shared_intervals[node_id].append(mrca)
+                    track_ancestry[i] = ivls[i]
+            else:
+                track_ancestry = {idx: ivls}
+            for stackindex, intervals in track_ancestry.items():
+                for j in range(*self.parent_range[node_id]):
+                    ie = iedges[self.iedge_map_sorted_by_child[j]]
+                    for i, orig in intervals.items():
+                        if ie.child_right > i.lower and i.upper > ie.child_left:
+                            inter_left = max(ie.child_left, i.lower)
+                            inter_right = min(ie.child_right, i.upper)
+                            parent_left = ie.transform_to_parent(
+                                inter_left, is_interval=True
+                            )
+                            parent_right = ie.transform_to_parent(
+                                inter_right, is_interval=True
+                            )
+                            origin = OriginalInterval(
+                                ie.transform_to_parent(orig.map_left_to_original),
+                                not orig.inverted
+                                if ie.is_inversion()
+                                else orig.inverted,
+                            )
+                            interval = P.closedopen(parent_left, parent_right)
+                            stack.add(stackindex, ie.parent, interval, origin)
+        return shared_intervals
+
+
+@dataclasses.dataclass
+class OriginalInterval:
+    """
+    A class to track coordinates to map back to the original interval
+    map_left_to_original maps from the current left position back to
+    equivalent position in the sample's original coordinates.
+    """
+
+    map_left_to_original: int
+    inverted: bool = False
+
+
+class BinaryIntervalStack:
+    """
+    A class encapsulating a pair of SortedDict stacks. Each item is keyed by node ID
+    with values containing an IntervalDict from the portion library. The IntervalDict
+    associates each interval with an OriginalInterval object, to track the
+    original coordinates from which it has been transformed.
+
+    Each stack is sorted by node time (youngest last) with ties broken by node ID.
+    Popping an item off the end of this class will grab the interval
+    corresponding to the youngest node on either stack.
+    """
+
+    A = 0  # constant, to be used as an alias
+    B = 1  # constant, to be used as an alias
+    BOTH = [A, B]
+    SHARED = 2  # just an indicator variable, to show this node is from both stacks
+
+    def cmp(self, k):
+        """
+        The order to sort the stacks by: place the lowest times at the end
+        (so we can pop them off easily), and make sure ties are broken by node ID
+        (so we will simultaneously pop off identical node IDs if they are on both stacks)
+        """
+        return (-self.nodes_time[k], -k)
+
+    def __init__(self, gig, a, b):
+        self.gig = gig
+        self.nodes_time = gig.tables.nodes.time
+        self.stack = [
+            SortedDict(
+                self.cmp,
+                {u: P.IntervalDict({P.closedopen(0, np.inf): OriginalInterval(0)})},
+            )
+            for u in (a, b)
+        ]
+        self.stackA = self.stack[self.A]  # handy alias
+        self.stackB = self.stack[self.B]  # handy alias
+
+    def __len__(self):
+        return len(self.stackA) + len(self.stackB)
+
+    def reduce(self):
+        """
+        Return a generator that, when iterated over, reduces
+        the size of the stacks by popping off the item with the
+        smallest node time in either stack, breaking ties using the
+        node ID. Each iteration returns a tuple of stack index
+        (A=0 or B=1, or SHARED), node ID, and the relevant
+        interval(s).
+
+        If the top of both stacks points to the same node,
+        then this could be a common ancestor node, SHARED is
+        returned as the index, and a pair of IntervalDicts is
+        returned, one for each stack.
+        """
+        popA = popB = True
+        while True:
+            try:
+                if popA:
+                    lastA, intervalsA = self.stackA.popitem()
+                if popB:
+                    lastB, intervalsB = self.stackB.popitem()
+            except KeyError:
+                break
+            popA = popB = True
+            if lastA == lastB:
+                yield self.SHARED, lastA, (intervalsA, intervalsB)
+            elif self.nodes_time[lastA] < self.nodes_time[lastB]:
+                popB = False
+                yield self.A, lastA, intervalsA
+            elif self.nodes_time[lastA] > self.nodes_time[lastB]:
+                popA = False
+                yield self.B, lastB, intervalsB
+            elif lastA < lastB:
+                popB = False
+                yield self.A, lastA, intervalsA
+            else:
+                popA = False
+                yield self.B, lastB, intervalsB
+
+    def add(self, stackindex, node, interval, origin):
+        stack = self.stack[stackindex]
+        if node not in stack:
+            stack[node] = P.IntervalDict()
+        stack[node][interval] = origin
 
 
 class Items:

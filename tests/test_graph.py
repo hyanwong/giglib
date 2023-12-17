@@ -1,6 +1,8 @@
 import GeneticInheritanceGraph as gigl
 import numpy as np
+import portion as P
 import pytest
+import tskit
 
 
 class TestFunctions:
@@ -298,6 +300,118 @@ class TestSampleResolving:
                 assert new_iedge.parent_right == new_iedge.child_right == 200
             else:
                 assert iedge_row == next(new_edges)
+
+
+class TestMRCARegions:
+    """
+    Test the ability to locate closes matching regions between two sequences
+    """
+
+    def test_binary_interval_stack(self):
+        """
+        Test the BinaryIntervalStack class
+        """
+        BIStack = gigl.graph.BinaryIntervalStack
+        comb_ts = tskit.Tree.generate_comb(5).tree_sequence
+        # make a gig with many unary nodes above node 0
+        comb_ts = comb_ts.simplify([0, 4], keep_unary=True)
+        gig = gigl.from_tree_sequence(comb_ts)
+        stack = BIStack(gig, 0, 1)
+        for i in gig.iedges:
+            stack.add(
+                0 if i.child == 0 else 1,
+                i.parent,
+                P.closedopen(0, np.inf),
+                gigl.graph.OriginalInterval(0),
+            )
+
+        for i, (idx, node_id, ivls) in enumerate(stack.reduce()):
+            assert node_id == i  # nodes are in time order, and all are visited
+            if node_id != comb_ts.first().root and node_id != 0:
+                assert idx == BIStack.B
+                assert ivls.domain() == P.closedopen(0, np.inf)
+        # The last item popped off should be the shared root
+        assert idx == BIStack.SHARED
+        assert i == gig.num_iedges
+
+    def test_binary_interval_stack_equal_times(self):
+        """
+        When we add intervals to one of the stacks, we need to make sure that they
+        are keep on the stack in the correct reversed order (first by node time
+        descending, then by ID descending)
+        """
+        BIStack = gigl.graph.BinaryIntervalStack
+        balanced_ts = tskit.Tree.generate_balanced(8).tree_sequence
+        gig = gigl.from_tree_sequence(balanced_ts)
+        stack = BIStack(gig, 0, 7)
+        t = gig.tables.nodes.time
+        assert t[8] == t[9] == t[11] == t[12]
+        assert t[10] > t[8]
+        # Although they aren't in the inheritance path, add other intermediate nodes in
+        # an arbitrary order, just as a hack to check the order is correctly maintained
+        stack.add(
+            BIStack.B, 12, P.closedopen(0, np.inf), gigl.graph.OriginalInterval(0)
+        )
+        stack.add(
+            BIStack.B, 10, P.closedopen(0, np.inf), gigl.graph.OriginalInterval(0)
+        )
+        stack.add(BIStack.B, 9, P.closedopen(0, np.inf), gigl.graph.OriginalInterval(0))
+        stack.add(
+            BIStack.B, 11, P.closedopen(0, np.inf), gigl.graph.OriginalInterval(0)
+        )
+        stack.add(BIStack.B, 8, P.closedopen(0, np.inf), gigl.graph.OriginalInterval(0))
+        expected_B_order = [10, 12, 11, 9, 8, 7]
+        for expected, node_id in zip(expected_B_order, stack.stackB):
+            assert expected == node_id
+
+    def test_find_mrca_single_tree(self):
+        span = 123
+        comb_ts = tskit.Tree.generate_comb(5, span=span).tree_sequence
+        # make a gig with many unary nodes above node 0
+        comb_ts = comb_ts.simplify([0, 4], keep_unary=True)
+        gig = gigl.from_tree_sequence(comb_ts)
+        shared_regions = gig.find_mrca_regions(0, 1)
+        assert len(shared_regions) == 1
+        assert comb_ts.first().root in shared_regions
+        val = shared_regions[comb_ts.first().root]
+        assert len(val) == 2
+        for i in [0, 1]:
+            assert len(val[i]) == 1
+            interval, origin = val[i].popitem()
+            assert interval == P.closedopen(0, span)
+            assert origin.inverted is False
+
+    def test_find_mrca_2_trees(self, degree2_2_tip_ts):
+        gig = gigl.from_tree_sequence(degree2_2_tip_ts)
+        shared_regions = gig.find_mrca_regions(0, 1)
+        assert len(shared_regions) == 2
+        assert gig.tables.nodes.time[2] in shared_regions
+        val = shared_regions[gig.tables.nodes.time[2]]
+        assert len(val) == 2
+        for i in [0, 1]:
+            assert len(val[i]) == 1
+            interval, origin = val[i].popitem()
+            assert interval == P.closedopen(0, gig.sequence_length(0))
+            assert origin.inverted is False
+
+    def test_time_cutoff(self, degree2_2_tip_ts):
+        # set a cutoff so that the mrca in one tree is never visited
+        assert degree2_2_tip_ts.num_trees == 2
+        assert degree2_2_tip_ts.num_samples == 2
+        T = degree2_2_tip_ts.nodes_time
+        tree0 = degree2_2_tip_ts.first()
+        tree1 = degree2_2_tip_ts.last()
+        assert T[tree0.root] != T[tree1.root]
+        gig = gigl.from_tree_sequence(degree2_2_tip_ts)
+        assert gig.sequence_length(0) == degree2_2_tip_ts.sequence_length
+        assert gig.sequence_length(1) == degree2_2_tip_ts.sequence_length
+        cutoff = (T[[tree0.root, tree1.root]]).mean()
+        shared_regions = gig.find_mrca_regions(0, 1, cutoff)
+        assert len(shared_regions) == 1
+        used_tree = tree0 if T[tree0.root] < T[tree1.root] else tree1
+        unused_tree = tree1 if T[tree0.root] < T[tree1.root] else tree0
+        assert used_tree.root in shared_regions
+        assert unused_tree.root not in shared_regions
 
 
 class TestIEdge:

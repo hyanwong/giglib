@@ -113,3 +113,12 @@ def gig_from_degree2_ts():
     )
     assert ts.num_trees == 2
     return gigl.from_tree_sequence(ts)
+
+
+@pytest.fixture(scope="session")
+def degree2_2_tip_ts():
+    ts = msprime.sim_ancestry(
+        1, sequence_length=10, recombination_rate=0.1, random_seed=1
+    )
+    assert ts.num_trees == 2
+    return ts
