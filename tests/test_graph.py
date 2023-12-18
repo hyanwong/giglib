@@ -35,6 +35,22 @@ class TestConstructor:
         assert gig.num_iedges == 1
         assert gig.num_samples == 1
 
+    def test_no_edges(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(1, flags=0)
+        tables.nodes.add_row(1, flags=0)
+        gig = tables.graph()
+        assert gig.num_nodes == 3
+        assert gig.num_iedges == 0
+        assert gig.num_samples == 1
+        # Cached values should be defined but empty
+        assert gig.parent_range.shape == (gig.num_nodes, 2)
+        assert np.all(gig.parent_range == gigl.NULL)
+        assert gig.child_range.shape == (gig.num_nodes, 2)
+        assert np.all(gig.child_range == gigl.NULL)
+        assert gig.iedge_map_sorted_by_child.shape == (0,)
+
     def test_from_bad(self):
         with pytest.raises(
             ValueError, match="must be a GeneticInheritanceGraph.Tables"
@@ -233,6 +249,7 @@ class TestMethods:
     def test_edge_iterator(self, simple_ts):
         gig = gigl.from_tree_sequence(simple_ts)
         assert gig.num_iedges == simple_ts.num_edges
+        assert len(gig.iedges) == simple_ts.num_edges  # __len__ should work
         i = 0
         for iedge, edge in zip(gig.iedges, simple_ts.edges()):
             assert isinstance(iedge, gigl.graph.IEdge)

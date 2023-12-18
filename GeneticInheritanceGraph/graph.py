@@ -36,9 +36,13 @@ class Graph:
         # Extra validation for a GIG here, e.g. edge transformations are
         # valid, etc.
 
-        # Cached variables
+        # Cached variables. We define these up top, as all validated GIGs
+        # should have them, even if they have no edges
         self.parent_range = -np.ones((self.num_nodes, 2), dtype=np.int32)
         self.child_range = -np.ones((self.num_nodes, 2), dtype=np.int32)
+        self.iedge_map_sorted_by_child = np.arange(
+            self.num_iedges
+        )  # to overwrite later
 
         if len(self.tables.iedges) == 0:
             return
@@ -70,7 +74,7 @@ class Graph:
             bad = np.where(~span_equal)[0]
             raise ValueError(f"iedges {bad} have different parent and child spans")
 
-        # Check that parent left is always < parent right
+        # Check that child left is always < child right
         if np.any(child_spans <= 0):
             raise ValueError(
                 f"child_left >= child_right for iedges {np.where(child_spans < 0)[0]}"
@@ -96,7 +100,7 @@ class Graph:
         # and grouped by child id. Within each group with the same child ID,
         # the edges are sorted by child_left
         # See https://github.com/tskit-dev/tskit/discussions/2869
-        self.iedge_map_sorted_by_child = np.lexsort(
+        self.iedge_map_sorted_by_child[:] = np.lexsort(
             (
                 self.tables.iedges.parent,
                 self.tables.iedges.child_right,
@@ -248,7 +252,9 @@ class Graph:
 
 class Items:
     """
-    Class to wrap all the items in a table
+    Class to wrap all the items in a table. Since it has a
+    __len__ method, it should play nicely with showing progressbar
+    output with tqdm (e.g. for i in tqdm.tqdm(gig.iedges): ...)
     """
 
     def __init__(self, table, cls):
