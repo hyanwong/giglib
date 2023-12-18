@@ -252,6 +252,24 @@ class Graph:
         common ancestor in the GIG which is more recent than time_cutoff.
 
         Returns a dict of intervals, each of which is a region between u and v
+
+        Implementation-wise, this is similar to the sample_resolve algorithm, but
+
+        1. Instead of following the ancestry of *all* samples upwards, we
+           follow just two of them. This means we are unlikely to visit all
+           nodes in the graph.
+        2. We do not edit/change the edge intervals: instead we return
+           the intervals shared between the two samples.
+        3. We keep a separate stack for the ancestral intervals for each
+           of these samples, We check which of the stacks has the youngest
+           node at the end, and pop only that one off. With the additional
+           constraint that nodes of equal time are listed on the stack by
+           node ID (i.e. ID is used to break ties), this ensures that we
+           can detect when the same node is at the top of the two stacks,
+           indicating a common ancestor (in this case we pop from both stacks)
+        4. We do not add older regions to the stack if they have coalesced.
+        5. We have a time cutoff, so that we don't have to go all the way
+           back to the "origin of life"
         """
         # This is quite like the sample_resolve algorithm, only we can stop
         # once we have found a match between two regions, and we don't
