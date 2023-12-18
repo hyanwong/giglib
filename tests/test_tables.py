@@ -1,4 +1,4 @@
-import GeneticInheritanceGraph as gigl
+import GeneticInheritanceGraphLibrary as gigl
 import msprime
 import numpy as np
 import pytest
@@ -13,11 +13,10 @@ class TestCreation:
         assert len(tables.iedges) == simple_ts.num_edges
         # test conversion from float to int for genomic coordinates
         assert simple_ts.edges_left.dtype == np.float64
-        assert tables.iedges.parent_left.dtype == np.int64
-        assert tables.iedges.child_left.dtype == np.int64
         assert simple_ts.edges_right.dtype == np.float64
-        assert tables.iedges.parent_right.dtype == np.int64
-        assert tables.iedges.child_right.dtype == np.int64
+        for pos in ("parent_left", "parent_right", "child_left", "child_right"):
+            assert getattr(tables.iedges, pos).dtype == np.int64
+            assert isinstance(tables.iedges[0].child_left, (int, np.integer))
 
     @pytest.mark.parametrize("time", [0, 1])
     def test_simple_from_tree_sequence_with_timedelta(self, simple_ts, time):
@@ -42,7 +41,7 @@ class TestCreation:
 
     def test_noninteger_positions(self):
         bad_ts = msprime.simulate(10, recombination_rate=10, random_seed=1)
-        with pytest.raises(ValueError, match="not an integer"):
+        with pytest.raises(ValueError, match="an integer"):
             gigl.Tables.from_tree_sequence(bad_ts)
 
 
@@ -136,6 +135,20 @@ class TestIEdgeTable:
         assert tables.iedges[0].child_span == -1
         assert tables.iedges[0].parent_span == 1
 
+    def test_append_bad_coord_type(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(flags=gigl.NODE_IS_SAMPLE, time=0)
+        tables.nodes.add_row(flags=gigl.NODE_IS_SAMPLE, time=0)
+        with pytest.raises(TypeError, match=""):
+            tables.iedges.append(
+                child=0,
+                parent=1,
+                parent_left=None,
+                parent_right=1,
+                child_left=0,
+                child_right=1,
+            )
+
 
 class TestStringRepresentations:
     # Test string and html representations of tables
@@ -173,7 +186,7 @@ class TestStringRepresentations:
         if num_rows == 50:
             assert len(html.splitlines()) == num_rows + 11
             assert (
-                "10 rows skipped (GeneticInheritanceGraph.set_print_options)"
+                "10 rows skipped (GeneticInheritanceGraphLibrary.set_print_options)"
                 in html.split("</tr>")[21]
             )
         else:

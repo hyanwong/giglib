@@ -1,4 +1,4 @@
-import GeneticInheritanceGraph as gigl
+import GeneticInheritanceGraphLibrary as gigl
 import numpy as np
 import pytest
 

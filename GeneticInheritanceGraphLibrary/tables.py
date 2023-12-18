@@ -11,7 +11,21 @@ from .util import truncate_rows
 
 
 @dataclasses.dataclass(frozen=True)
-class IEdgeTableRow:
+class TableRow:
+    def asdict(self):
+        return dataclasses.asdict(self)
+
+    def _validate(self):
+        for field in dataclasses.fields(self):
+            value = getattr(self, field.name)
+            if not isinstance(value, field.type):
+                raise ValueError(
+                    f"Expected {field.name} to be {field.type}, " f"got {repr(value)}"
+                )
+
+
+@dataclasses.dataclass(frozen=True)
+class IEdgeTableRow(TableRow):
     parent: int
     child: int
     parent_left: int
@@ -30,18 +44,12 @@ class IEdgeTableRow:
     def child_span(self):
         return self.child_right - self.child_left
 
-    def asdict(self):
-        return dataclasses.asdict(self)
-
 
 @dataclasses.dataclass(frozen=True)
-class NodeTableRow:
+class NodeTableRow(TableRow):
     time: float
     flags: int = 0
     individual: int = NULL
-
-    def asdict(self):
-        return dataclasses.asdict(self)
 
     def is_sample(self):
         return (self.flags & NODE_IS_SAMPLE) > 0
@@ -50,9 +58,6 @@ class NodeTableRow:
 @dataclasses.dataclass(frozen=True)
 class IndividualTableRow:
     parents: tuple = ()
-
-    def asdict(self):
-        return dataclasses.asdict(self)
 
 
 class BaseTable:
@@ -122,6 +127,17 @@ class BaseTable:
     def __getitem__(self, index):
         return self._data[index]
 
+    @staticmethod
+    def to_dict(obj):
+        try:
+            return obj.asdict()
+        except AttributeError:
+            try:
+                return dataclasses.asdict(obj)
+            except TypeError:
+                pass
+        return obj
+
     def add_row(self, *args, **kwargs) -> int:
         """
         Add a row to a BaseTable: the arguments are passed to the RowClass constructor
@@ -145,16 +161,10 @@ class BaseTable:
         Example:
             new_id = table.append({"field1": "foo", "field2": "bar"})
         """
-        try:
-            obj = obj.asdict()
-        except AttributeError:
-            try:
-                obj = dataclasses.asdict(obj)
-            except TypeError:
-                pass
-        new_dict = {k: v for k, v in obj.items() if k in self.RowClass.__annotations__}
-        self._data.append(self.RowClass(**new_dict))
-        return len(self._data) - 1
+        kwargs = self.to_dict(obj)
+        return self.add_row(
+            **{k: v for k, v in kwargs.items() if k in self.RowClass.__annotations__}
+        )
 
     def _text_header_and_rows(self, limit=None):
         headers = ("id",) + tuple(self.RowClass.__annotations__.keys())
@@ -181,38 +191,53 @@ class BaseTable:
 class IEdgeTable(BaseTable):
     RowClass = IEdgeTableRow
 
+    def _from_tskit(self, kwargs):
+        new_kw = {}
+        for side in ("left", "right"):
+            if side in kwargs:
+                new_kw["child_" + side] = new_kw["parent_" + side] = kwargs[side]
+        new_kw.update(kwargs)
+        return new_kw
+
     def append(self, obj) -> int:
+        kwargs = self._from_tskit(self.to_dict(obj))
+        return self.add_row(
+            **{k: v for k, v in kwargs.items() if k in self.RowClass.__annotations__}
+        )
+
+    def add_row(self, *args, **kwargs) -> int:
         """
-        Append a row to a BaseTable by picking required fields from a passed-in object.
-        The object can be a dict, a dataclass, or an object with an .asdict() method.
-        If a `left` field is present in the object, is it placed in the ``parent_left``
-        and ``child_left`` attributes of this row (and similarly for a ``right`` field)
+        Add a row to an IEdgeTable. If a `left` field is present in the object,
+        is it placed in the ``parent_left`` and ``child_left`` attributes of this
+        row (and similarly for a ``right`` field).
+
+        To allow tskit conversion, named parameters corresponding to genome
+        positions (i.e. child_left, child_right, parent_left, parent_right)
+        are converted to integers.
 
         :return: The row ID of the newly added row
 
         Example:
             new_id = tables.iedges.append(ts.edge(0))
         """
-        try:
-            obj = obj.asdict()
-        except AttributeError:
-            pass
-        for side in ("left", "right"):
-            pos = obj.get(side, None)
-            if pos is None:
-                continue
-            if not isinstance(pos, int):
-                if pos.is_integer():
-                    pos = int(pos)
-                else:
-                    raise ValueError(
-                        f"{side} value {pos} is not an integer or integer-like"
-                    )
-            obj["child_" + side] = obj["parent_" + side] = pos
-
-        new_dict = {k: v for k, v in obj.items() if k in self.RowClass.__annotations__}
-        self._data.append(self.RowClass(**new_dict))
-        return len(self._data) - 1
+        # NB: here we override the default method to allow integer conversion and
+        # left -> child_left, parent_left etc., to aid conversion from tskit
+        # For simplicity, this only applies for named args, not positional ones
+        for kw in ("child_left", "child_right", "parent_left", "parent_right"):
+            if kw in kwargs:
+                if not isinstance(kwargs[kw], (int, np.integer)):
+                    try:
+                        if kwargs[kw].is_integer():
+                            kwargs[kw] = int(kwargs[kw])
+                        else:
+                            raise ValueError(
+                                f"Expected {kw} to be an integer, got {kwargs[kw]}"
+                            )
+                    except AttributeError:
+                        raise TypeError(
+                            f"Could not convert {kw}={kwargs[kw]} to an integer"
+                        )
+        return super().add_row(*args, **kwargs)
 
     @property
     def parent(self) -> npt.NDArray[np.int64]:

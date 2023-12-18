@@ -1,4 +1,4 @@
-import GeneticInheritanceGraph as gigl
+import GeneticInheritanceGraphLibrary as gigl
 import msprime
 import pytest
 import tests.gigutil as gigutil
