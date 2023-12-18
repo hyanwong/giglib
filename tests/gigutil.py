@@ -1,4 +1,4 @@
-import GeneticInheritanceGraph as gig
+import GeneticInheritanceGraph as gigl
 
 # Utilities for creating and editing gigs
 
@@ -24,5 +24,5 @@ def make_nodes_table(arr, tables):
     Make a nodes table from a list of tuples.
     """
     for row in arr:
-        tables.nodes.add_row(time=row[0], flags=row[1], individual=gig.NULL)
+        tables.nodes.add_row(time=row[0], flags=row[1], individual=gigl.NULL)
     return tables.nodes

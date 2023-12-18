@@ -1,4 +1,4 @@
-import GeneticInheritanceGraph as gig
+import GeneticInheritanceGraph as gigl
 import msprime
 import numpy as np
 import pytest
@@ -8,7 +8,7 @@ class TestCreation:
     # Test creation of a set of GiGtables
     def test_simple_from_tree_sequence(self, simple_ts):
         assert simple_ts.num_trees > 1
-        tables = gig.Tables.from_tree_sequence(simple_ts)
+        tables = gigl.Tables.from_tree_sequence(simple_ts)
         assert len(tables.nodes) == simple_ts.num_nodes
         assert len(tables.iedges) == simple_ts.num_edges
         # test conversion from float to int for genomic coordinates
@@ -22,7 +22,7 @@ class TestCreation:
     @pytest.mark.parametrize("time", [0, 1])
     def test_simple_from_tree_sequence_with_timedelta(self, simple_ts, time):
         assert simple_ts.num_trees > 1
-        tables = gig.Tables.from_tree_sequence(simple_ts, timedelta=time)
+        tables = gigl.Tables.from_tree_sequence(simple_ts, timedelta=time)
         assert tables.nodes[0].time == simple_ts.node(0).time + time
 
     def test_mutations_not_implemented_error(self, simple_ts_with_mutations):
@@ -30,7 +30,7 @@ class TestCreation:
         assert ts_tables.mutations.num_rows > 0
         assert ts_tables.sites.num_rows > 0
         with pytest.raises(NotImplementedError):
-            gig.Tables.from_tree_sequence(simple_ts_with_mutations)
+            gigl.Tables.from_tree_sequence(simple_ts_with_mutations)
 
     def test_populations_not_implemented_error(self, ts_with_multiple_pops):
         # No need to test for migrations, since they necessarily
@@ -38,58 +38,98 @@ class TestCreation:
         ts_tables = ts_with_multiple_pops.tables
         assert ts_tables.populations.num_rows > 1
         with pytest.raises(NotImplementedError):
-            gig.Tables.from_tree_sequence(ts_with_multiple_pops)
+            gigl.Tables.from_tree_sequence(ts_with_multiple_pops)
 
     def test_noninteger_positions(self):
         bad_ts = msprime.simulate(10, recombination_rate=10, random_seed=1)
         with pytest.raises(ValueError, match="not an integer"):
-            gig.Tables.from_tree_sequence(bad_ts)
+            gigl.Tables.from_tree_sequence(bad_ts)
+
+
+class TestCopy:
+    def test_copy(self, trivial_gig):
+        tables = trivial_gig.tables
+        tables_copy = tables.copy()
+        assert tables_copy == tables
+        assert tables_copy is not tables
+
+    def test_equals(self, trivial_gig):
+        tables = trivial_gig.tables
+        tables_copy = tables.copy()
+        assert tables_copy == tables
+        tables_copy.iedges.clear()
+        assert tables_copy != tables
+        tables_copy = tables.copy()
+        tables_copy.time_units = "abcde"
+        assert tables_copy != tables
 
 
 class TestExtractColumn:
     # Test extraction of columns from a gig
     def test_invalid_column_name(self, trivial_gig):
+        tables = trivial_gig.tables
         with pytest.raises(AttributeError):
-            trivial_gig.iedges.foobar
+            tables.iedges.foobar
 
     def test_column_from_empty_table(self, trivial_gig):
-        assert len(trivial_gig.individuals.parents) == 0
+        tables = trivial_gig.tables
+        assert len(tables.individuals.parents) == 0
 
     def test_extracted_columns(self, trivial_gig):
-        assert np.array_equal(trivial_gig.nodes.time, [0, 0, 0, 1, 2])
-        assert np.array_equal(trivial_gig.nodes.flags, [1, 1, 1, 0, 0])
-        assert np.array_equal(trivial_gig.iedges.parent, [4, 3, 3, 4, 4])
-        assert np.array_equal(trivial_gig.iedges.child_left, [0, 3, 3, 0, 0])
+        tables = trivial_gig.tables
+        assert np.array_equal(tables.nodes.time, [0, 0, 0, 1, 2])
+        assert np.array_equal(tables.nodes.flags, [1, 1, 1, 0, 0])
+        assert np.array_equal(tables.iedges.parent, [3, 3, 4, 4, 4])
+        assert np.array_equal(tables.iedges.child_left, [0, 3, 0, 0, 0])
 
 
 class TestMethods:
     def test_samples(self, simple_ts):
-        tables = gig.Tables.from_tree_sequence(simple_ts)
+        tables = gigl.Tables.from_tree_sequence(simple_ts)
         assert np.array_equal(tables.samples(), simple_ts.samples())
+
+    def test_sort(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(2)
+        tables.iedges.add_row(3, 2, 5, 0, 0, 5)
+        tables.iedges.add_row(2, 0, 0, 5, 0, 5)
+        tables.iedges.add_row(3, 0, 0, 5, 0, 5)  # Out of order
+        tables.sort()
+        assert tables.iedges[0].parent == 2
+        assert tables.iedges[1].parent == 3
+        assert tables.iedges[2].parent == 3
+        assert tables.iedges[0].child == 0
+        assert tables.iedges[1].child == 0
+        assert tables.iedges[2].child == 2
 
 
 class TestBaseTable:
     # Test various basic table methods
     def test_append_row_values(self, trivial_gig):
-        assert len(trivial_gig.nodes) == 5
-        trivial_gig.nodes.append({"time": 3, "flags": 0})
-        assert len(trivial_gig.nodes) == 6
-        assert trivial_gig.nodes.time[-1] == 3
-        assert trivial_gig.nodes.flags[-1] == 0
+        tables = trivial_gig.tables
+        assert len(tables.nodes) == 5
+        tables.nodes.append({"time": 3, "flags": 0})
+        assert len(tables.nodes) == 6
+        assert tables.nodes.time[-1] == 3
+        assert tables.nodes.flags[-1] == 0
 
     def test_iteration(self, trivial_gig):
-        assert len(trivial_gig.nodes) > 0
-        for row in trivial_gig.nodes:
-            assert isinstance(row, gig.tables.NodeTableRow)
-        assert len(trivial_gig.iedges) > 0
-        for row in trivial_gig.iedges:
-            assert isinstance(row, gig.tables.IEdgeTableRow)
+        tables = trivial_gig.tables
+        assert len(tables.nodes) > 0
+        for row in tables.nodes:
+            assert isinstance(row, gigl.tables.NodeTableRow)
+        assert len(tables.iedges) > 0
+        for row in tables.iedges:
+            assert isinstance(row, gigl.tables.IEdgeTableRow)
 
 
 class TestIEdgeTable:
     def test_append_integer_coords(self):
-        tables = gig.Tables()
-        u = tables.nodes.add_row(flags=gig.NODE_IS_SAMPLE, time=0)
+        tables = gigl.Tables()
+        u = tables.nodes.add_row(flags=gigl.NODE_IS_SAMPLE, time=0)
         tables.iedges.add_row(0, u, 0, 1, 1, 0)
         assert tables.iedges.parent_left[0] == 0
         assert tables.iedges.child_left[0] == 1
@@ -104,7 +144,7 @@ class TestStringRepresentations:
         assert "tskit" not in output
 
     def test_identifiable_values_from_str(self):
-        tables = gig.Tables()
+        tables = gigl.Tables()
         nodes = [(0, 3.1451), (1, 7.4234)]
         iedge = [1, 0, 222, 777, 322, 877]
         for node in nodes:
@@ -126,7 +166,7 @@ class TestStringRepresentations:
     @pytest.mark.parametrize("num_rows", [0, 10, 40, 50])
     def test_repr_html(self, num_rows):
         # Based on the corresponding test code in tskit
-        nodes = gig.Tables().nodes
+        nodes = gigl.Tables().nodes
         for _ in range(num_rows):
             nodes.append({"time": 0, "flags": 0})
         html = nodes._repr_html_()
@@ -142,16 +182,16 @@ class TestStringRepresentations:
 
 class TestIEdgeAttributes:
     def test_non_ts_attributes(self, simple_ts):
-        tables = gig.Tables.from_tree_sequence(simple_ts)
+        tables = gigl.Tables.from_tree_sequence(simple_ts)
         assert tables.iedges.edge.dtype == np.int64
-        assert np.all(tables.iedges.edge == gig.NULL)
+        assert np.all(tables.iedges.edge == gigl.NULL)
 
     @pytest.mark.parametrize(
         "name",
         ["parent", "child", "parent_left", "parent_right", "child_left", "child_right"],
     )
     def test_ts_attributes(self, simple_ts, name):
-        tables = gig.Tables.from_tree_sequence(simple_ts)
+        tables = gigl.Tables.from_tree_sequence(simple_ts)
         assert getattr(tables.iedges, name).dtype == np.int64
         suffix = name.split("_")[-1]
         assert np.all(
@@ -159,11 +199,18 @@ class TestIEdgeAttributes:
         )
 
 
+class TestIndividualAttributes:
+    def test_asdict(self, simple_ts):
+        tables = gigl.Tables.from_tree_sequence(simple_ts)
+        for i, ind in enumerate(tables.individuals):
+            assert ind.asdict()["parents"] == simple_ts.individual(i).parents
+
+
 class TestNodeAttributes:
     def test_flags(self, simple_ts):
-        tables = gig.Tables.from_tree_sequence(simple_ts)
+        tables = gigl.Tables.from_tree_sequence(simple_ts)
         assert np.all(tables.nodes.flags == simple_ts.nodes_flags)
 
     def test_child(self, simple_ts):
-        tables = gig.Tables.from_tree_sequence(simple_ts)
+        tables = gigl.Tables.from_tree_sequence(simple_ts)
         assert np.all(tables.iedges.child == simple_ts.edges_child)

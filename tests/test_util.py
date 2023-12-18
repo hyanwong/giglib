@@ -1,4 +1,4 @@
-import GeneticInheritanceGraph as gig
+import GeneticInheritanceGraph as gigl
 import GeneticInheritanceGraph.util as util
 import pytest
 
@@ -12,10 +12,10 @@ def test_truncate_rows():
 
 
 def test_set_print_options():
-    assert gig._print_options == {"max_lines": 40}
+    assert gigl._print_options == {"max_lines": 40}
     util.set_print_options(max_lines=None)
-    assert gig._print_options == {"max_lines": None}
+    assert gigl._print_options == {"max_lines": None}
     util.set_print_options(max_lines=50)
-    assert gig._print_options == {"max_lines": 50}
+    assert gigl._print_options == {"max_lines": 50}
     with pytest.raises(TypeError):
         util.set_print_options(40)

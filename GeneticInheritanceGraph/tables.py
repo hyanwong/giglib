@@ -10,7 +10,7 @@ from .constants import NULL
 from .util import truncate_rows
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class IEdgeTableRow:
     parent: int
     child: int
@@ -30,17 +30,29 @@ class IEdgeTableRow:
     def child_span(self):
         return self.child_right - self.child_left
 
+    def asdict(self):
+        return dataclasses.asdict(self)
 
-@dataclasses.dataclass
+
+@dataclasses.dataclass(frozen=True)
 class NodeTableRow:
     time: float
     flags: int = 0
     individual: int = NULL
 
+    def asdict(self):
+        return dataclasses.asdict(self)
 
-@dataclasses.dataclass
+    def is_sample(self):
+        return (self.flags & NODE_IS_SAMPLE) > 0
+
+
+@dataclasses.dataclass(frozen=True)
 class IndividualTableRow:
     parents: tuple = ()
+
+    def asdict(self):
+        return dataclasses.asdict(self)
 
 
 class BaseTable:
@@ -58,6 +70,23 @@ class BaseTable:
         # will probably want to follow the tskit paradigm of storing such that
         # each column can be accessed as a numpy array too. I'm not sure how to
         # do this without diving into C implementations.
+        self._data = []
+
+    def copy(self):
+        """
+        Returns a deep copy of this table
+        """
+        copy = self.__class__()
+        copy._data = self._data.copy()
+        return copy
+
+    def __eq__(self, other):
+        return self._data == other._data
+
+    def clear(self):
+        """
+        Deletes all rows in this table.
+        """
         self._data = []
 
     def __len__(self):
@@ -257,11 +286,34 @@ class Tables:
     similar to a tskit TableCollection.
     """
 
+    table_classes = {
+        "nodes": NodeTable,
+        "iedges": IEdgeTable,
+        "individuals": IndividualTable,
+    }
+
     def __init__(self, time_units=None):
-        self.nodes = NodeTable()
-        self.iedges = IEdgeTable()
-        self.individuals = IndividualTable()
+        for name, cls in self.table_classes.items():
+            setattr(self, name, cls())
         self.time_units = "unknown" if time_units is None else time_units
+
+    def __eq__(self, other) -> bool:
+        for name in self.table_classes.keys():
+            if getattr(self, name) != getattr(other, name):
+                return False
+        if self.time_units != other.time_units:
+            return False
+        return True
+
+    def copy(self):
+        """
+        Return a deep copy of the tables
+        """
+        copy = self.__class__()
+        for name in self.table_classes.keys():
+            setattr(copy, name, getattr(self, name).copy())
+        copy.time_units = self.time_units
+        return copy
 
     def __str__(self):
         # To do: make this look nicer
@@ -271,6 +323,38 @@ class Tables:
                 "== I-EDGES ==\n" + str(self.iedges),
             ]
         )
+
+    def sort(self):
+        """
+        Sort the tables in place. Currently only affects the iedges table. Sorting
+        criteria match those used in tskit (see
+        https://tskit.dev/tskit/docs/stable/data-model.html#edge-requirements).
+        """
+        # index to sort edges so they are sorted by parent time
+        # and grouped by parent id. Within each group with the same child ID,
+        # the edges are sorted by child_left
+        edge_order = np.lexsort(
+            (
+                self.iedges.child_left,
+                self.iedges.child,
+                self.iedges.parent,
+                self.nodes.time[self.iedges.parent],  # Primary key
+            )
+        )
+        new_iedges = IEdgeTable()
+        for i in edge_order:
+            new_iedges.append(self.iedges[i])
+        self.iedges = new_iedges
+
+    def graph(self):
+        """
+        Return a genetic inheritance graph (Graph) object based on these tables
+        """
+        from .graph import (
+            Graph as GIG,
+        )  # Hack to avoid complaints about circular imports
+
+        return GIG(self)
 
     def samples(self):
         """
