@@ -139,8 +139,8 @@ class TestIEdgeTable:
         tables = gigl.Tables()
         tables.nodes.add_row(flags=gigl.NODE_IS_SAMPLE, time=0)
         tables.nodes.add_row(flags=gigl.NODE_IS_SAMPLE, time=0)
-        with pytest.raises(TypeError, match=""):
-            tables.iedges.append(
+        with pytest.raises(TypeError, match="Could not convert"):
+            tables.iedges.add_row(
                 child=0,
                 parent=1,
                 parent_left=None,
