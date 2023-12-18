@@ -88,7 +88,8 @@ def DTWF_no_recombination_sim(num_diploids, seq_len, generations, random_seed=No
         tables, parent_nodes, child_node, seq_len, recombination_rate
     ):
         "Add inheritance paths from a randomly chosen parent genome to the child genome."
-        assert recombination_rate == 0
+        if recombination_rate != 0:
+            raise ValueError("Recombination rate must be zero for this simulation.")
         inherit_from = random.integers(
             2
         )  # randomly choose the 1st or the 2nd parent node
