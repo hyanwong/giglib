@@ -1,4 +1,4 @@
-# GeneticInheritanceGraph
+# GeneticInheritanceGraphLibrary
 
 A basic repo for kicking around ideas for the "(General) Genetic Inheritance Graph" structure, which should be able to capture genetic inheritance with
 genomic rearrangements, and hence describe inherited structural variation.
