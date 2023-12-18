@@ -1,4 +1,4 @@
-import GeneticInheritanceGraph as gigl
+import GeneticInheritanceGraphLibrary as gigl
 
 # Utilities for creating and editing gigs
 
