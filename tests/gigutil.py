@@ -29,33 +29,34 @@ def make_nodes_table(arr, tables):
     return tables.nodes
 
 
-def DTWF_no_recombination_sim(num_diploids, seq_len, generations, random_seed=None):
+class DTWF_simulator:
     """
-    A simple simulator with no recombination, based on
+    A simple base simulator class, mostly code from
     https://tskit.dev/tutorials/forward_sims.html
     """
+
     # For visualising unsimplified tree sequences, it helps to flag all nodes as samples
     default_node_flags = gigl.NODE_IS_SAMPLE
 
     def make_diploid(
-        tables, time, parent_individuals=None
+        self, time, parent_individuals=None
     ) -> tuple[int, tuple[int, int]]:
         """
         Make an individual and its diploid genomes by adding to tables, returning IDs.
         Specifying parent_individuals is optional but stores the pedigree stored.
         """
-        individual_id = tables.individuals.add_row(parents=parent_individuals)
+        individual_id = self.tables.individuals.add_row(parents=parent_individuals)
         return individual_id, (
-            tables.nodes.add_row(
-                time=time, flags=default_node_flags, individual=individual_id
+            self.tables.nodes.add_row(
+                time=time, flags=self.default_node_flags, individual=individual_id
             ),
-            tables.nodes.add_row(
-                time=time, flags=default_node_flags, individual=individual_id
+            self.tables.nodes.add_row(
+                time=time, flags=self.default_node_flags, individual=individual_id
             ),
         )
 
     def new_population(
-        tables, time, prev_pop, recombination_rate=0, seq_len=None
+        self, time, prev_pop, recombination_rate=0, seq_len=None
     ) -> dict[int, tuple[int, int]]:
         """
         if seq_len is specified, use this as the expected sequence length of the
@@ -68,10 +69,10 @@ def DTWF_no_recombination_sim(num_diploids, seq_len, generations, random_seed=No
 
         for _ in range(len(prev_pop)):
             # 1. Pick two individual parent IDs at random, `replace=True` allows selfing
-            mother_and_father = random.choice(prev_individuals, 2, replace=True)
+            mother_and_father = self.random.choice(prev_individuals, 2, replace=True)
 
             # 2. Get 1 new individual ID + 2 new node IDs
-            child_id, child_genomes = make_diploid(tables, time, mother_and_father)
+            child_id, child_genomes = self.make_diploid(time, mother_and_father)
             pop[child_id] = child_genomes  # store the genome IDs
 
             # 3. Add inheritance paths to both child genomes
@@ -79,27 +80,56 @@ def DTWF_no_recombination_sim(num_diploids, seq_len, generations, random_seed=No
                 child_genomes, mother_and_father
             ):
                 parent_genomes = prev_pop[parent_individual]
-                add_inheritance_paths(
-                    tables, parent_genomes, child_genome, seq_len, recombination_rate
+                self.add_inheritance_paths(
+                    parent_genomes, child_genome, seq_len, recombination_rate
                 )
         return pop
 
     def add_inheritance_paths(
-        tables, parent_nodes, child_node, seq_len, recombination_rate
+        self, parent_nodes, child_node, seq_len, recombination_rate
+    ):
+        raise NotImplementedError(
+            "Implement an add_inheritance_paths method to make a DTWF simulator"
+        )
+
+    def initialise_population(self, time, size) -> dict[int, tuple[int, int]]:
+        # Just return a dictionary by repeating step 2 above
+        return dict(self.make_diploid(time) for _ in range(size))
+
+    def __init__(self):
+        self.tables = gigl.Tables()
+        self.tables.time_units = "generations"  # optional, but helpful when plotting
+
+    def run(self, num_diploids, seq_len, generations, random_seed=None):
+        self.random = np.random.default_rng(random_seed)
+        pop = self.initialise_population(generations, num_diploids)
+        generations = generations - 1
+        pop = self.new_population(generations, pop, seq_len=100)
+        while generations > 0:
+            generations = generations - 1
+            pop = self.new_population(generations, pop)
+
+        self.tables.sort()
+        return self.tables.graph()
+
+
+class DTWF_no_recombination_sim(DTWF_simulator):
+    def add_inheritance_paths(
+        self, parent_nodes, child_node, seq_len, recombination_rate
     ):
         "Add inheritance paths from a randomly chosen parent genome to the child genome."
         if recombination_rate != 0:
             raise ValueError("Recombination rate must be zero for this simulation.")
-        inherit_from = random.integers(
-            2
-        )  # randomly choose the 1st or the 2nd parent node
+        inherit_from = self.random.integers(2)  # randomly choose 1st or 2nd parent node
         parent = parent_nodes[inherit_from]
         left = 0
         if seq_len is not None:
             right = seq_len
         else:
-            right = np.max(tables.iedges.child_right[tables.iedges.child == parent])
-        tables.iedges.add_row(
+            right = np.max(
+                self.tables.iedges.child_right[self.tables.iedges.child == parent]
+            )
+        self.tables.iedges.add_row(
             parent=parent_nodes[inherit_from],
             child=child_node,
             parent_left=left,
@@ -107,21 +137,3 @@ def DTWF_no_recombination_sim(num_diploids, seq_len, generations, random_seed=No
             child_left=left,
             child_right=right,
         )
-
-    def initialise_population(tables, time, size) -> dict[int, tuple[int, int]]:
-        # Just return a dictionary by repeating step 2 above
-        return dict(make_diploid(tables, time) for _ in range(size))
-
-    random = np.random.default_rng(random_seed)
-    tables = gigl.Tables()
-    tables.time_units = "generations"  # optional, but helpful when plotting
-
-    pop = initialise_population(tables, generations, num_diploids)
-    generations = generations - 1
-    pop = new_population(tables, generations, pop, seq_len=100)
-    while generations > 0:
-        generations = generations - 1
-        pop = new_population(tables, generations, pop)
-
-    tables.sort()
-    return tables.graph()
