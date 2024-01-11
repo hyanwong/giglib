@@ -94,6 +94,7 @@ import GeneticInheritanceGraphLibrary as gigl
 tables = gigl.Tables()
 tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
 tables.nodes.add_row(1, flags=0)
+# Add an inversion
 tables.iedges.add_row(
     parent=1, child=0, child_left=0, child_right=1, parent_left=1, parent_right=0
 )
@@ -101,4 +102,5 @@ gig = tables.graph()
 assert len(gig.nodes) == 2
 assert len(gig.iedges) == 1
 assert len(gig.samples) == 1
+assert gig.iedges[0].is_inversion()
 ```
