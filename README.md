@@ -9,7 +9,9 @@ try it out by converting a tree sequence to a GIG (although such a gig will not 
 import msprime
 import GeneticInheritanceGraphLibrary as gigl
 
-ts = msprime.sim_ancestry(4, sequence_length=100, recombination_rate=0.01, random_seed=1)
+ts = msprime.sim_ancestry(
+    4, sequence_length=100, recombination_rate=0.01, random_seed=1
+)
 gig = gigl.from_tree_sequence(ts)
 print(len(gig.nodes), "nodes in this GIG")
 ```
@@ -92,7 +94,9 @@ import GeneticInheritanceGraphLibrary as gigl
 tables = gigl.Tables()
 tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
 tables.nodes.add_row(1, flags=0)
-tables.iedges.add_row(parent=1, child=0, child_left=0, child_right=1, parent_left=1, parent_right=0)
+tables.iedges.add_row(
+    parent=1, child=0, child_left=0, child_right=1, parent_left=1, parent_right=0
+)
 gig = tables.graph()
 assert len(gig.nodes) == 2
 assert len(gig.iedges) == 1
