@@ -27,7 +27,9 @@ class Graph:
         the canonical way to do this is to use tables.graph()
         """
         if not isinstance(tables, Tables):
-            raise ValueError("tables must be a GeneticInheritanceGraph.Tables object")
+            raise ValueError(
+                "tables must be a GeneticInheritanceGraphLibrary.Tables object"
+            )
         self.tables = tables
         self._validate()
 
