@@ -53,7 +53,8 @@ class TestConstructor:
 
     def test_from_bad(self):
         with pytest.raises(
-            ValueError, match="must be a GeneticInheritanceGraph.Tables"
+            ValueError,
+            match="must be a GeneticInheritanceGraphLibrary.Tables",
         ):
             gigl.Graph("not a tree sequence")
 
