@@ -31,19 +31,19 @@ we switch to using the term interval-edge (`iedge`) to refer to what is normally
 The easiest example is an inversion. This would be an iedge like
 
 ```
-{parent: P, child: C, child_left: 100, child_right: 200, parent_left: 200, parent_right: 100}
+{parent: P, child: C, child_left: 10, child_right: 20, parent_left: 20, parent_right: 10}
 ```
 
 A tandem duplication is represented by two iedges, one for each duplicated region:
 
 ```
-{parent: P, child: C, child_left: 100, child_right: 200, parent_left: 100, parent_right: 200}
-{parent: P, child: C, child_left: 200, child_right: 300, parent_left: 100, parent_right: 200}
+{parent: P, child: C, child_left: 10, child_right: 20, parent_left: 10, parent_right: 20}
+{parent: P, child: C, child_left: 20, child_right: 30, parent_left: 10, parent_right: 20}
 ```
 
 Or a non-adjacent duplication:
 ```
-{parent: P, child: C, child_left: 250, child_right: 350, parent_left: 100, parent_right: 200}
+{parent: P, child: C, child_left: 25, child_right: 35, parent_left: 10, parent_right: 20}
 ```
 
 ### Deletions
@@ -51,9 +51,9 @@ Or a non-adjacent duplication:
 A deletion simply occurs when no material from the parent is transmitted to any of its children (and the coordinate system is shrunk)
 
 ```
-# Deletion of parental region from 200-300
-{parent: P, child: C, child_left: 100, child_right: 200, parent_left: 100, parent_right: 200}
-{parent: P, child: C, child_left: 200, child_right: 300, parent_left: 300, parent_right: 400}
+# Deletion of parental region from 20-30
+{parent: P, child: C, child_left: 10, child_right: 20, parent_left: 10, parent_right: 20}
+{parent: P, child: C, child_left: 20, child_right: 30, parent_left: 30, parent_right: 40}
 ```
 
 This brings with it a load of extra complexities, and it’s unclear if the efficiency of the tskit approach,
