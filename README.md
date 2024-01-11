@@ -76,7 +76,7 @@ incomplete list of differences below:
   you do `gig = tables.graph()`
 - **Object access** Information stored in GIG tables can be accessed using square brackets, and
   the `len()` function should work, so the canonical usage looks like `gig.nodes[0]`, `len(gig.nodes)`,
-  and `[u.id for u in gig.nodes]` rather than the equivalents in _tskit_ (`ts.node(0)`, ts.num_nodes`,
+  and `[u.id for u in gig.nodes]` rather than the equivalents in _tskit_ (`ts.node(0)`, `ts.num_nodes`,
   and `[u.id for u in ts.nodes()]`
 - **Other stuff** More differences should be noted here!
 
