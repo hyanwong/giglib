@@ -40,10 +40,10 @@ class Graph:
 
         # Cached variables. We define these up top, as all validated GIGs
         # should have them, even if they have no edges
-        self.parent_range = -np.ones((self.num_nodes, 2), dtype=np.int32)
-        self.child_range = -np.ones((self.num_nodes, 2), dtype=np.int32)
+        self.parent_range = -np.ones((len(self.nodes), 2), dtype=np.int32)
+        self.child_range = -np.ones((len(self.nodes), 2), dtype=np.int32)
         self.iedge_map_sorted_by_child = np.arange(
-            self.num_iedges
+            len(self.iedges)
         )  # to overwrite later
 
         # Cache
@@ -54,11 +54,11 @@ class Graph:
 
         iedges_child = self.tables.iedges.child
         iedges_parent = self.tables.iedges.parent
-        # Check that all node IDs are non-negative and less than num_nodes
+        # Check that all node IDs are non-negative and less than #nodes
         for nm, nodes in (("child", iedges_child), ("parent", iedges_parent)):
             if nodes.min() < 0:
                 raise ValueError(f"Iedge {np.argmin(nodes)} contains negative {nm} ID.")
-            if nodes.max() >= self.num_nodes:
+            if nodes.max() >= len(self.nodes):
                 raise ValueError(
                     f"Iedge {np.argmax(nodes)} contains {nm} ID >= num nodes"
                 )
@@ -123,7 +123,7 @@ class Graph:
                 self.parent_range[last_child, 1] = j
             last_child = ie.child
         if last_child != -1:
-            self.parent_range[last_child, 1] = self.num_iedges
+            self.parent_range[last_child, 1] = len(self.iedges)
 
         last_parent = -1
         for ie in self.iedges:
@@ -133,10 +133,10 @@ class Graph:
                 self.child_range[last_parent, 1] = ie.id
             last_parent = ie.parent
         if last_parent != -1:
-            self.child_range[last_parent, 1] = self.num_iedges
+            self.child_range[last_parent, 1] = len(self.iedges)
 
         # Check every location has only one parent
-        for u in range(self.num_nodes):
+        for u in range(len(self.nodes)):
             prev_right = -np.inf
             for ie in sorted(self.iedges_for_child(u), key=lambda x: x.child_left):
                 if ie.child_left < prev_right:
