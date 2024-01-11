@@ -8,15 +8,15 @@ class TestFunctions:
     def test_simple_from_tree_sequence(self, simple_ts):
         assert simple_ts.num_trees > 1
         gig = gigl.from_tree_sequence(simple_ts)
-        assert np.all(gig.samples() == gig.tables.samples())
+        assert np.all(gig.samples == gig.tables.samples())
 
 
 class TestConstructor:
     def test_from_empty_tables(self):
         tables = gigl.Tables()
         gig = tables.graph()
-        assert gig.num_nodes == 0
-        assert gig.num_iedges == 0
+        assert len(gig.nodes) == 0
+        assert len(gig.iedges) == 0
 
     def test_from_tables(self):
         tables = gigl.Tables()
@@ -31,9 +31,9 @@ class TestConstructor:
             parent_right=0,
         )
         gig = tables.graph()
-        assert gig.num_nodes == 2
-        assert gig.num_iedges == 1
-        assert gig.num_samples == 1
+        assert len(gig.nodes) == 2
+        assert len(gig.iedges) == 1
+        assert len(gig.samples) == 1
 
     def test_no_edges(self):
         tables = gigl.Tables()
@@ -41,13 +41,13 @@ class TestConstructor:
         tables.nodes.add_row(1, flags=0)
         tables.nodes.add_row(1, flags=0)
         gig = tables.graph()
-        assert gig.num_nodes == 3
-        assert gig.num_iedges == 0
-        assert gig.num_samples == 1
+        assert len(gig.nodes) == 3
+        assert len(gig.iedges) == 0
+        assert len(gig.samples) == 1
         # Cached values should be defined but empty
-        assert gig.parent_range.shape == (gig.num_nodes, 2)
+        assert gig.parent_range.shape == (len(gig.nodes), 2)
         assert np.all(gig.parent_range == gigl.NULL)
-        assert gig.child_range.shape == (gig.num_nodes, 2)
+        assert gig.child_range.shape == (len(gig.nodes), 2)
         assert np.all(gig.child_range == gigl.NULL)
         assert gig.iedge_map_sorted_by_child.shape == (0,)
 
@@ -248,7 +248,7 @@ class TestConstructor:
 class TestMethods:
     def test_edge_iterator(self, simple_ts):
         gig = gigl.from_tree_sequence(simple_ts)
-        assert gig.num_iedges == simple_ts.num_edges
+        assert len(gig.iedges) == simple_ts.num_edges
         assert len(gig.iedges) == simple_ts.num_edges  # __len__ should work
         i = 0
         for iedge, edge in zip(gig.iedges, simple_ts.edges()):
@@ -260,7 +260,7 @@ class TestMethods:
     def test_iedges_for_child(self, simple_ts):
         gig = gigl.from_tree_sequence(simple_ts)
         edges = set()
-        for u in range(gig.num_nodes):
+        for u in range(len(gig.nodes)):
             for iedge in gig.iedges_for_child(u):
                 assert isinstance(iedge, gigl.graph.IEdge)
                 assert iedge.child == u
@@ -269,19 +269,19 @@ class TestMethods:
 
     def test_sequence_length(self, simple_ts):
         gig = gigl.from_tree_sequence(simple_ts)
-        for u in gig.samples():
+        for u in gig.samples:
             assert gig.sequence_length(u) == simple_ts.sequence_length
 
     def test_sequence_length_root(self, all_sv_types_gig):
         # root will have no upward edges
-        root = all_sv_types_gig.num_nodes - 1
+        root = len(all_sv_types_gig.nodes) - 1
         assert all_sv_types_gig.sequence_length(root) == 200
 
     def test_no_sequence_length(self):
         tables = gigl.Tables()
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         gig = tables.graph()
-        for u in gig.samples():
+        for u in gig.samples:
             assert gig.sequence_length(u) == 0
 
 
@@ -301,7 +301,7 @@ class TestSampleResolving:
         (in particular, 10->11 should be split into two edges)
         """
         new_gig = all_sv_types_gig.sample_resolve()  # Shouldn't make any changes
-        assert new_gig.num_iedges - all_sv_types_gig.num_iedges == 1
+        assert len(new_gig.iedges) - len(all_sv_types_gig.iedges) == 1
         new_edges = iter(new_gig.tables.iedges)
         for iedge_row in all_sv_types_gig.tables.iedges:
             if iedge_row.parent == 11 and iedge_row.child == 10:

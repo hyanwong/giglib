@@ -44,6 +44,9 @@ class Graph:
             self.num_iedges
         )  # to overwrite later
 
+        # Cache
+        self.samples = self.tables.samples()
+
         if len(self.tables.iedges) == 0:
             return
 
@@ -143,20 +146,18 @@ class Graph:
 
     @property
     def num_nodes(self):
+        # Deprecated
         return len(self.tables.nodes)
 
     @property
     def num_iedges(self):
+        # Deprecated
         return len(self.tables.iedges)
-
-    def samples(self):
-        # TODO - we should really cache this
-        return self.tables.samples()
 
     @property
     def num_samples(self):
-        # TODO - we should really cache this
-        return len(self.tables.samples())
+        # Deprecated
+        return len(self.samples)
 
     @property
     def nodes(self):
