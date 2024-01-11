@@ -385,6 +385,8 @@ class Tables:
         """
         Return the IDs of all samples in the nodes table
         """
+        if len(self.nodes) == 0:
+            return np.array([], dtype=np.int32)
         return np.where(self.nodes.flags & NODE_IS_SAMPLE)[0]
 
     @classmethod
