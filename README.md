@@ -77,7 +77,7 @@ incomplete list of differences below:
 - **Object access** Information stored in GIG tables can be accessed using square brackets, and
   the `len()` function should work, so the canonical usage looks like `gig.nodes[0]`, `len(gig.nodes)`,
   and `[u.id for u in gig.nodes]` rather than the equivalents in _tskit_ (`ts.node(0)`, `ts.num_nodes`,
-  and `[u.id for u in ts.nodes()]`
+  and `[u.id for u in ts.nodes()]`. Similarly, we use `gig.samples` (no braces) rather than `ts.samples()`.
 - **Other stuff** More differences should be noted here!
 
 ## Examples
