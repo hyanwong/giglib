@@ -69,7 +69,7 @@ The API of this GeneticInheritanceGraphLibrary intentionally mirrors that of _ts
 incomplete list of differences below:
 
 - **Iedges** The main difference is that intervals in the GeneticInheritanceGraphLibrary are stored
-  in the iedges table, which has a `parent_left` and child_left` column rather than a simple `left`
+  in the iedges table, which has a `parent_left` and `child_left` column rather than a simple `left`
   column as in *tskit* (and similarly for `right`).
 - **Tables and Graphs** The GeneticInheritanceGraphLibrary has a `Tables` and `Graph` class, corresponding
   to `TableCollection` and `TreeSequence` classes in _tskit_. Thus to create a GIG from scratch,
