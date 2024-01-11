@@ -24,7 +24,7 @@ class Graph:
     def __init__(self, tables):
         """
         Create a gig.Graph from a set of Tables. This is for internal use only:
-        the canonical way to do this is to use tables.Graph()
+        the canonical way to do this is to use tables.graph()
         """
         if not isinstance(tables, Tables):
             raise ValueError("tables must be a GeneticInheritanceGraph.Tables object")
