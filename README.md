@@ -26,24 +26,29 @@ I'm calling an extended tree-sequence-like structure such as this, a GIG ("Gener
 terminological clarity,
 we switch to using the term interval-edge (`iedge`) to refer to what is normally called an `edge` in a *tskit* Tree Sequence.
 
+Note that this brings with it a load of extra complexities, and it’s unclear if the efficiency of the tskit approach,
+with its edge indexing etc, will port in any meaningful way to this new structure.
+
 ### Inversions
 
 The easiest example is an inversion. This would be an iedge like
 
 ```
-{parent: P, child: C, child_left: 10, child_right: 20, parent_left: 20, parent_right: 10}
+{parent: P, child: C, child_left: 100, child_right: 200, parent_left: 200, parent_right: 100}
 ```
+
+### Duplications
 
 A tandem duplication is represented by two iedges, one for each duplicated region:
 
 ```
-{parent: P, child: C, child_left: 10, child_right: 20, parent_left: 10, parent_right: 20}
-{parent: P, child: C, child_left: 20, child_right: 30, parent_left: 10, parent_right: 20}
+{parent: P, child: C, child_left: 100, child_right: 200, parent_left: 100, parent_right: 200}
+{parent: P, child: C, child_left: 200, child_right: 300, parent_left: 100, parent_right: 200}
 ```
 
 Or a non-adjacent duplication:
 ```
-{parent: P, child: C, child_left: 25, child_right: 35, parent_left: 10, parent_right: 20}
+{parent: P, child: C, child_left: 250, child_right: 350, parent_left: 100, parent_right: 200}
 ```
 
 ### Deletions
@@ -51,13 +56,16 @@ Or a non-adjacent duplication:
 A deletion simply occurs when no material from the parent is transmitted to any of its children (and the coordinate system is shrunk)
 
 ```
-# Deletion of parental region from 20-30
-{parent: P, child: C, child_left: 10, child_right: 20, parent_left: 10, parent_right: 20}
-{parent: P, child: C, child_left: 20, child_right: 30, parent_left: 30, parent_right: 40}
+# Deletion of parental region from 200-300
+{parent: P, child: C, child_left: 100, child_right: 200, parent_left: 100, parent_right: 200}
+{parent: P, child: C, child_left: 200, child_right: 300, parent_left: 300, parent_right: 400}
 ```
 
-This brings with it a load of extra complexities, and it’s unclear if the efficiency of the tskit approach,
-with its edge indexing etc, will port in any meaningful way to this new structure.
+### Viz
+
+The [graphical interpretation](https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/2#issuecomment-1684164074) is something like this:
+
+<img src="https://github.com/hyanwong/GeneticInheritanceGraph/assets/5416474/0fff67b3-71e7-4ed5-895a-140a06f49940" alt="GIG" width="500"/>
 
 ## Meaning of trees
 The interpretation of the trees may be rather different from that in tskit. In particular,
