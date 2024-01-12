@@ -48,7 +48,10 @@ class Graph:
 
         # Cache
         self.samples = self.tables.samples()
-
+    
+        # TODO: should cache node spans here, 
+        # see https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/27
+        
         if len(self.tables.iedges) == 0:
             return
 
