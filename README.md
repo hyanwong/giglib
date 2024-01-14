@@ -1,6 +1,6 @@
 # GeneticInheritanceGraphLibrary
 
-A basic repo for kicking around ideas for the "(General) Genetic Inheritance Graph" structure, which should be able to
+A basic repo for kicking around ideas for the "(Generalised) Genetic Inheritance Graph" structure, which should be able to
 capture genetic inheritance with genomic rearrangements, and hence describe inherited structural variation. This is
 not meant to be stable software, and the API is subject to change at any time, but for the moment you can
 try it out by converting a tree sequence to a GIG (although such a gig will not contain structural variations)
@@ -22,7 +22,7 @@ In [`tskit`](tskit.dev) we use edge annotations to describe which pieces of DNA 
 It should be possible to extend this to track the L & R in the edge *child*, and the L & R in the edge *parent* separately.
 The left and right values in each case refer to the coordinate system of the child and parent respectively.
 
-I'm calling an extended tree-sequence-like structure such as this, a GIG ("General (or Genetic) Inheritance Graph"). For
+I'm calling an extended tree-sequence-like structure such as this, a GIG ("Generalised (or Genetic) Inheritance Graph"). For
 terminological clarity,
 we switch to using the term interval-edge (`iedge`) to refer to what is normally called an `edge` in a *tskit* Tree Sequence.
 
