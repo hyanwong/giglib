@@ -26,7 +26,8 @@ I'm calling an extended tree-sequence-like structure such as this, a GIG ("Gener
 terminological clarity,
 we switch to using the term interval-edge (`iedge`) to refer to what is normally called an `edge` in a *tskit* Tree Sequence.
 
-Note that this brings with it a load of extra complexities, and it’s unclear if the efficiency of the tskit approach,
+Note that the switch to have separate child and parent coordinates  brings with it a lot of extra complexities,
+and it’s unclear if the efficiency of the tskit approach,
 with its edge indexing etc, will port in any meaningful way to this new structure.
 
 ### Inversions
