@@ -65,7 +65,7 @@ A deletion simply occurs when no material from the parent is transmitted to any 
 ### Viz
 
 The [graphical interpretation](https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/2#issuecomment-1684164074)
-is something like this, elegantly drawn by @duncanMR:
+is something like this, elegantly drawn by [@duncanMR](https://github.com/duncanMR):
 
 <img src="https://github.com/hyanwong/GeneticInheritanceGraph/assets/5416474/0fff67b3-71e7-4ed5-895a-140a06f49940" alt="GIG" width="500"/>
 
