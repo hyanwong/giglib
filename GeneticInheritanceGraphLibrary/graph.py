@@ -199,6 +199,15 @@ class Graph:
             return max(maxpos)
         return 0
 
+    @staticmethod
+    def _intersect(interval1_lft, interval1_rgt, interval2_lft, interval2_rgt):
+        """
+        Return the intersection of two intervals, or None if they do not overlap
+        """
+        if interval1_rgt > interval2_lft and interval2_rgt > interval1_lft:
+            return max(interval1_lft, interval2_lft), min(interval1_rgt, interval2_rgt)
+        return None
+
     def sample_resolve(self):
         """
         Sample resolve a GIG, keeping only those edge regions which
@@ -212,39 +221,40 @@ class Graph:
         ensures that we have collect all the intervals with that node as a
         parent, before passing inheritance information upwards
         """
+        # The "portion" library is used so that multiple intervals can be
+        # combined into a single object, and automatically merged together
 
         # NB - for simplicity we put all nodes onto the stack at the start,
-        # and fill out their intervals as we go. An alternative
-        # would be to create a dynamic stack ordered by node time, e.g.
-        # stack = SortedDict(lambda k: -self.tables.nodes.time[k])
-        stack = {u: P.empty() for u in np.argsort(-self.tables.nodes.time)}
-        iedges = self.iedges
+        # in time order (relying on the fact that python preserves dict order).
+        # We then fill out their intervals as we go. Since sample_resolve() will
+        # touch almost all nodes, it is efficient to declare and fill up front.
+        # An alternative if only a few nodes are likely to be visited would
+        # be to create a dynamic stack continuously sorted by node time, e.g.
+        # stack = sortedcontainers.SortedDict(lambda k: -nodes_time[k])
+        stack = {c: P.empty() for c in np.argsort(-self.tables.nodes.time)}
         tables = self.tables.copy()
         tables.iedges.clear()
         while len(stack) > 0:
-            u, intervals = stack.popitem()
-            if self.nodes[u].is_sample():
+            c, intervals = stack.popitem()  # the node `c` is treated as the child
+            if self.nodes[c].is_sample():
                 intervals = P.closedopen(0, np.inf)
-            # NOTE: if we had an index here sorted by left coord
-            # we could binary search to first match, and could
-            # break once e_right > left (I think?)
-            for j in range(*self.parent_range[u]):
-                ie = iedges[self.iedge_map_sorted_by_child[j]]
-                assert ie.child == u
-                p, ch_lft, ch_rgt = ie.parent, ie.child_left, ie.child_right  # cache
+            for ie in self.iedges_for_child(c):
+                p, c_lft, c_rgt = ie.parent, ie.child_left, ie.child_right  # cache
+                # JEROME'S NOTE (from previous algorithm): if we had an index here
+                # sorted by left coord we could binary search to first match, and
+                # could break once c_right > left (I think?), rather than having
+                # to intersect all the intervals with the current c_rgt/c_lft
                 for ivl in intervals:
-                    if ch_rgt > ivl.lower and ivl.upper > ch_lft:
-                        child_ivl = (max(ch_lft, ivl.lower), min(ch_rgt, ivl.upper))
-                        parent_ivl = ie.transform_interval(child_ivl, ROOTWARDS)
+                    if child_ivl := self._intersect(c_lft, c_rgt, ivl.lower, ivl.upper):
+                        parnt_ivl = ie.transform_interval(child_ivl, ROOTWARDS)
                         if ie.is_inversion():
                             # For passing up the stack, we don't care about direction
                             # just make sure the lowest position is first
-                            stack[p] |= P.closedopen(parent_ivl[1], parent_ivl[0])
+                            stack[p] |= P.closedopen(parnt_ivl[1], parnt_ivl[0])
                         else:
-                            stack[p] |= P.closedopen(*parent_ivl)
-                        tables.iedges.add_row(
-                            *child_ivl, *parent_ivl, parent=p, child=u
-                        )
+                            stack[p] |= P.closedopen(*parnt_ivl)
+                        # Add the trimmed interval to the growing edge table
+                        tables.iedges.add_row(*child_ivl, *parnt_ivl, parent=p, child=c)
         tables.sort()
         return self.__class__(tables)
 
