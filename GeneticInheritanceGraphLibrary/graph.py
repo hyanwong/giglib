@@ -8,6 +8,8 @@ import dataclasses
 import numpy as np
 import portion as P
 
+from .constants import LEAFWARDS
+from .constants import ROOTWARDS
 from .tables import IEdgeTableRow
 from .tables import NodeTableRow
 from .tables import Tables
@@ -48,10 +50,10 @@ class Graph:
 
         # Cache
         self.samples = self.tables.samples()
-    
-        # TODO: should cache node spans here, 
+
+        # TODO: should cache node spans here,
         # see https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/27
-        
+
         if len(self.tables.iedges) == 0:
             return
 
@@ -216,44 +218,35 @@ class Graph:
         # would be to create a dynamic stack ordered by node time, e.g.
         # stack = SortedDict(lambda k: -self.tables.nodes.time[k])
         stack = {u: P.empty() for u in np.argsort(-self.tables.nodes.time)}
-        new_tables = self.tables.copy()
-        new_tables.iedges.clear()
         iedges = self.iedges
+        tables = self.tables.copy()
+        tables.iedges.clear()
         while len(stack) > 0:
             u, intervals = stack.popitem()
             if self.nodes[u].is_sample():
                 intervals = P.closedopen(0, np.inf)
-
             # NOTE: if we had an index here sorted by left coord
             # we could binary search to first match, and could
             # break once e_right > left (I think?)
             for j in range(*self.parent_range[u]):
                 ie = iedges[self.iedge_map_sorted_by_child[j]]
                 assert ie.child == u
-                for i in intervals:
-                    if ie.child_right > i.lower and i.upper > ie.child_left:
-                        inter_left = max(ie.child_left, i.lower)
-                        inter_right = min(ie.child_right, i.upper)
-                        parent_left = ie.transform_to_parent(
-                            inter_left, is_interval=True
-                        )
-                        parent_right = ie.transform_to_parent(
-                            inter_right, is_interval=True
-                        )
+                p, ch_lft, ch_rgt = ie.parent, ie.child_left, ie.child_right  # cache
+                for ivl in intervals:
+                    if ch_rgt > ivl.lower and ivl.upper > ch_lft:
+                        child_ivl = (max(ch_lft, ivl.lower), min(ch_rgt, ivl.upper))
+                        parent_ivl = ie.transform_interval(child_ivl, ROOTWARDS)
                         if ie.is_inversion():
-                            stack[ie.parent] |= P.closedopen(parent_right, parent_left)
+                            # For passing up the stack, we don't care about direction
+                            # just make sure the lowest position is first
+                            stack[p] |= P.closedopen(parent_ivl[1], parent_ivl[0])
                         else:
-                            stack[ie.parent] |= P.closedopen(parent_left, parent_right)
-                        new_tables.iedges.add_row(
-                            parent=ie.parent,
-                            child=ie.child,
-                            child_left=inter_left,
-                            child_right=inter_right,
-                            parent_left=parent_left,
-                            parent_right=parent_right,
+                            stack[p] |= P.closedopen(*parent_ivl)
+                        tables.iedges.add_row(
+                            *child_ivl, *parent_ivl, parent=p, child=u
                         )
-        new_tables.sort()
-        return self.__class__(new_tables)
+        tables.sort()
+        return self.__class__(tables)
 
 
 class Items:
@@ -309,32 +302,54 @@ class IEdge(IEdgeTableRow):
     def is_inversion(self):
         return self.child_span < 0 or self.parent_span < 0
 
-    def transform_to_parent(self, child_position, is_interval=False):
+    def transform_position(self, x, direction):
         """
         Transform a position from child coordinates to parent coordinates.
-        If this is an inversion and we are transforming a point position,
-        then an edge such as [0, 10) -> (10, 0] means that position 9 gets
-        transformed to 0, and position 10 is not transformed at all. This
-        means subtracting 1 from the returned (transformed) position.
-
-        If, on the other hand, we are transforming an interval, then we
-        don't want to subtract the one.
+        If this is an inversion then an edge such as [0, 10) -> (10, 0]
+        means that position 9 gets transformed to 0, and position 10 is
+        not transformed at all. This means subtracting 1 from the returned
+        (transformed) position.
         """
-        if child_position < self.child_left or child_position > self.child_right:
-            raise ValueError(
-                f"Position {child_position} is not in the child interval for {self}"
-            )
-        if self.is_inversion():
-            if is_interval:
-                return (self.child_right - child_position + self.child_left) + (
-                    self.child_right - self.parent_left
+
+        if direction == ROOTWARDS:
+            if x < self.child_left or x >= self.child_right:
+                raise ValueError(f"Position {x} not in child interval for {self}")
+
+            if self.is_inversion():
+                return 2 * self.child_left - x + self.parent_left - self.child_left - 1
+            else:
+                return x - self.child_left + self.parent_left
+
+        elif direction == LEAFWARDS:
+            if self.is_inversion():
+                if x < self.parent_right or x >= self.parent_left:
+                    raise ValueError(f"Position {x} not in parent interval for {self}")
+                return 2 * self.child_left - x + self.parent_left - self.child_left - 1
+            else:
+                if x < self.parent_left or x >= self.parent_right:
+                    raise ValueError(f"Position {x} not in parent interval for {self}")
+                return x - self.parent_left + self.child_left
+        raise ValueError(f"Direction must be ROOTWARDS or LEAFWARDS, not {direction}")
+
+    def transform_interval(self, interval, direction):
+        """
+        Transform an interval from child coordinates to parent coordinates.
+        If this is an inversion then an edge such as [0, 10] -> [10, 0] means
+        that a nested interval such as [1, 8] gets transformed to [9, 2].
+        """
+        for x in interval:
+            if x < self.child_left or x > self.child_right:
+                raise ValueError(f"Position {x} not in child interval for {self}")
+
+        if direction == ROOTWARDS:
+            if self.is_inversion():
+                return tuple(
+                    2 * self.child_left - x + self.parent_left - self.child_left
+                    for x in interval
                 )
             else:
-                return (self.child_right - child_position + self.child_left - 1) + (
-                    self.child_right - self.parent_left
-                )
-        else:
-            return child_position - self.child_left + self.parent_left
+                return tuple(x - self.child_left + self.parent_left for x in interval)
+        raise ValueError(f"Direction must be ROOTWARDS, not {direction}")
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

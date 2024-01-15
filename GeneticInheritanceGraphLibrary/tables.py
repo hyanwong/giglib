@@ -182,6 +182,19 @@ class BaseTable:
                 )
         return headers, rows
 
+    @staticmethod
+    def _check_int(i, k=None):
+        if isinstance(i, (int, np.integer)):
+            return i
+        try:
+            if i.is_integer():
+                return int(i)
+            raise ValueError(f"Expected {k + ' to be ' if k else ''}an integer not {i}")
+        except AttributeError:
+            raise TypeError(
+                f"Could not convert {k + '=' if k else ''}{i} to an integer"
+            )
+
     def _df(self):
         """
         Temporary hack to convert the table to a Pandas dataframe.
@@ -206,19 +219,6 @@ class IEdgeTable(BaseTable):
         return self.add_row(
             **{k: v for k, v in kwargs.items() if k in self.RowClass.__annotations__}
         )
-
-    @staticmethod
-    def _check_int(i, k=None):
-        if isinstance(i, (int, np.integer)):
-            return i
-        try:
-            if i.is_integer():
-                return int(i)
-            raise ValueError(f"Expected {k + ' to be ' if k else ''}an integer not {i}")
-        except AttributeError:
-            raise TypeError(
-                f"Could not convert {k + '=' if k else ''}{i} to an integer"
-            )
 
     def add_row(self, *args, **kwargs) -> int:
         """

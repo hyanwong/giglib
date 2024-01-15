@@ -289,21 +289,82 @@ class TestIEdge:
                 assert ie.parent_right - ie.parent_left < 0
         assert num_inversions == 1
 
-    def test_notransform(self):
+    @pytest.mark.parametrize("direction", (gigl.ROOTWARDS, gigl.LEAFWARDS))
+    def test_notransform_position(self, direction):
         ie = gigl.graph.IEdge(10, 20, 10, 20, child=0, parent=1, id=0)
-        assert ie.transform_to_parent(child_position=12) == 12
-        assert ie.transform_to_parent(child_position=17) == 17
+        assert ie.transform_position(10, direction) == 10
+        assert ie.transform_position(12, direction) == 12
+        assert ie.transform_position(17, direction) == 17
+        nd_type = "child" if direction == gigl.ROOTWARDS else "parent"
+        with pytest.raises(ValueError, match=f"not in {nd_type} interval"):
+            ie.transform_position(9, direction)
+        with pytest.raises(ValueError, match=f"not in {nd_type} interval"):
+            ie.transform_position(20, direction)
 
-    def test_transform_linear(self):
+    def test_transform_position_linear(self):
         ie = gigl.graph.IEdge(0, 10, 10, 20, child=0, parent=1, id=0)
-        assert ie.transform_to_parent(child_position=2) == 12
-        assert ie.transform_to_parent(child_position=7) == 17
+        assert ie.transform_position(0, gigl.ROOTWARDS) == 10
+        assert ie.transform_position(2, gigl.ROOTWARDS) == 12
+        assert ie.transform_position(7, gigl.ROOTWARDS) == 17
+        with pytest.raises(ValueError, match="not in child interval"):
+            ie.transform_position(-1, gigl.ROOTWARDS)
+        with pytest.raises(ValueError, match="not in child interval"):
+            ie.transform_position(10, gigl.ROOTWARDS)
 
-    def test_transform_inversion(self):
+        assert ie.transform_position(10, gigl.LEAFWARDS) == 0
+        assert ie.transform_position(12, gigl.LEAFWARDS) == 2
+        assert ie.transform_position(17, gigl.LEAFWARDS) == 7
+        with pytest.raises(ValueError, match="not in parent interval"):
+            ie.transform_position(9, gigl.LEAFWARDS)
+        with pytest.raises(ValueError, match="not in parent interval"):
+            ie.transform_position(20, gigl.LEAFWARDS)
+
+    @pytest.mark.parametrize("direction", (gigl.ROOTWARDS, gigl.LEAFWARDS))
+    def test_transform_position_inversion(self, direction):
         ie = gigl.graph.IEdge(10, 20, 20, 10, child=0, parent=1, id=0)
-        assert ie.transform_to_parent(child_position=10) == 19
-        assert ie.transform_to_parent(child_position=11) == 18
-        assert ie.transform_to_parent(child_position=12) == 17
-        assert ie.transform_to_parent(child_position=17) == 12
-        assert ie.transform_to_parent(child_position=18) == 11
-        assert ie.transform_to_parent(child_position=19) == 10
+        assert ie.transform_position(10, direction) == 19
+        assert ie.transform_position(11, direction) == 18
+        assert ie.transform_position(12, direction) == 17
+        assert ie.transform_position(17, direction) == 12
+        assert ie.transform_position(18, direction) == 11
+        assert ie.transform_position(19, direction) == 10
+        nd_type = "child" if direction == gigl.ROOTWARDS else "parent"
+        with pytest.raises(ValueError, match=f"not in {nd_type} interval"):
+            ie.transform_position(20, direction)
+
+    def test_transform_position_moved_inversion(self):
+        ie = gigl.graph.IEdge(10, 20, 30, 20, child=0, parent=1, id=0)
+        assert ie.transform_position(10, gigl.ROOTWARDS) == 29
+        assert ie.transform_position(11, gigl.ROOTWARDS) == 28
+        assert ie.transform_position(12, gigl.ROOTWARDS) == 27
+        assert ie.transform_position(17, gigl.ROOTWARDS) == 22
+        assert ie.transform_position(18, gigl.ROOTWARDS) == 21
+        assert ie.transform_position(19, gigl.ROOTWARDS) == 20
+
+    # TODO - add gigl.LEAFWARDS test
+    @pytest.mark.parametrize("direction", [gigl.ROOTWARDS])
+    def test_notransform_interval(self, direction):
+        ie = gigl.graph.IEdge(10, 20, 10, 20, child=0, parent=1, id=0)
+        assert ie.transform_interval((12, 17), direction) == (12, 17)
+        assert ie.transform_interval((10, 20), direction) == (10, 20)
+        nd_type = "child" if direction == gigl.ROOTWARDS else "parent"
+        with pytest.raises(ValueError, match=f"not in {nd_type} interval"):
+            ie.transform_interval((9, 12), direction)
+        with pytest.raises(ValueError, match=f"not in {nd_type} interval"):
+            ie.transform_interval((17, 21), direction)
+
+    def test_transform_interval_linear(self):
+        ie = gigl.graph.IEdge(0, 10, 10, 20, child=0, parent=1, id=0)
+        assert ie.transform_interval((0, 10), gigl.ROOTWARDS) == (10, 20)
+        assert ie.transform_interval((2, 7), gigl.ROOTWARDS) == (12, 17)
+        with pytest.raises(ValueError, match="not in child interval"):
+            ie.transform_interval((-1, 10), gigl.ROOTWARDS)
+        with pytest.raises(ValueError, match="not in child interval"):
+            ie.transform_interval((1, 11), gigl.ROOTWARDS)
+
+    def test_transform_interval_inversion(self):
+        ie = gigl.graph.IEdge(10, 20, 30, 20, child=0, parent=1, id=0)
+        assert ie.transform_interval((10, 20), gigl.ROOTWARDS) == (30, 20)
+        assert ie.transform_interval((11, 19), gigl.ROOTWARDS) == (29, 21)
+        with pytest.raises(ValueError, match="not in child interval"):
+            ie.transform_interval((5, 21), gigl.ROOTWARDS)
