@@ -93,9 +93,9 @@ class TestMethods:
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.nodes.add_row(1)
         tables.nodes.add_row(2)
-        tables.iedges.add_row(3, 2, 5, 0, 0, 5)
-        tables.iedges.add_row(2, 0, 0, 5, 0, 5)
-        tables.iedges.add_row(3, 0, 0, 5, 0, 5)  # Out of order
+        tables.iedges.add_row(5, 0, 0, 5, parent=3, child=2)
+        tables.iedges.add_row(0, 5, 0, 5, parent=2, child=0)
+        tables.iedges.add_row(0, 5, 0, 5, parent=3, child=0)  # Out of order
         tables.sort()
         assert tables.iedges[0].parent == 2
         assert tables.iedges[1].parent == 3
@@ -129,25 +129,18 @@ class TestIEdgeTable:
     def test_append_integer_coords(self):
         tables = gigl.Tables()
         u = tables.nodes.add_row(flags=gigl.NODE_IS_SAMPLE, time=0)
-        tables.iedges.add_row(0, u, 0, 1, 1, 0)
-        assert tables.iedges.parent_left[0] == 0
-        assert tables.iedges.child_left[0] == 1
-        assert tables.iedges[0].child_span == -1
-        assert tables.iedges[0].parent_span == 1
+        tables.iedges.add_row(0, 1, 1, 0, child=0, parent=u)
+        assert tables.iedges.parent_left[0] == 1
+        assert tables.iedges.child_left[0] == 0
+        assert tables.iedges[0].child_span == 1
+        assert tables.iedges[0].parent_span == -1
 
     def test_append_bad_coord_type(self):
         tables = gigl.Tables()
         tables.nodes.add_row(flags=gigl.NODE_IS_SAMPLE, time=0)
         tables.nodes.add_row(flags=gigl.NODE_IS_SAMPLE, time=0)
         with pytest.raises(TypeError, match="Could not convert"):
-            tables.iedges.add_row(
-                child=0,
-                parent=1,
-                parent_left=None,
-                parent_right=1,
-                child_left=0,
-                child_right=1,
-            )
+            tables.iedges.add_row(0, 1, None, 1, child=0, parent=1)
 
 
 class TestStringRepresentations:
@@ -159,16 +152,16 @@ class TestStringRepresentations:
     def test_identifiable_values_from_str(self):
         tables = gigl.Tables()
         nodes = [(0, 3.1451), (1, 7.4234)]
-        iedge = [1, 0, 222, 777, 322, 877]
+        iedge = [222, 777, 322, 877, 1, 0]
         for node in nodes:
             tables.nodes.add_row(time=node[0], flags=node[1])
         tables.iedges.add_row(
-            parent=iedge[0],
-            child=iedge[1],
-            child_left=iedge[2],
-            child_right=iedge[3],
-            parent_left=iedge[4],
-            parent_right=iedge[5],
+            child_left=iedge[0],
+            child_right=iedge[1],
+            parent_left=iedge[2],
+            parent_right=iedge[3],
+            child=iedge[4],
+            parent=iedge[5],
         )
         for node in nodes:
             assert str(node[0]) in str(tables)

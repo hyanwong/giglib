@@ -26,15 +26,16 @@ class TableRow:
 
 @dataclasses.dataclass(frozen=True)
 class IEdgeTableRow(TableRow):
-    parent: int
-    child: int
-    parent_left: int
     child_left: int
-    parent_right: int
     child_right: int
+    parent_left: int
+    parent_right: int
+    _: dataclasses.KW_ONLY
+    child: int
+    parent: int
     edge: int = NULL
-    parent_chromosome: int = NULL
     child_chromosome: int = NULL
+    parent_chromosome: int = NULL
 
     @property
     def parent_span(self):
@@ -167,7 +168,8 @@ class BaseTable:
         )
 
     def _text_header_and_rows(self, limit=None):
-        headers = ("id",) + tuple(self.RowClass.__annotations__.keys())
+        headers = ("id",)
+        headers += tuple(k for k in self.RowClass.__annotations__.keys() if k != "_")
         rows = []
         row_indexes = truncate_rows(len(self), limit)
         for j in row_indexes:
@@ -205,6 +207,19 @@ class IEdgeTable(BaseTable):
             **{k: v for k, v in kwargs.items() if k in self.RowClass.__annotations__}
         )
 
+    @staticmethod
+    def _check_int(i, k=None):
+        if isinstance(i, (int, np.integer)):
+            return i
+        try:
+            if i.is_integer():
+                return int(i)
+            raise ValueError(f"Expected {k + ' to be ' if k else ''}an integer not {i}")
+        except AttributeError:
+            raise TypeError(
+                f"Could not convert {k + '=' if k else ''}{i} to an integer"
+            )
+
     def add_row(self, *args, **kwargs) -> int:
         """
         Add a row to an IEdgeTable. If a `left` field is present in the object,
@@ -223,20 +238,9 @@ class IEdgeTable(BaseTable):
         # NB: here we override the default method to allow integer conversion and
         # left -> child_left, parent_left etc., to aid conversion from tskit
         # For simplicity, this only applies for named args, not positional ones
-        for kw in ("child_left", "child_right", "parent_left", "parent_right"):
-            if kw in kwargs:
-                if not isinstance(kwargs[kw], (int, np.integer)):
-                    try:
-                        if kwargs[kw].is_integer():
-                            kwargs[kw] = int(kwargs[kw])
-                        else:
-                            raise ValueError(
-                                f"Expected {kw} to be an integer, got {kwargs[kw]}"
-                            )
-                    except AttributeError:
-                        raise TypeError(
-                            f"Could not convert {kw}={kwargs[kw]} to an integer"
-                        )
+        pcols = ("child_left", "child_right", "parent_left", "parent_right")
+        args = [self._check_int(v) if i < 4 else v for i, v in enumerate(args)]
+        kwargs = {k: self._check_int(v) if k in pcols else v for k, v in kwargs.items()}
         return super().add_row(*args, **kwargs)
 
     @property
@@ -358,6 +362,8 @@ class Tables:
         # index to sort edges so they are sorted by parent time
         # and grouped by parent id. Within each group with the same child ID,
         # the edges are sorted by child_left
+        if len(self.iedges) == 0:
+            return
         edge_order = np.lexsort(
             (
                 self.iedges.child_left,
