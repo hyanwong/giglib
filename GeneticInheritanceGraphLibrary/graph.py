@@ -223,6 +223,8 @@ class Graph:
         """
         # The "portion" library is used so that multiple intervals can be
         # combined into a single object, and automatically merged together
+        # when they overlap. This potentiall saves fragmenting the intervals
+        # so much as we go up the stack
 
         # NB - for simplicity we put all nodes onto the stack at the start,
         # in time order (relying on the fact that python preserves dict order).
@@ -244,8 +246,8 @@ class Graph:
                 # sorted by left coord we could binary search to first match, and
                 # could break once c_right > left (I think?), rather than having
                 # to intersect all the intervals with the current c_rgt/c_lft
-                for ivl in intervals:
-                    if child_ivl := self._intersect(c_lft, c_rgt, ivl.lower, ivl.upper):
+                for i in intervals:
+                    if child_ivl := self._intersect(c_lft, c_rgt, i.lower, i.upper):
                         parnt_ivl = ie.transform_interval(child_ivl, ROOTWARDS)
                         if ie.is_inversion():
                             # For passing up the stack, we don't care about direction
