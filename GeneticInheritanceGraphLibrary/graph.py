@@ -200,12 +200,12 @@ class Graph:
         return 0
 
     @staticmethod
-    def _intersect(interval1_lft, interval1_rgt, interval2_lft, interval2_rgt):
+    def _intersect(lft_1, rgt_1, lft_2, rgt_2):
         """
         Return the intersection of two intervals, or None if they do not overlap
         """
-        if interval1_rgt > interval2_lft and interval2_rgt > interval1_lft:
-            return max(interval1_lft, interval2_lft), min(interval1_rgt, interval2_rgt)
+        if rgt_1 > lft_2 and rgt_2 > lft_1:
+            return max(lft_1, lft_2), min(rgt_1, rgt_2)
         return None
 
     def sample_resolve(self):
@@ -221,21 +221,26 @@ class Graph:
         ensures that we have collect all the intervals with that node as a
         parent, before passing inheritance information upwards
         """
-        # The "portion" library is used so that multiple intervals can be
-        # combined into a single object, and automatically merged together
-        # when they overlap. This potentiall saves fragmenting the intervals
-        # so much as we go up the stack
-
-        # NB - for simplicity we put all nodes onto the stack at the start,
-        # in time order (relying on the fact that python preserves dict order).
-        # We then fill out their intervals as we go. Since sample_resolve() will
-        # touch almost all nodes, it is efficient to declare and fill up front.
-        # An alternative if only a few nodes are likely to be visited would
-        # be to create a dynamic stack continuously sorted by node time, e.g.
-        # stack = sortedcontainers.SortedDict(lambda k: -nodes_time[k])
+        # == Implementation details ==
+        # A. Rather than representing the intervals for a node as a list of
+        #    (left, right) tuples, the "portion" library is used, allowing multiple
+        #    intervals to be combined into a single object and automatically merged
+        #    together when they adjoin or overlap (coalesce). This reduces the
+        #    number of intervals and their fragmentation as we go up the stack.
+        # B. For simplicity we put all nodes onto the stack at the start, in time
+        #    order (relying on the fact that python dicts now preserve order).
+        #    We then fill out their intervals as we go. Since sample_resolve() will
+        #    touch almost all nodes, declare and fill the stack up front is efficient.
+        #    An alternative if only a few nodes are likely to be visited would
+        #    be to create a dynamic stack continuously sorted by node time, e.g.
+        #        stack = sortedcontainers.SortedDict(lambda k: -nodes_time[k])
+        # C. This differs slightly from the similar tskit method
+        #    `.simplify(filter_nodes=False, keep_unary=True)`, because it does not
+        #    squash adjacent edges together. It should therefore preserve
+        #    "recombination diamonds". This could be useful for some applications,
         stack = {c: P.empty() for c in np.argsort(-self.tables.nodes.time)}
         tables = self.tables.copy()
-        tables.iedges.clear()
+        tables.iedges.clear()  # clear old iedges: trimmed ones will be added back
         while len(stack) > 0:
             c, intervals = stack.popitem()  # the node `c` is treated as the child
             if self.nodes[c].is_sample():
@@ -250,12 +255,12 @@ class Graph:
                     if child_ivl := self._intersect(c_lft, c_rgt, i.lower, i.upper):
                         parnt_ivl = ie.transform_interval(child_ivl, ROOTWARDS)
                         if ie.is_inversion():
-                            # For passing up the stack, we don't care about direction
-                            # just make sure the lowest position is first
+                            # For passing upwards, interval orientation doesn't matter
+                            # so put the lowest position first, as `portion` requires
                             stack[p] |= P.closedopen(parnt_ivl[1], parnt_ivl[0])
                         else:
                             stack[p] |= P.closedopen(*parnt_ivl)
-                        # Add the trimmed interval to the growing edge table
+                        # Add the trimmed interval to the new edge table
                         tables.iedges.add_row(*child_ivl, *parnt_ivl, parent=p, child=c)
         tables.sort()
         return self.__class__(tables)
@@ -326,9 +331,8 @@ class IEdge(IEdgeTableRow):
         if direction == ROOTWARDS:
             if x < self.child_left or x >= self.child_right:
                 raise ValueError(f"Position {x} not in child interval for {self}")
-
             if self.is_inversion():
-                return 2 * self.child_left - x + self.parent_left - self.child_left - 1
+                return self.child_left - x + self.parent_left - 1
             else:
                 return x - self.child_left + self.parent_left
 
@@ -336,7 +340,7 @@ class IEdge(IEdgeTableRow):
             if self.is_inversion():
                 if x < self.parent_right or x >= self.parent_left:
                     raise ValueError(f"Position {x} not in parent interval for {self}")
-                return 2 * self.child_left - x + self.parent_left - self.child_left - 1
+                return self.child_left - x + self.parent_left - 1
             else:
                 if x < self.parent_left or x >= self.parent_right:
                     raise ValueError(f"Position {x} not in parent interval for {self}")
@@ -355,10 +359,7 @@ class IEdge(IEdgeTableRow):
 
         if direction == ROOTWARDS:
             if self.is_inversion():
-                return tuple(
-                    2 * self.child_left - x + self.parent_left - self.child_left
-                    for x in interval
-                )
+                return tuple(self.child_left - x + self.parent_left for x in interval)
             else:
                 return tuple(x - self.child_left + self.parent_left for x in interval)
         raise ValueError(f"Direction must be ROOTWARDS, not {direction}")
