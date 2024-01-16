@@ -10,12 +10,12 @@ def make_iedges_table(arr, tables):
     """
     for row in arr:
         tables.iedges.add_row(
-            parent=row[0],
-            child=row[1],
-            child_left=row[2],
-            child_right=row[3],
-            parent_left=row[4],
-            parent_right=row[5],
+            child_left=row[0],
+            child_right=row[1],
+            parent_left=row[2],
+            parent_right=row[3],
+            child=row[4],
+            parent=row[5],
         )
     return tables.iedges
 
