@@ -7,6 +7,7 @@ import dataclasses
 
 import numpy as np
 import portion as P
+import sortedcontainers
 
 from .constants import LEAFWARDS
 from .constants import ROOTWARDS
@@ -264,6 +265,93 @@ class Graph:
                         tables.iedges.add_row(*child_ivl, *parnt_ivl, parent=p, child=c)
         tables.sort()
         return self.__class__(tables)
+
+    def find_mrca_regions(self, u, v, time_cutoff=None):
+        """
+        Find all regions between nodes u and v that share a most recent
+        common ancestor in the GIG which is more recent than time_cutoff.
+        Returns a dict of dicts of the following form:
+            MRCA_node_idA : {
+                intervalA1: (
+                    [u_interval_A1a, u_interval_A1b, ...],
+                    [v_interval_A1a, v_interval_A1b, ...]),
+                intervalA2: (
+                    [u_interval_A2a, u_interval_A2b, ...],
+                    [v_interval_A2a, v_interval_A2b, ...]),
+                ...
+            },
+            MRCA_node_idB : {
+                intervalB1: (
+                    [u_interval_B1a, u_interval_B1b, ...],
+                    [v_interval_B1a, v_interval_B1b, ...]),
+                ...
+            },
+
+        Implementation-wise, this is similar to the sample_resolve algorithm, but
+        1. Instead of following the ancestry of *all* samples upwards, we
+           follow just two of them. This means we are unlikely to visit all
+           nodes in the graph, and so we create a dynamic stack, ordered by node
+           time.
+        2. We do not edit/change the edge intervals as we go. Instead we simply
+           return the intervals shared between the two samples.
+        3. The intervals "know" whether they were originally associated with u or v.
+           If we find an ancestor with both u and v-associated intervals
+           this indicates a potential common ancestor, in which coalescence could
+           have occurred.
+        4. We do not add older regions to the stack if they have coalesced.
+        5. We have a time cutoff, so that we don't have to go all the way
+           back to the "origin of life"
+        """
+
+        def intersect(lft_1, rgt_1, lft_2, rgt_2):
+            """
+            An inversion-aware intersection routine, which returns the intersection
+            of two intervals, where the left and right of
+            the second interval could be swapped. It hey are swapped, return the
+            interval in the reversed order. Return None if they do not overlap
+            """
+            if rgt_2 < lft_2:  # an inversion
+                if rgt_1 > rgt_2 and lft_2 > lft_1:
+                    return min(rgt_1, lft_2), max(lft_1, rgt_2)
+            else:
+                if rgt_1 > lft_2 and rgt_2 > lft_1:
+                    return max(lft_1, lft_2), min(rgt_1, rgt_2)
+            return None
+
+        if u == v:
+            raise ValueError("u and v must be different nodes")
+        # Use a dynamic stack as we hopefully will be visiting a minority of nodes
+        node_times = self.tables.nodes.time
+        stack = sortedcontainers.SortedDict(lambda k: -node_times[k])
+
+        # Don't use the Portion interval library, as it can't be used to keep
+        # track of the orientation of each interval. The below needs to be modified
+        # to keep track of the original position of each interval
+        stack[u] = ([(0, np.inf)], [])  # (u_intervals, v_intervals)
+        stack[v] = ([], [(0, np.inf)])
+
+        while len(stack) > 0:
+            c, uv_intervals = stack.popitem()  # node `c` = child
+            for ie in self.iedges_for_child(c):
+                if ie.parent not in stack:
+                    stack[ie.parent] = ([], [])
+                if len(uv_intervals[0]) > 0 and len(uv_intervals[1]) > 0:
+                    # check for overlap between uv_intervals[0] and uv_intervals[1]
+                    # which results in coalescence. The coalescent point can be
+                    # recorded, and the overlap deleted from the intervals
+                    pass  # TODO
+                # JEROME'S NOTE (from previous algorithm): if we had an index here
+                # sorted by left coord we could binary search to first match, and
+                # could break once c_right > left (I think?), rather than having
+                # to intersect all the intervals with the ie.child_left/right
+                for u_or_v, intervals in enumerate(uv_intervals):
+                    for i in intervals:
+                        if child_ivl := intersect(ie.child_left, ie.child_right, *i):
+                            # TODO - how do we keep track of the original positions?
+                            # this also has to account for duplications where the
+                            # list of intervals can contain overlaps
+                            parnt_ivl = ie.transform_interval(child_ivl, ROOTWARDS)
+                            stack[ie.parent][u_or_v].append(parnt_ivl)
 
 
 class Items:
