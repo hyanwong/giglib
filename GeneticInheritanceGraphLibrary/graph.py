@@ -296,6 +296,9 @@ class Graph:
         5. We have a time cutoff, so that we don't have to go all the way
            back to the "origin of life"
         """
+        if not isinstance(u, (int, np.integer)) or not isinstance(v, (int, np.integer)):
+            raise ValueError("u and v must be integers")
+
         if u == v:
             raise ValueError("u and v must be different nodes")
 
@@ -320,31 +323,34 @@ class Graph:
         node_times = self.tables.nodes.time
         stack = sortedcontainers.SortedDict(lambda k: -node_times[k])
 
-        # Don't use the Portion interval library, as it can't be used to keep track
-        # of the orientation of each interval (required to take account of inversions).
-        # Instead represent intervals as (a, b) tuples, where a < b if the interval
-        # is in the orientation of the the original (descendant) genome, u or v.
-        # We also extend the tuple to include another value x, which tracks the position
-        # of the origin in the original genome. This allows us to map a position in the
-        # current interval back to a position in u or v.
+        # Don't use the Portion interval library for *transmitting* intervals, as it
+        # can't be used to keep track of the orientation of each interval (required
+        # to take account of inversions). Instead represent intervals as (a, b)
+        # tuples, where a < b if the interval is in the orientation of the the original
+        # (descendant) genome, u or v. We also extend the tuple to include another value
+        # x, which tracks the position of the origin in the original genome. This allows
+        # us to map a position in the current interval back to a position in u or v.
         #
         # We store *two* lists of (a, b, x) tuples, the first for ancestral regions of
         # u, and the second for ancestral regions of v: if a node has something in both
         # lists, intervals for u and v co-occur (and could therefore coalesce), meaning
         # the node is a potential MRCA.
-        stack[u] = (
-            [(0, np.inf, 0)],  # list of intervals for the ancestral regions of u
-            [],  # intervals for the ancestral regions of v (empty for node u)
-        )
-        stack[v] = ([], [(0, np.inf, 0)])  # Mirror to setup v's intervals
-        result = collections.defaultdict(list)
+        U, V = 0, 1  # temp constants. The 1st list (index 0) is for U, the second for V
+        stack[u] = ([], [])  # intervals to track for node u (fill on next line)
+        stack[u][U].append((0, np.inf, 0))  # whole genome, origin at 0
+        stack[v] = ([], [])  # intervals to track for node v (fill on next line)
+        stack[v][V].append((0, np.inf, 0))  # whole genome, origin at 0
+
+        res = collections.defaultdict(P.IntervalDict)
+
+        def concat(x, y):
+            return [x[U] + y[U], x[V] + y[V]]
+
         while len(stack) > 0:
             c, uv_intervals = stack.popitem()  # node `c` = child
             if node_times[c] > time_cutoff:
-                return result
+                return res
             for ie in self.iedges_for_child(c):
-                if ie.parent not in stack:
-                    stack[ie.parent] = ([], [])
                 if len(uv_intervals[0]) > 0 and len(uv_intervals[1]) > 0:
                     # check for overlap between uv_intervals[0] and uv_intervals[1]
                     # which results in coalescence. The coalescent point can be
@@ -354,7 +360,55 @@ class Graph:
                     # all combinations. Note that we could have duplicate positions
                     # even in the same interval list, due to segmental duplications
                     # within a genome.
-                    pass  # TODO
+                    #
+                    # Code is fully unrolled here - could probably tidy and make
+                    # shorter, as well as package into a function
+                    coalesced = P.empty()
+                    for uI in uv_intervals[0]:
+                        inverted_u = uI[0] > uI[1]
+                        for vI in uv_intervals[1]:
+                            inverted_v = vI[0] > vI[1]
+                            if not inverted_u and not inverted_v:
+                                mrca = self._intersect(uI[0], uI[1], vI[0], vI[1])
+                                if mrca is None:
+                                    continue
+                                uOrig = [(uI[2], uI[1])]  # WRONG, placeholder
+                                vOrig = [(vI[2], vI[1])]  # WRONG, placeholder
+                            elif inverted_u and not inverted_v:
+                                mrca = self._intersect(uI[1], uI[0], vI[0], vI[1])
+                                if mrca is None:
+                                    continue
+                                uOrig = [(uI[2], uI[1])]  # WRONG, placeholder
+                                vOrig = [(vI[2], vI[1])]  # WRONG, placeholder
+                            elif not inverted_u and inverted_v:
+                                mrca = self._intersect(uI[0], uI[1], vI[1], vI[0])
+                                if mrca is None:
+                                    continue
+                                uOrig = [(uI[2], uI[1])]  # WRONG, placeholder
+                                vOrig = [(vI[2], vI[1])]  # WRONG, placeholder
+                            else:
+                                mrca = self._intersect(uI[1], uI[0], vI[1], vI[0])
+                                if mrca is None:
+                                    continue
+                                uOrig = [(uI[2], uI[1])]  # WRONG, placeholder
+                                vOrig = [(vI[2], vI[1])]  # WRONG, placeholder
+
+                            i = P.closedopen(*mrca)  # MRCA interval as a Portion obj
+                            res[c].combine({P.IntervalDict(i): (uOrig, vOrig)}, concat)
+                            coalesced |= i
+                    if not coalesced.empty:
+                        # Remove the coalesced segments from the interval lists
+                        for u_or_v in (U, V):
+                            interval_list = []
+                            for ivl in uv_intervals[u_or_v]:
+                                if ivl[0] < ivl[1]:
+                                    for i in P.closedopen(ivl[0], ivl[1]) - coalesced:
+                                        interval_list.append(i.lower, i.upper, ivl[2])
+                                else:
+                                    for i in P.closedopen(ivl[1], ivl[0]) - coalesced:
+                                        interval_list.append(i.upper, i.lower, ivl[2])
+                            uv_intervals[u_or_v].clear()
+                            uv_intervals[u_or_v].extend(interval_list)
                 # JEROME'S NOTE (from previous algorithm): if we had an index here
                 # sorted by left coord we could binary search to first match, and
                 # could break once c_right > left (I think?), rather than having
@@ -365,9 +419,12 @@ class Graph:
                             parnt_ivl = ie.transform_interval(child_ivl, ROOTWARDS)
                             # Now figure out how to transform the position of a point
                             # in the current coordinate space back to the original
+                            # NOT WORKING as positions are outside the normal interval
                             x = ie.transform_position(i[2], ROOTWARDS)
-                            stack[ie.parent][u_or_v].append(tuple(*parnt_ivl, x))
-        return result
+                            if ie.parent not in stack:
+                                stack[ie.parent] = ([], [])
+                            stack[ie.parent][u_or_v].append((*parnt_ivl, x))
+        return res
 
 
 class Items:

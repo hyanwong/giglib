@@ -368,3 +368,13 @@ class TestIEdge:
         assert ie.transform_interval((11, 19), gigl.ROOTWARDS) == (29, 21)
         with pytest.raises(ValueError, match="not in child interval"):
             ie.transform_interval((5, 21), gigl.ROOTWARDS)
+
+
+class TestFindMrcas:
+    def test_simple_from_tree_sequence(self, simple_ts):
+        assert simple_ts.num_trees > 1
+        assert simple_ts.num_samples >= 2
+        gig = gigl.from_tree_sequence(simple_ts)
+        mrcas = gig.find_mrca_regions(0, 1)
+        print(simple_ts.draw_text())
+        print(mrcas)
