@@ -229,9 +229,10 @@ class Graph:
         #    together when they adjoin or overlap (coalesce). This reduces the
         #    number of intervals and their fragmentation as we go up the stack.
         # B. For simplicity we put all nodes onto the stack at the start, in time
-        #    order (relying on the fact that python dicts now preserve order).
-        #    We then fill out their intervals as we go. Since sample_resolve() will
-        #    touch almost all nodes, declare and fill the stack up front is efficient.
+        #    order (relying on the fact that python dicts now preserve order). We
+        #    then fill out their intervals as we go, and gradually remove the items
+        #    from the stack as we work through it. Since sample_resolve() will touch
+        #    almost all nodes, declaring and filling the stack up-front is efficient.
         #    An alternative if only a few nodes are likely to be visited would
         #    be to create a dynamic stack continuously sorted by node time, e.g.
         #        stack = sortedcontainers.SortedDict(lambda k: -nodes_time[k])
@@ -303,7 +304,7 @@ class Graph:
            back to the "origin of life"
         """
 
-        def intersect(lft_1, rgt_1, lft_2, rgt_2):
+        def trim(lft_1, rgt_1, lft_2, rgt_2):
             """
             An inversion-aware intersection routine, which returns the intersection
             of two intervals, where the left and right of
@@ -324,11 +325,23 @@ class Graph:
         node_times = self.tables.nodes.time
         stack = sortedcontainers.SortedDict(lambda k: -node_times[k])
 
-        # Don't use the Portion interval library, as it can't be used to keep
-        # track of the orientation of each interval. The below needs to be modified
-        # to keep track of the original position of each interval
-        stack[u] = ([(0, np.inf)], [])  # (u_intervals, v_intervals)
-        stack[v] = ([], [(0, np.inf)])
+        # Don't use the Portion interval library, as it can't be used to keep track
+        # of the orientation of each interval (required to take account of inversions).
+        # Instead represent intervals as (a, b) tuples, where a < b if the interval
+        # is in the orientation of the the original (descendant) genome, u or v.
+        # We also extend the tuple to include another value x, which tracks the position
+        # of the origin in the original genome. This allows us to map a position in the
+        # current interval back to a position in u or v.
+        #
+        # We store *two* lists of (a, b, x) tuples, the first for ancestral regions of
+        # u, and the second for ancestral regions of v: if a node has something in both
+        # lists, intervals for u and v co-occur (and could therefore coalesce), meaning
+        # the node is a potential MRCA.
+        stack[u] = (
+            [(0, np.inf, 0)],  # list of intervals for the ancestral regions of u
+            [],  # intervals for the ancestral regions of v (empty for node u)
+        )
+        stack[v] = ([], [(0, np.inf, 0)])  # Mirror to setup v's intervals
 
         while len(stack) > 0:
             c, uv_intervals = stack.popitem()  # node `c` = child
@@ -339,6 +352,11 @@ class Graph:
                     # check for overlap between uv_intervals[0] and uv_intervals[1]
                     # which results in coalescence. The coalescent point can be
                     # recorded, and the overlap deleted from the intervals
+                    #
+                    # Intervals are not currently sorted, so we need to check
+                    # all combinations. Note that we could have duplicate positions
+                    # even in the same interval list, due to segmental duplications
+                    # within a genome.
                     pass  # TODO
                 # JEROME'S NOTE (from previous algorithm): if we had an index here
                 # sorted by left coord we could binary search to first match, and
@@ -346,12 +364,12 @@ class Graph:
                 # to intersect all the intervals with the ie.child_left/right
                 for u_or_v, intervals in enumerate(uv_intervals):
                     for i in intervals:
-                        if child_ivl := intersect(ie.child_left, ie.child_right, *i):
-                            # TODO - how do we keep track of the original positions?
-                            # this also has to account for duplications where the
-                            # list of intervals can contain overlaps
+                        if child_ivl := trim(ie.child_left, ie.child_right, i[0], i[1]):
                             parnt_ivl = ie.transform_interval(child_ivl, ROOTWARDS)
-                            stack[ie.parent][u_or_v].append(parnt_ivl)
+                            # Now figure out how to transform the position of a point
+                            # in the current coordinate space back to the original
+                            x = ie.transform_position(i[2], ROOTWARDS)
+                            stack[ie.parent][u_or_v].append(tuple(*parnt_ivl, x))
 
 
 class Items:
