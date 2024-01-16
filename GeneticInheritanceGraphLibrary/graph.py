@@ -3,6 +3,7 @@ Define a generalised (genetic) inheritance graph object, which is
 a validated set of GIG tables with some extra indexes etc for
 efficient access.
 """
+import collections
 import dataclasses
 
 import numpy as np
@@ -272,15 +273,7 @@ class Graph:
         Find all regions between nodes u and v that share a most recent
         common ancestor in the GIG which is more recent than time_cutoff.
         Returns a dict of dicts of the following form:
-            MRCA_node_idA : {
-                intervalA1: (
-                    [u_interval_A1a, u_interval_A1b, ...],
-                    [v_interval_A1a, v_interval_A1b, ...]),
-                intervalA2: (
-                    [u_interval_A2a, u_interval_A2b, ...],
-                    [v_interval_A2a, v_interval_A2b, ...]),
-                ...
-            },
+            MRCA_node_idA : portion.IntervalDict
             MRCA_node_idB : {
                 intervalB1: (
                     [u_interval_B1a, u_interval_B1b, ...],
@@ -303,6 +296,8 @@ class Graph:
         5. We have a time cutoff, so that we don't have to go all the way
            back to the "origin of life"
         """
+        if u == v:
+            raise ValueError("u and v must be different nodes")
 
         def trim(lft_1, rgt_1, lft_2, rgt_2):
             """
@@ -319,8 +314,8 @@ class Graph:
                     return max(lft_1, lft_2), min(rgt_1, rgt_2)
             return None
 
-        if u == v:
-            raise ValueError("u and v must be different nodes")
+        if time_cutoff is None:
+            time_cutoff = np.inf
         # Use a dynamic stack as we hopefully will be visiting a minority of nodes
         node_times = self.tables.nodes.time
         stack = sortedcontainers.SortedDict(lambda k: -node_times[k])
@@ -342,9 +337,11 @@ class Graph:
             [],  # intervals for the ancestral regions of v (empty for node u)
         )
         stack[v] = ([], [(0, np.inf, 0)])  # Mirror to setup v's intervals
-
+        result = collections.defaultdict(list)
         while len(stack) > 0:
             c, uv_intervals = stack.popitem()  # node `c` = child
+            if node_times[c] > time_cutoff:
+                return result
             for ie in self.iedges_for_child(c):
                 if ie.parent not in stack:
                     stack[ie.parent] = ([], [])
@@ -370,6 +367,7 @@ class Graph:
                             # in the current coordinate space back to the original
                             x = ie.transform_position(i[2], ROOTWARDS)
                             stack[ie.parent][u_or_v].append(tuple(*parnt_ivl, x))
+        return result
 
 
 class Items:
