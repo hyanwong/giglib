@@ -365,6 +365,8 @@ class Graph:
             print(f"Checking child {c}")
             if len(uv_intervals[0]) > 0 and len(uv_intervals[1]) > 0:
                 print(f"Potential coalescence in {c}")
+                print(f" u: {uv_intervals[U]}")
+                print(f" v: {uv_intervals[V]}")
                 # check for overlap between uv_intervals[0] and uv_intervals[1]
                 # which results in coalescence. The coalescent point can be
                 # recorded, and the overlap deleted from the intervals
@@ -377,16 +379,16 @@ class Graph:
                 # Code is fully unrolled here - could probably tidy and make
                 # shorter, as well as package into a function
                 coalesced = P.empty()
-                for uL, uR, uOffset in uv_intervals[0]:
+                for uL, uR, uOffset in uv_intervals[U]:
                     inverted_u = uL > uR
-                    for vL, vR, vOffset in uv_intervals[1]:
+                    for vL, vR, vOffset in uv_intervals[V]:
                         inverted_v = vL > vR
                         if not inverted_u and not inverted_v:
                             mrca = self._intersect(uL, uR, vL, vR)
                             if mrca is None:
                                 continue
-                            uOrig = [(uL + uOffset, uR + uOffset)]
-                            vOrig = [(vL + vOffset, vR + vOffset)]
+                            uOrig = [(mrca[0] + uOffset, mrca[1] + uOffset)]
+                            vOrig = [(mrca[0] + vOffset, mrca[1] + vOffset)]
                         elif inverted_u and not inverted_v:
                             mrca = self._intersect(uL, uR, vR, vL)
                             if mrca is None:
@@ -413,7 +415,7 @@ class Graph:
                         coalesced |= i
                 if not coalesced.empty:
                     # Remove the coalesced segments from the interval lists
-                    print(f"Found coalescence in {c}: {coalesced}")
+                    print(f"Condensed coalescences in {c}: {coalesced}")
                     for u_or_v in (U, V):
                         intervals = [[], []]
                         for ivl in uv_intervals[u_or_v]:
@@ -438,8 +440,8 @@ class Graph:
                             if ie.parent not in stack:
                                 stack[ie.parent] = ([], [])
                             print(
-                                f"Added to {('u', 'v')[u_or_v]} stack for {ie.parent}:"
-                                "parnt_ivl"
+                                f"Added to {('u', 'v')[u_or_v]} stack for {ie.parent}: "
+                                + str(parnt_ivl)
                             )
                             stack[ie.parent][u_or_v].append((*parnt_ivl, x))
         if as_interval_dict:

@@ -1,5 +1,6 @@
 import GeneticInheritanceGraphLibrary as gigl
 import numpy as np
+import portion as P
 import pytest
 
 
@@ -371,10 +372,66 @@ class TestIEdge:
 
 
 class TestFindMrcas:
-    def test_simple_from_tree_sequence(self, simple_ts):
+    def test_simple_non_sv(self, simple_ts):
         assert simple_ts.num_trees > 1
         assert simple_ts.num_samples >= 2
         gig = gigl.from_tree_sequence(simple_ts)
         mrcas = gig.find_mrca_regions(0, 1)
-        print(simple_ts.draw_text())
-        print(mrcas)
+        for tree in simple_ts.simplify([0, 1], filter_nodes=False).trees():
+            interval = (int(tree.interval.left), int(tree.interval.right))
+            mrca = tree.get_mrca(0, 1)
+            assert interval in mrcas[mrca]
+            u_equivalent, v_equivalent = mrcas[mrca][interval]
+            assert len(u_equivalent) == 1  # No duplications
+            assert len(v_equivalent) == 1  # No duplications
+            assert u_equivalent[0] == interval
+            assert v_equivalent[0] == interval
+
+    def test_simple_non_sv_asintervaldict(self, simple_ts):
+        gig = gigl.from_tree_sequence(simple_ts)
+        mrcas = gig.find_mrca_regions(0, 1, as_interval_dict=True)
+        for tree in simple_ts.simplify([0, 1], filter_nodes=False).trees():
+            left_right = (int(tree.interval.left), int(tree.interval.right))
+            mrca_interval = P.closedopen(*left_right)
+            mrca = tree.get_mrca(0, 1)
+            check_mrcas = mrcas[mrca].as_dict()
+            assert mrca_interval in check_mrcas
+
+    def test_no_recomb_sv_dup_del(self, all_sv_types_gig):
+        assert all_sv_types_gig.num_samples >= 2
+        sample_u = 0
+        sample_v = 2
+        mrcas = all_sv_types_gig.find_mrca_regions(sample_u, sample_v)
+        assert len(mrcas) == 1
+        assert 11 in mrcas
+
+        # (0, 50) should be unchanged
+        assert (0, 50) in mrcas[11]
+        u, v = mrcas[11][(0, 50)]
+        assert len(u) == len(v) == 1
+        assert u[0] == (0, 50)
+        assert v[0] == (0, 50)
+
+        # (150, 50) should be duplicated
+        assert (150, 200) in mrcas[11]
+        u, v = mrcas[11][(150, 200)]
+        assert len(u) == 2  # duplication
+        assert (150, 200) in u  # duplication
+        assert (250, 300) in u  # duplication
+        assert len(v) == 1
+        assert v[0] == (50, 100)  # deletion
+
+        # (50, 150) should be deleted, with no MRCA
+        assert (50, 150) not in mrcas[11]
+        assert len(mrcas[11]) == 2
+
+    def test_no_recomb_sv_dup_inv(self, all_sv_types_gig):
+        assert all_sv_types_gig.num_samples >= 2
+        sample_u = 0
+        sample_v = 4
+        mrcas = all_sv_types_gig.find_mrca_regions(sample_u, sample_v)
+        assert len(mrcas) == 1
+        assert 12 in mrcas
+        for k, v in mrcas[12].items():
+            print(k, ":", v)
+        # TODO - test inversions
