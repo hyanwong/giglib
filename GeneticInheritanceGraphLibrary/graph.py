@@ -210,8 +210,8 @@ class Graph:
 
     @staticmethod  # undocumented: internal use
     def general_intersect(a, b, c, d):
-        # Return the intersection of two intervals, allowing for
-        # a > b and/or c > d
+        # Return the intersection of two intervals, allowing for a > b
+        # and/or c > d. Return None if no intersection, or an interval (x, y) with x < y
         if a < b:
             return Graph.intersect(a, b, c, d) if c < d else Graph.intersect(a, b, d, c)
         else:
@@ -275,29 +275,25 @@ class Graph:
         tables.sort()
         return self.__class__(tables)
 
-    def find_mrca_regions(self, u, v, time_cutoff=None, as_interval_dict=False):
+    def find_mrca_regions(self, u, v, time_cutoff=None):
         """
         Find all regions between nodes u and v that share a most recent
         common ancestor in the GIG which is more recent than time_cutoff.
-        If as_interval_dict is True, returns a dict of the following form:
+        Returns a dict of dicts of the following form
             {
-                MRCA_node_idA : portion.IntervalDict,
-                MRCA_node_idB : portion.IntervalDict,
+                MRCA_node_ID1 : {(X, Y): (
+                    [(uA, uB), (uC, uD), ...],
+                    [(vA, vB), ...]
+                )},
+                MRCA_node_ID2 : ...,
                 ...
             }
-        Where the IntervalDicts are keyed by interval k = portion.closedopen(kA, kB)
-        covering the MRCA node, and whose values contain
-        a tuple of two lists of intervals stored as python tuples e.g. (uA, uB).
-        The first list contains the interval(s) in u that correspond to k, and
-        the second contains the interval(s) in v that
-        correspond to k. If there has been no duplication of the interval since
-        the MRCA, then the lists will only contain a single interval each.
-
-        If as_interval_dict is False, the same structure is returned but the
-        portion.IntervalDict objects are replaced by normal dictionaries,
-        so that as well as the intervals within intervals corresponding to
-        u and v being tuples, the key k is a standard (kA, kB) python tuple.
-
+        Where in each inner dict, the key (X, Y) gives an interval (with X < Y)
+        in the MRCA node, and the value is a 2-tuple giving the corresponding
+        intervals in u and v. In the example above there are two corresponding
+        intervals in u: (uA, uB) and (uC, uD) representing a duplication of the
+        MRCA interval into u. If uA > uB then the interval in u
+        is inverted relative to that in the MRCA node.
 
         Implementation-wise, this is similar to the sample_resolve algorithm, but
         1. Instead of following the ancestry of *all* samples upwards, we
@@ -406,6 +402,7 @@ class Graph:
                                     # Original inverted relative to the mrca interval
                                     a.append((offset + mrca.upper, offset + mrca.lower))
                         result[c][mrca] = mapped_intervals
+
                     # Remove the coalesced segments from the interval lists
                     print(f"Condensed coalescences in {c}: {coalesced}")
                     for u_or_v in (U, V):
@@ -436,8 +433,6 @@ class Graph:
                                 + str(parnt_ivl)
                             )
                             stack[ie.parent][u_or_v].append((*parnt_ivl, x))
-        if as_interval_dict:
-            return result
         return {
             k: {(k.lower, k.upper): v for k, v in pv.items()}
             for k, pv in result.items()

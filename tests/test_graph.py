@@ -1,6 +1,5 @@
 import GeneticInheritanceGraphLibrary as gigl
 import numpy as np
-import portion as P
 import pytest
 
 
@@ -386,16 +385,6 @@ class TestFindMrcas:
             assert len(v_equivalent) == 1  # No duplications
             assert u_equivalent[0] == interval
             assert v_equivalent[0] == interval
-
-    def test_simple_non_sv_asintervaldict(self, simple_ts):
-        gig = gigl.from_tree_sequence(simple_ts)
-        mrcas = gig.find_mrca_regions(0, 1, as_interval_dict=True)
-        for tree in simple_ts.simplify([0, 1], filter_nodes=False).trees():
-            left_right = (int(tree.interval.left), int(tree.interval.right))
-            mrca_interval = P.closedopen(*left_right)
-            mrca = tree.get_mrca(0, 1)
-            check_mrcas = mrcas[mrca].as_dict()
-            assert mrca_interval in check_mrcas
 
     def test_no_recomb_sv_dup_del(self, all_sv_types_gig):
         assert all_sv_types_gig.num_samples >= 2
