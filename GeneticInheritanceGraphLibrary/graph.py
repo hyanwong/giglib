@@ -376,7 +376,9 @@ class Graph:
                 # Intervals are not currently sorted, so we need to check
                 # all combinations. Note that we could have duplicate positions
                 # even in the same interval list, due to segmental duplications
-                # within a genome.
+                # within a genome. We have to use the portion library here to
+                # cut the MRCA regions into non-overlapping pieces which have different
+                # patterns of descent into u and v
                 coalesced = P.empty()
                 for i, (uL, uR, _) in enumerate(uv_intervals[U]):
                     for j, (vL, vR, _) in enumerate(uv_intervals[V]):
@@ -395,16 +397,15 @@ class Graph:
                             mapped_intervals, uv_indexes, uv_intervals
                         ):
                             for index in indexes:
-                                l, r, offset = intervals[index]
-                                if l < r:
+                                left, right, offset = intervals[index]
+                                if left < right:
                                     a.append((offset + mrca.lower, offset + mrca.upper))
                                 else:
                                     # Original inverted relative to the mrca interval
                                     a.append((offset + mrca.upper, offset + mrca.lower))
-                        result[c][mrca] = mapped_intervals
+                        result[c][mrca] = mapped_intervals  # replace
 
                     # Remove the coalesced segments from the interval lists
-                    print(f"Condensed coalescences in {c}: {coalesced}")
                     for u_or_v in (U, V):
                         intervals = [[], []]
                         for ivl in uv_intervals[u_or_v]:
@@ -428,10 +429,6 @@ class Graph:
                             x = i[2] + child_ivl[0] - parnt_ivl[0]
                             if ie.parent not in stack:
                                 stack[ie.parent] = ([], [])
-                            print(
-                                f"Added to {('u', 'v')[u_or_v]} stack for {ie.parent}: "
-                                + str(parnt_ivl)
-                            )
                             stack[ie.parent][u_or_v].append((*parnt_ivl, x))
         return {
             k: {(k.lower, k.upper): v for k, v in pv.items()}
