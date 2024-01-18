@@ -201,14 +201,21 @@ class Graph:
             return max(maxpos)
         return 0
 
-    @staticmethod
-    def _intersect(lft_1, rgt_1, lft_2, rgt_2):
-        """
-        Return the intersection of two intervals, or None if they do not overlap
-        """
+    @staticmethod  # undocumented: internal use
+    def intersect(lft_1, rgt_1, lft_2, rgt_2):
+        # Return the intersection of two intervals, or None if they do not overlap
         if rgt_1 > lft_2 and rgt_2 > lft_1:
             return max(lft_1, lft_2), min(rgt_1, rgt_2)
         return None
+
+    @staticmethod  # undocumented: internal use
+    def general_intersect(a, b, c, d):
+        # Return the intersection of two intervals, allowing for
+        # a > b and/or c > d
+        if a < b:
+            return Graph.intersect(a, b, c, d) if c < d else Graph.intersect(a, b, d, c)
+        else:
+            return Graph.intersect(b, a, c, d) if c < d else Graph.intersect(b, a, d, c)
 
     def sample_resolve(self):
         """
@@ -255,7 +262,7 @@ class Graph:
                 # could break once c_right > left (I think?), rather than having
                 # to intersect all the intervals with the current c_rgt/c_lft
                 for i in intervals:
-                    if child_ivl := self._intersect(c_lft, c_rgt, i.lower, i.upper):
+                    if child_ivl := self.intersect(c_lft, c_rgt, i.lower, i.upper):
                         parnt_ivl = ie.transform_interval(child_ivl, ROOTWARDS)
                         if ie.is_inversion():
                             # For passing upwards, interval orientation doesn't matter
@@ -352,16 +359,15 @@ class Graph:
         stack[v] = ([], [])  # intervals to track for node v (fill on next line)
         stack[v][V].append((0, np.inf, 0))  # whole genome, origin at 0
 
-        res = collections.defaultdict(P.IntervalDict)
+        result = collections.defaultdict(P.IntervalDict)
 
         def concat(x, y):
-            print((x[U] + y[U], x[V] + y[V]))
-            return (x[U] + y[U], x[V] + y[V])
+            return (x[U] | y[U], x[V] | y[V])
 
         while len(stack) > 0:
             c, uv_intervals = stack.popitem()  # node `c` = child
             if node_times[c] > time_cutoff:
-                return res
+                return result
             print(f"Checking child {c}")
             if len(uv_intervals[0]) > 0 and len(uv_intervals[1]) > 0:
                 print(f"Potential coalescence in {c}")
@@ -375,45 +381,31 @@ class Graph:
                 # all combinations. Note that we could have duplicate positions
                 # even in the same interval list, due to segmental duplications
                 # within a genome.
-                #
-                # Code is fully unrolled here - could probably tidy and make
-                # shorter, as well as package into a function
                 coalesced = P.empty()
-                for uL, uR, uOffset in uv_intervals[U]:
-                    inverted_u = uL > uR
-                    for vL, vR, vOffset in uv_intervals[V]:
-                        inverted_v = vL > vR
-                        if not inverted_u and not inverted_v:
-                            mrca = self._intersect(uL, uR, vL, vR)
-                            if mrca is None:
-                                continue
-                            uOrig = [(mrca[0] + uOffset, mrca[1] + uOffset)]
-                            vOrig = [(mrca[0] + vOffset, mrca[1] + vOffset)]
-                        elif inverted_u and not inverted_v:
-                            mrca = self._intersect(uL, uR, vR, vL)
-                            if mrca is None:
-                                continue
-                            uOrig = [(uL + uOffset, uR + uOffset)]  # Wrong
-                            vOrig = [(vL + vOffset, vR + vOffset)]  # Wrong
-                        elif not inverted_u and inverted_v:
-                            mrca = self._intersect(uR, uL, vL, vR)
-                            if mrca is None:
-                                continue
-                            uOrig = [(uL + uOffset, uR + uOffset)]  # Wrong
-                            vOrig = [(vL + vOffset, vR + vOffset)]  # Wrong
-                        else:
-                            mrca = self._intersect(uR, uL, vR, vL)
-                            if mrca is None:
-                                continue
-                            uOrig = [(uL + uOffset, uR + uOffset)]  # Wrong
-                            vOrig = [(vL + vOffset, vR + vOffset)]  # Wrong
-
-                        i = P.closedopen(*mrca)  # MRCA interval as a Portion obj
-                        res[c] = res[c].combine(
-                            P.IntervalDict({i: (uOrig, vOrig)}), concat
-                        )
-                        coalesced |= i
+                for i, (uL, uR, _) in enumerate(uv_intervals[U]):
+                    for j, (vL, vR, _) in enumerate(uv_intervals[V]):
+                        if intersection := self.general_intersect(uL, uR, vL, vR):
+                            mrca = P.closedopen(*intersection)  # MRCA as a Portion obj
+                            coalesced |= mrca
+                            result[c] = result[c].combine(
+                                P.IntervalDict({mrca: ({i}, {j})}), how=concat
+                            )
                 if not coalesced.empty:
+                    # Work out the mapping of the mrca intervals into intervals in
+                    # u and v, given indexes into the uv_intervals lists.
+                    for mrca, uv_indexes in result[c].items():
+                        mapped_intervals = ([], [])
+                        for a, indexes, intervals in zip(
+                            mapped_intervals, uv_indexes, uv_intervals
+                        ):
+                            for index in indexes:
+                                l, r, offset = intervals[index]
+                                if l < r:
+                                    a.append((offset + mrca.lower, offset + mrca.upper))
+                                else:
+                                    # Original inverted relative to the mrca interval
+                                    a.append((offset + mrca.upper, offset + mrca.lower))
+                        result[c][mrca] = mapped_intervals
                     # Remove the coalesced segments from the interval lists
                     print(f"Condensed coalescences in {c}: {coalesced}")
                     for u_or_v in (U, V):
@@ -445,9 +437,10 @@ class Graph:
                             )
                             stack[ie.parent][u_or_v].append((*parnt_ivl, x))
         if as_interval_dict:
-            return res
+            return result
         return {
-            k: {(k.lower, k.upper): v for k, v in pv.items()} for k, pv in res.items()
+            k: {(k.lower, k.upper): v for k, v in pv.items()}
+            for k, pv in result.items()
         }
 
 
