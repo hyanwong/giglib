@@ -20,6 +20,13 @@ def make_iedges_table(arr, tables):
     return tables.iedges
 
 
+def iedge(cl, cr, pl, pr, *, c, p):
+    """
+    A helper function to quickly make an IEdgeTableRow.
+    """
+    return gigl.tables.IEdgeTableRow(cl, cr, pl, pr, child=c, parent=p)
+
+
 def make_nodes_table(arr, tables):
     """
     Make a nodes table from a list of tuples.

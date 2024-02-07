@@ -1,6 +1,5 @@
 import GeneticInheritanceGraphLibrary as gigl
 import numpy as np
-import portion as P
 import pytest
 import tskit
 
@@ -261,6 +260,33 @@ class TestSampleResolving:
         assert new_gig.iedges[1].parent_right == 95
         # TODO - test a transformation of e.g. 3 in the original sample
 
+    def test_extended_inversion(self, extended_inversion_gig):
+        assert extended_inversion_gig.max_position(0) == 155
+        assert extended_inversion_gig.min_position(0) == 20
+
+        assert extended_inversion_gig.nodes[0].is_sample()
+        iedges = list(extended_inversion_gig.iedges_for_child(0))
+        assert len(iedges) == 1
+        iedges = list(extended_inversion_gig.iedges_for_child(iedges[0].parent))
+        assert len(iedges) == 1
+        ie = iedges[0]
+        assert ie.child_left == 10
+        assert ie.child_right == 160
+        assert ie.is_simple_inversion()
+        gig = extended_inversion_gig.sample_resolve()
+
+        # Now check sample resolving has correctly trimmed the inversion edge
+        iedges = list(gig.iedges_for_child(0))
+        assert len(iedges) == 1
+        iedges = list(gig.iedges_for_child(iedges[0].parent))
+        assert len(iedges) == 1
+        ie = iedges[0]
+        assert ie.is_inversion()
+        assert ie.child_left == 20
+        assert ie.child_right == 155
+        assert ie.parent_left == 150
+        assert ie.parent_right == 15
+
 
 class TestIEdge:
     """
@@ -393,17 +419,21 @@ class TestFindMrcas:
             assert full_span in interval_list
 
     def test_find_mrca_2_trees(self, degree2_2_tip_ts):
+        num_trees = 2
+        assert degree2_2_tip_ts.num_trees == num_trees
         gig = gigl.from_tree_sequence(degree2_2_tip_ts)
         shared_regions = gig.find_mrca_regions(0, 1)
-        assert len(shared_regions) == 2
-        assert gig.tables.nodes.time[2] in shared_regions
-        val = shared_regions[gig.tables.nodes.time[2]]
-        assert len(val) == 2
-        for i in [0, 1]:
-            assert len(val[i]) == 1
-            interval, origin = val[i].popitem()
-            assert interval == P.closedopen(0, gig.sequence_length(0))
-            assert origin.inverted is False
+        internal_nodes = [node.id for node in degree2_2_tip_ts.nodes() if node.time > 0]
+        assert len(shared_regions) == num_trees
+        for mrca_id in internal_nodes:
+            assert mrca_id in shared_regions
+            val = shared_regions[mrca_id]
+            assert len(val) == 1
+            interval, (u, v) = val.popitem()
+            assert len(u) == 1
+            assert len(v) == 1
+            assert interval in u
+            assert interval in v
 
     def test_time_cutoff(self, degree2_2_tip_ts):
         # set a cutoff so that the mrca in one tree is never visited
@@ -432,10 +462,7 @@ class TestFindMrcas:
         for u in range(len(gig.samples)):
             for v in range(u + 1, len(gig.samples)):
                 mrcas = gig.find_mrca_regions(u, v)
-                print(simple_ts.draw_text())
-                print(mrcas)
                 equiv_ts = simple_ts.simplify([u, v], filter_nodes=False)
-                print(equiv_ts.draw_text())
                 max_trees = max(max_trees, equiv_ts.num_trees)
                 for tree in equiv_ts.trees():
                     interval = (int(tree.interval.left), int(tree.interval.right))
@@ -447,6 +474,58 @@ class TestFindMrcas:
                     assert interval in u_equivalent
                     assert interval in v_equivalent
         assert max_trees > 2  # at least some cases with 3 or more mrcas
+
+    @pytest.mark.parametrize("sample_resolve", [True, False])
+    def test_extended_inversion(self, extended_inversion_gig, sample_resolve):
+        gig = extended_inversion_gig
+        if sample_resolve:
+            gig = gig.sample_resolve()
+        assert gig.min_position(0) == 20
+        assert gig.max_position(0) == 155
+        assert gig.min_position(1) == 0
+        assert gig.max_position(1) == 100
+        mrcas = gig.find_mrca_regions(0, 1)
+        assert len(mrcas) == 1
+        assert 3 in mrcas
+        mrca = mrcas[3]
+        assert (15, 100) in mrca  # the inverson only leaves 15..100 shared
+        u, v = mrca[(15, 100)]
+        assert len(v) == 1
+        assert (15, 100) in v
+        assert len(u) == 1
+        assert (155, 70) in u  # inverted region is span 85 from 155 leftward in sample
+
+    def test_inverted_duplicate(self, inverted_duplicate_gig):
+        assert inverted_duplicate_gig.num_samples == 2
+        mrcas = inverted_duplicate_gig.find_mrca_regions(0, 1)
+        assert len(mrcas) == 1
+        assert 3 in mrcas
+        mrca = mrcas[3]
+        assert (10, 15) in mrca  # the duplicated+inverted section
+        u, v = mrca[(10, 15)]
+        assert u == {(0, 5), (15, 10)}
+        assert v == {(0, 5)}
+
+        assert (15, 20) in mrca  # only the inverted section
+        u, v = mrca[(15, 20)]
+        assert u == {(10, 5)}
+        assert v == {(5, 10)}
+
+    def test_inverted_duplicate_with_missing(self, inverted_duplicate_with_missing_gig):
+        assert inverted_duplicate_with_missing_gig.num_samples == 2
+        mrcas = inverted_duplicate_with_missing_gig.find_mrca_regions(0, 1)
+        assert len(mrcas) == 1
+        assert 3 in mrcas
+        mrca = mrcas[3]
+        assert (10, 15) in mrca  # the duplicated+inverted section
+        u, v = mrca[(10, 15)]
+        assert u == {(0, 5), (35, 30)}
+        assert v == {(0, 5)}
+
+        assert (15, 20) in mrca  # only the inverted section
+        u, v = mrca[(15, 20)]
+        assert u == {(30, 25)}
+        assert v == {(5, 10)}
 
     def test_no_recomb_sv_dup_del(self, all_sv_types_gig):
         assert all_sv_types_gig.num_samples >= 2
@@ -483,7 +562,19 @@ class TestFindMrcas:
         mrcas = all_sv_types_gig.find_mrca_regions(sample_u, sample_v)
         assert len(mrcas) == 1
         assert 12 in mrcas
-        for k, v in mrcas[12].items():
-            print(k, ":", v)
-            raise
-        # TODO - test inversions
+        mrca = mrcas[12]
+        # "normal" region
+        assert (0, 80) in mrca
+        assert mrca[(0, 80)] == ({(0, 80)}, {(0, 80)})
+
+        # start of inverted region
+        assert (80, 100) in mrca
+        assert mrca[(80, 100)] == ({(80, 100)}, {(160, 140)})
+
+        # duplicated inverted region
+        assert (100, 160) in mrca
+        assert mrca[(100, 160)] == ({(100, 160), (200, 260)}, {(140, 80)})
+
+        # duplicated non-inverted region
+        assert (160, 200) in mrca
+        assert mrca[(160, 200)] == ({(160, 200), (260, 300)}, {(160, 200)})

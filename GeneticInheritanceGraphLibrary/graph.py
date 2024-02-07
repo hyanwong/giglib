@@ -87,7 +87,7 @@ class Graph:
             bad = np.where(~span_equal)[0]
             raise ValueError(f"iedges {bad} have different parent and child spans")
 
-        # Check that child left is always < child right
+        # Check that child left is always < child right (also checks nonzero span)
         if np.any(child_spans <= 0):
             raise ValueError(
                 f"child_left >= child_right for iedges {np.where(child_spans < 0)[0]}"
@@ -191,32 +191,57 @@ class Graph:
         for i in range(*self.child_range[u, :]):
             yield self.iedges[i]
 
-    def sequence_length(self, u):
+    def max_position(self, u):
         """
-        Return the known sequence length of the node u (found from the
-        maximum position in the edges above or below this node)
+        Return the maximum position in the edges above or below this node.
+        This defines the known sequence length of the node u.
         """
         maxpos = [ie.parent_max for ie in self.iedges_for_parent(u)]
         maxpos += [ie.child_max for ie in self.iedges_for_child(u)]
         if len(maxpos) > 0:
             return max(maxpos)
-        return 0
+        return None
+
+    def min_position(self, u):
+        """
+        Return the minimum position in the edges above or below this node.
+        Genetic data for positions before this is treated as unknown.
+        """
+        minpos = [ie.parent_min for ie in self.iedges_for_parent(u)]
+        minpos += [ie.child_min for ie in self.iedges_for_child(u)]
+        if len(minpos) > 0:
+            return min(minpos)
+        return None
+
+    def sequence_length(self, u):
+        """
+        Return the known sequence length of the node u: equivalent to
+        max_position(u) but returns 0 rather than None if this is an
+        isolated node (with no associated edges).
+        """
+        return self.max_position(u) or 0
 
     @staticmethod  # undocumented: internal use
-    def intersect(lft_1, rgt_1, lft_2, rgt_2):
+    def easy_intersect(lft_1, rgt_1, lft_2, rgt_2):
         # Return the intersection of two intervals, or None if they do not overlap
         if rgt_1 > lft_2 and rgt_2 > lft_1:
             return max(lft_1, lft_2), min(rgt_1, rgt_2)
         return None
 
     @staticmethod  # undocumented: internal use
-    def general_intersect(a, b, c, d):
+    def intersect(a, b, c, d):
         # Return the intersection of two intervals, allowing for a > b
         # and/or c > d. Return None if no intersection, or an interval (x, y) with x < y
         if a < b:
-            return Graph.intersect(a, b, c, d) if c < d else Graph.intersect(a, b, d, c)
+            if c < d:
+                return Graph.easy_intersect(a, b, c, d)
+            else:
+                return Graph.easy_intersect(a, b, d, c)
         else:
-            return Graph.intersect(b, a, c, d) if c < d else Graph.intersect(b, a, d, c)
+            if c < d:
+                return Graph.easy_intersect(b, a, c, d)
+            else:
+                return Graph.easy_intersect(b, a, d, c)
 
     def sample_resolve(self):
         """
@@ -263,7 +288,7 @@ class Graph:
                 # could break once c_right > left (I think?), rather than having
                 # to intersect all the intervals with the current c_rgt/c_lft
                 for i in intervals:
-                    if child_ivl := self.intersect(c_lft, c_rgt, i.lower, i.upper):
+                    if child_ivl := self.easy_intersect(c_lft, c_rgt, i.lower, i.upper):
                         parnt_ivl = ie.transform_interval(child_ivl, ROOTWARDS)
                         if ie.is_inversion():
                             # For passing upwards, interval orientation doesn't matter
@@ -310,6 +335,8 @@ class Graph:
         4. We do not add older regions to the stack if they have coalesced.
         5. We have a time cutoff, so that we don't have to go all the way
            back to the "origin of life"
+        6. We have to keep track of the offset (delta) of the current interval into the
+           original genome, to allow mapping back to the original coordinates
         """
         if not isinstance(u, (int, np.integer)) or not isinstance(v, (int, np.integer)):
             raise ValueError("u and v must be integers")
@@ -338,40 +365,39 @@ class Graph:
         node_times = self.tables.nodes.time
         stack = sortedcontainers.SortedDict(lambda k: -node_times[k])
 
-        # Don't use the Portion interval library for *transmitting* intervals, as it
-        # can't be used to keep track of the orientation of each interval (required
-        # to take account of inversions). Instead represent intervals as (a, b)
-        # tuples, where a < b if the interval is in the orientation of the the original
-        # u or v genome. We also extend the tuple to include another value
-        # x, which tracks the position of the origin in the original genome. This allows
-        # us to map a position in the current interval back to a position in u or v.
+        # We need to track intervals separately if they have been transformed
+        # (inverted or coordinate-shifted). Within the stack, for each node we
+        # therefore store a *dictionary* of portion objects, keyed by offset and
+        # orientation.
         #
-        # We store *two* lists of (a, b, x) tuples, the first for ancestral regions of
-        # u, and the second for ancestral regions of v: if a node has something in both
-        # lists, intervals for u and v co-occur (and could therefore coalesce), meaning
-        # the node is a potential MRCA.
-        U, V = 0, 1  # temp constants. The 1st list (index 0) is for U, the second for V
-        stack[u] = ([], [])  # intervals to track for node u (fill on next line)
-        stack[u][U].append((0, np.inf, 0))  # whole genome, origin at 0
-        stack[v] = ([], [])  # intervals to track for node v (fill on next line)
-        stack[v][V].append((0, np.inf, 0))  # whole genome, origin at 0
+        # We store *two* such {(delta, orientation): intervals} dicts. The first
+        # tracks the ancestral regions of u, and the second the ancestral regions of v.
+        # If a node has something in both dicts, intervals for u and v co-occur
+        # (and could therefore coalesce), meaning the node is a potential MRCA.
+        offset = 0
+        # tracked intervals for node u, keyed by offset+orientation (False=not inverted)
+        stack[u] = ({(offset, False): P.closedopen(0, np.inf)}, {})
+        # tracked intervals for node v, keyed by offset+orientation (False=not inverted)
+        stack[v] = ({}, {(offset, False): P.closedopen(0, np.inf)})
 
         result = collections.defaultdict(P.IntervalDict)
 
         def concat(x, y):
-            return (x[U] | y[U], x[V] | y[V])
+            # combine a pair of sets in x and a pair of sets in y
+            return (x[0] | y[0], x[1] | y[1])
 
+        logging.debug(f"Checking mrca of {u} and {v}: {stack}")
         while len(stack) > 0:
-            c, uv_intervals = stack.popitem()  # node `c` = child
+            c, (u_dict, v_dict) = stack.popitem()  # node `c` = child
             if node_times[c] > time_cutoff:
                 return result
             logging.debug(f"Checking child {c}")
-            if len(uv_intervals[0]) > 0 and len(uv_intervals[1]) > 0:
+            if len(u_dict) > 0 and len(v_dict) > 0:
                 logging.debug(f"Potential coalescence in {c}")
-                logging.debug(f" u: {uv_intervals[U]}")
-                logging.debug(f" v: {uv_intervals[V]}")
-                # check for overlap between uv_intervals[0] and uv_intervals[1]
-                # which results in coalescence. The coalescent point can be
+                logging.debug(f" u: {u_dict}")
+                logging.debug(f" v: {v_dict}")
+                # check for overlap between all intervals in u_dict and v_dict
+                # which result in coalescence. The coalescent point can be
                 # recorded, and the overlap deleted from the intervals
                 #
                 # Intervals are not currently sorted, so we need to check
@@ -381,56 +407,72 @@ class Graph:
                 # cut the MRCA regions into non-overlapping pieces which have different
                 # patterns of descent into u and v
                 coalesced = P.empty()
-                for i, (uL, uR, _) in enumerate(uv_intervals[U]):
-                    for j, (vL, vR, _) in enumerate(uv_intervals[V]):
-                        if intersection := self.general_intersect(uL, uR, vL, vR):
-                            mrca = P.closedopen(*intersection)  # MRCA as a Portion obj
-                            coalesced |= mrca
-                            result[c] = result[c].combine(
-                                P.IntervalDict({mrca: ({i}, {j})}), how=concat
-                            )
+                for u_key, u_intervals in u_dict.items():
+                    for i, u_interval in enumerate(u_intervals):
+                        for v_key, v_intervals in v_dict.items():
+                            for j, v_interval in enumerate(v_intervals):
+                                if mrca := u_interval & v_interval:
+                                    coalesced |= mrca
+                                    details = ({(u_key, i)}, {(v_key, j)})
+                                    result[c] = result[c].combine(
+                                        P.IntervalDict({mrca: details}), how=concat
+                                    )
                 if not coalesced.empty:
                     # Work out the mapping of the mrca intervals into intervals in
-                    # u and v, given indexes into the uv_intervals lists.
-                    for mrca, uv_indexes in result[c].items():
-                        mapped_intervals = (set(), set())  # is a set too slow?
-                        for a, indexes, intervals in zip(
-                            mapped_intervals, uv_indexes, uv_intervals
-                        ):
-                            for index in indexes:
-                                left, right, offset = intervals[index]
-                                if left < right:
-                                    a.add((offset + mrca.lower, offset + mrca.upper))
+                    # u and v, given keys into the uv_intervals dicts.
+                    for mrca, uv_details in result[c].items():
+                        to_store = (set(), set())  # is a set too slow?
+                        for store, details in zip(to_store, uv_details):
+                            # Odd that we don't use the interval dict here: not sure why
+                            for key, _ in details:
+                                delta, inverted_relative_to_original = key
+                                if inverted_relative_to_original:
+                                    store.add((delta - mrca.lower, delta - mrca.upper))
                                 else:
-                                    # Original inverted relative to the mrca interval
-                                    a.add((offset + mrca.upper, offset + mrca.lower))
-                        result[c][mrca] = mapped_intervals  # replace
+                                    store.add((mrca.lower - delta, mrca.upper - delta))
+                        result[c][mrca] = to_store  # replace
 
                     # Remove the coalesced segments from the interval lists
-                    for u_or_v in (U, V):
-                        intervals = [[], []]
-                        for ivl in uv_intervals[u_or_v]:
-                            if ivl[0] < ivl[1]:
-                                for i in P.closedopen(ivl[0], ivl[1]) - coalesced:
-                                    intervals[u_or_v].append((i.lower, i.upper, ivl[2]))
-                            else:
-                                for i in P.closedopen(ivl[1], ivl[0]) - coalesced:
-                                    intervals[u_or_v].append((i.upper, i.lower, ivl[2]))
-                    uv_intervals = intervals
+                    for uv_dict in (u_dict, v_dict):
+                        for key in uv_dict.keys():
+                            uv_dict[key] -= coalesced
+
             for ie in self.iedges_for_child(c):
-                # JEROME'S NOTE (from previous algorithm): if we had an index here
-                # sorted by left coord we could binary search to first match, and
-                # could break once c_right > left (I think?), rather than having
-                # to intersect all the intervals with the ie.child_left/right
-                for u_or_v, intervals in enumerate(uv_intervals):
-                    for i in intervals:
-                        if child_ivl := trim(ie.child_left, ie.child_right, i[0], i[1]):
-                            parnt_ivl = ie.transform_interval(child_ivl, ROOTWARDS)
-                            # The offset of the current coordinate system
-                            x = i[2] + child_ivl[0] - parnt_ivl[0]
-                            if ie.parent not in stack:
-                                stack[ie.parent] = ([], [])
-                            stack[ie.parent][u_or_v].append((*parnt_ivl, x))
+                # See note in sample resolve algorithm re efficiency and
+                # indexing by left coord. Note this is more complex in the
+                # mrca case because we have to treat intervals with different
+                # offsets / orientations separately
+                for u_or_v, interval_dict in enumerate((u_dict, v_dict)):
+                    for (delta, is_inverted), intervals in interval_dict.items():
+                        for interval in intervals:
+                            if child_ivl := trim(
+                                ie.child_left,
+                                ie.child_right,
+                                interval.lower,
+                                interval.upper,
+                            ):
+                                parent_ivl = ie.transform_interval(child_ivl, ROOTWARDS)
+                                # The offset of the current coordinate system
+                                if ie.is_inversion():
+                                    if is_inverted:
+                                        # flip back
+                                        x = delta - (child_ivl[0] + parent_ivl[0])
+                                    else:
+                                        x = delta + (child_ivl[0] + parent_ivl[0])
+                                    is_inverted = not is_inverted
+                                    parent_ivl = P.closedopen(
+                                        parent_ivl[1], parent_ivl[0]
+                                    )
+                                else:
+                                    x = delta - child_ivl[0] + parent_ivl[0]
+                                    parent_ivl = P.closedopen(*parent_ivl)
+                                key = (x, is_inverted)
+                                if ie.parent not in stack:
+                                    stack[ie.parent] = ({}, {})
+                                if key in stack[ie.parent][u_or_v]:
+                                    stack[ie.parent][u_or_v][key] |= parent_ivl
+                                else:
+                                    stack[ie.parent][u_or_v][key] = parent_ivl
         return {
             k: {(k.lower, k.upper): v for k, v in pv.items()}
             for k, pv in result.items()
@@ -481,14 +523,37 @@ class IEdge(IEdgeTableRow):
         return max(self.parent_right, self.parent_left)
 
     @property
+    def parent_min(self):
+        """
+        The lowest parent position on this edge (inversions can have left > right)
+        """
+        return min(self.parent_right, self.parent_left)
+
+    @property
     def child_max(self):
         """
         The highest child position on this edge
         """
         return self.child_right
 
+    @property
+    def child_min(self):
+        """
+        The highest child position on this edge
+        """
+        return self.child_left
+
     def is_inversion(self):
-        return self.child_span < 0 or self.parent_span < 0
+        return self.parent_span < 0
+
+    def is_simple_inversion(self):
+        """
+        Is this an in-situ inversion, where parent and child coords are simply swapped
+        """
+        return (
+            self.parent_left == self.child_right
+            and self.parent_right == self.child_left
+        )
 
     def transform_position(self, x, direction):
         """
