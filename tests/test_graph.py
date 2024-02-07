@@ -1,6 +1,8 @@
 import GeneticInheritanceGraphLibrary as gigl
 import numpy as np
+import portion as P
 import pytest
+import tskit
 
 
 class TestFunctions:
@@ -371,20 +373,80 @@ class TestIEdge:
 
 
 class TestFindMrcas:
+    def test_find_mrca_single_tree(self):
+        span = 123
+        comb_ts = tskit.Tree.generate_comb(5, span=span).tree_sequence
+        # make a gig with many unary nodes above node 0
+        comb_ts = comb_ts.simplify([0, 4], keep_unary=True)
+        gig = gigl.from_tree_sequence(comb_ts)
+        full_span = (0, span)
+        shared_regions = gig.find_mrca_regions(0, 1)
+        assert len(shared_regions) == 1
+        assert comb_ts.first().root in shared_regions
+        mrca_intervals = shared_regions[comb_ts.first().root]
+        assert len(mrca_intervals) == 1
+        mrca, uv_interval_lists = mrca_intervals.popitem()
+        assert mrca == full_span
+        assert len(uv_interval_lists) == 2
+        for interval_list in uv_interval_lists:
+            assert len(interval_list) == 1
+            assert full_span in interval_list
+
+    def test_find_mrca_2_trees(self, degree2_2_tip_ts):
+        gig = gigl.from_tree_sequence(degree2_2_tip_ts)
+        shared_regions = gig.find_mrca_regions(0, 1)
+        assert len(shared_regions) == 2
+        assert gig.tables.nodes.time[2] in shared_regions
+        val = shared_regions[gig.tables.nodes.time[2]]
+        assert len(val) == 2
+        for i in [0, 1]:
+            assert len(val[i]) == 1
+            interval, origin = val[i].popitem()
+            assert interval == P.closedopen(0, gig.sequence_length(0))
+            assert origin.inverted is False
+
+    def test_time_cutoff(self, degree2_2_tip_ts):
+        # set a cutoff so that the mrca in one tree is never visited
+        assert degree2_2_tip_ts.num_trees == 2
+        assert degree2_2_tip_ts.num_samples == 2
+        T = degree2_2_tip_ts.nodes_time
+        tree0 = degree2_2_tip_ts.first()
+        tree1 = degree2_2_tip_ts.last()
+        assert T[tree0.root] != T[tree1.root]
+        gig = gigl.from_tree_sequence(degree2_2_tip_ts)
+        assert gig.sequence_length(0) == degree2_2_tip_ts.sequence_length
+        assert gig.sequence_length(1) == degree2_2_tip_ts.sequence_length
+        cutoff = (T[[tree0.root, tree1.root]]).mean()
+        shared_regions = gig.find_mrca_regions(0, 1, cutoff)
+        assert len(shared_regions) == 1
+        used_tree = tree0 if T[tree0.root] < T[tree1.root] else tree1
+        unused_tree = tree1 if T[tree0.root] < T[tree1.root] else tree0
+        assert used_tree.root in shared_regions
+        assert unused_tree.root not in shared_regions
+
     def test_simple_non_sv(self, simple_ts):
         assert simple_ts.num_trees > 1
         assert simple_ts.num_samples >= 2
+        max_trees = 0
         gig = gigl.from_tree_sequence(simple_ts)
-        mrcas = gig.find_mrca_regions(0, 1)
-        for tree in simple_ts.simplify([0, 1], filter_nodes=False).trees():
-            interval = (int(tree.interval.left), int(tree.interval.right))
-            mrca = tree.get_mrca(0, 1)
-            assert interval in mrcas[mrca]
-            u_equivalent, v_equivalent = mrcas[mrca][interval]
-            assert len(u_equivalent) == 1  # No duplications
-            assert len(v_equivalent) == 1  # No duplications
-            assert u_equivalent[0] == interval
-            assert v_equivalent[0] == interval
+        for u in range(len(gig.samples)):
+            for v in range(u + 1, len(gig.samples)):
+                mrcas = gig.find_mrca_regions(u, v)
+                print(simple_ts.draw_text())
+                print(mrcas)
+                equiv_ts = simple_ts.simplify([u, v], filter_nodes=False)
+                print(equiv_ts.draw_text())
+                max_trees = max(max_trees, equiv_ts.num_trees)
+                for tree in equiv_ts.trees():
+                    interval = (int(tree.interval.left), int(tree.interval.right))
+                    mrca = tree.get_mrca(u, v)
+                    assert interval in mrcas[mrca]
+                    u_equivalent, v_equivalent = mrcas[mrca][interval]
+                    assert len(u_equivalent) == 1  # No duplications
+                    assert len(v_equivalent) == 1  # No duplications
+                    assert interval in u_equivalent
+                    assert interval in v_equivalent
+        assert max_trees > 2  # at least some cases with 3 or more mrcas
 
     def test_no_recomb_sv_dup_del(self, all_sv_types_gig):
         assert all_sv_types_gig.num_samples >= 2
@@ -398,8 +460,8 @@ class TestFindMrcas:
         assert (0, 50) in mrcas[11]
         u, v = mrcas[11][(0, 50)]
         assert len(u) == len(v) == 1
-        assert u[0] == (0, 50)
-        assert v[0] == (0, 50)
+        assert (0, 50) in u
+        assert (0, 50) in v
 
         # (150, 50) should be duplicated
         assert (150, 200) in mrcas[11]
@@ -408,7 +470,7 @@ class TestFindMrcas:
         assert (150, 200) in u  # duplication
         assert (250, 300) in u  # duplication
         assert len(v) == 1
-        assert v[0] == (50, 100)  # deletion
+        assert (50, 100) in v  # deletion
 
         # (50, 150) should be deleted, with no MRCA
         assert (50, 150) not in mrcas[11]
@@ -423,4 +485,5 @@ class TestFindMrcas:
         assert 12 in mrcas
         for k, v in mrcas[12].items():
             print(k, ":", v)
+            raise
         # TODO - test inversions

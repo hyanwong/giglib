@@ -5,6 +5,7 @@ efficient access.
 """
 import collections
 import dataclasses
+import logging
 
 import numpy as np
 import portion as P
@@ -271,7 +272,7 @@ class Graph:
                         else:
                             stack[p] |= P.closedopen(*parnt_ivl)
                         # Add the trimmed interval to the new edge table
-                        tables.iedges.add_row(*child_ivl, *parnt_ivl, parent=p, child=c)
+                        tables.iedges.add_row(*child_ivl, *parnt_ivl, child=c, parent=p)
         tables.sort()
         return self.__class__(tables)
 
@@ -282,18 +283,18 @@ class Graph:
         Returns a dict of dicts of the following form
             {
                 MRCA_node_ID1 : {(X, Y): (
-                    [(uA, uB), (uC, uD), ...],
-                    [(vA, vB), ...]
+                    {(uA, uB), (uC, uD), ...},
+                    {(vA, vB), ...}
                 )},
                 MRCA_node_ID2 : ...,
                 ...
             }
         Where in each inner dict, the key (X, Y) gives an interval (with X < Y)
         in the MRCA node, and the value is a 2-tuple giving the corresponding
-        intervals in u and v. In the example above there are two corresponding
-        intervals in u: (uA, uB) and (uC, uD) representing a duplication of the
-        MRCA interval into u. If uA > uB then the interval in u
-        is inverted relative to that in the MRCA node.
+        intervals in u and v. In the example above there is a set of two
+        corresponding intervals in u: (uA, uB) and (uC, uD) representing a
+        duplication of the MRCA interval into u. If uA > uB then that interval
+        in u is inverted relative to that in the MRCA node.
 
         Implementation-wise, this is similar to the sample_resolve algorithm, but
         1. Instead of following the ancestry of *all* samples upwards, we
@@ -364,11 +365,11 @@ class Graph:
             c, uv_intervals = stack.popitem()  # node `c` = child
             if node_times[c] > time_cutoff:
                 return result
-            print(f"Checking child {c}")
+            logging.debug(f"Checking child {c}")
             if len(uv_intervals[0]) > 0 and len(uv_intervals[1]) > 0:
-                print(f"Potential coalescence in {c}")
-                print(f" u: {uv_intervals[U]}")
-                print(f" v: {uv_intervals[V]}")
+                logging.debug(f"Potential coalescence in {c}")
+                logging.debug(f" u: {uv_intervals[U]}")
+                logging.debug(f" v: {uv_intervals[V]}")
                 # check for overlap between uv_intervals[0] and uv_intervals[1]
                 # which results in coalescence. The coalescent point can be
                 # recorded, and the overlap deleted from the intervals
@@ -392,17 +393,17 @@ class Graph:
                     # Work out the mapping of the mrca intervals into intervals in
                     # u and v, given indexes into the uv_intervals lists.
                     for mrca, uv_indexes in result[c].items():
-                        mapped_intervals = ([], [])
+                        mapped_intervals = (set(), set())  # is a set too slow?
                         for a, indexes, intervals in zip(
                             mapped_intervals, uv_indexes, uv_intervals
                         ):
                             for index in indexes:
                                 left, right, offset = intervals[index]
                                 if left < right:
-                                    a.append((offset + mrca.lower, offset + mrca.upper))
+                                    a.add((offset + mrca.lower, offset + mrca.upper))
                                 else:
                                     # Original inverted relative to the mrca interval
-                                    a.append((offset + mrca.upper, offset + mrca.lower))
+                                    a.add((offset + mrca.upper, offset + mrca.lower))
                         result[c][mrca] = mapped_intervals  # replace
 
                     # Remove the coalesced segments from the interval lists
