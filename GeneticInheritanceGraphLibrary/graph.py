@@ -232,11 +232,14 @@ class Graph:
         """
         return self.max_position(u) or 0
 
-    def to_tree_sequence(self):
+    def to_tree_sequence(self, sequence_length=None):
         """
         convert this GIG to a tree sequence. This can only be done if
         each iedge has the same child_left as parent_left and the same
         child_right as parent_right.
+
+        If sequence_length is not None, it will be used as the sequence length,
+        otherwise the sequence length will be the maximum position of any edge.
         """
         if np.any(
             self.tables.iedges.child_left != self.tables.iedges.parent_left
@@ -245,7 +248,8 @@ class Graph:
                 "Cannot convert to tree sequence: "
                 "child and parent intervals are not the same in all iedges"
             )
-        sequence_length = self.tables.iedges.child_right.max()
+        if sequence_length is None:
+            sequence_length = self.tables.iedges.child_right.max()
         tables = tskit.TableCollection(sequence_length)
         tables.time_units = self.time_units
         for node in self.nodes:

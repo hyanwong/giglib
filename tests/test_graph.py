@@ -183,6 +183,15 @@ class TestTskit:
         gig = gigl.from_tree_sequence(simple_ts)
         assert np.all(gig.samples == gig.tables.samples())
 
+    def test_to_tree_sequence(self, degree2_2_tip_ts):
+        gig = gigl.from_tree_sequence(degree2_2_tip_ts)
+        L = degree2_2_tip_ts.sequence_length + 100
+        ts = gig.to_tree_sequence(sequence_length=L)
+        assert ts.num_samples == 2
+        assert ts.num_trees == 3
+        assert ts.at_index(2).num_edges == 0  # empty region at end
+        assert ts.sequence_length == L
+
     def test_roundtrip(self, simple_ts):
         gig = gigl.from_tree_sequence(simple_ts)
         ts = gig.to_tree_sequence()
