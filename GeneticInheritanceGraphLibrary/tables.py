@@ -155,7 +155,7 @@ class BaseTable:
     def add_rows(self, rowlist):
         """
         Add a list of rows to a BaseTable. Each row must contain objects of the
-        required table row type. This is a conveninece function
+        required table row type. This is a convenience function
         """
         for row in rowlist:
             self.append(row)

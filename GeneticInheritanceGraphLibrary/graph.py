@@ -539,7 +539,7 @@ class IEdge(IEdgeTableRow):
     @property
     def child_min(self):
         """
-        The highest child position on this edge
+        The lowest child position on this edge
         """
         return self.child_left
 
