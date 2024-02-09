@@ -61,6 +61,31 @@ def extended_inversion_gig():
 
 
 @pytest.fixture(scope="session")
+def double_inversion_gig():
+    """
+    Contains two stacked inversions on one branch that should
+    be invisible once simplified
+    """
+    node_data = [
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+        (1, 0),
+        (2, 0),
+    ]
+    tables = gigl.Tables()
+    tables.nodes = make_nodes_table(node_data, tables)
+    tables.iedges.add_rows(
+        [
+            iedge(0, 100, 300, 200, c=0, p=2),
+            iedge(200, 300, 100, 0, c=2, p=3),
+            iedge(0, 100, 0, 100, c=1, p=3),
+        ]
+    )
+    tables.sort()
+    return gigl.Graph(tables)
+
+
+@pytest.fixture(scope="session")
 def all_sv_types_gig():
     """
     Contains a single deletion, a single duplication, and a single inversion.

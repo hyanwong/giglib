@@ -475,6 +475,20 @@ class TestFindMrcas:
                     assert interval in v_equivalent
         assert max_trees > 2  # at least some cases with 3 or more mrcas
 
+    def test_double_inversion(self, double_inversion_gig):
+        assert double_inversion_gig.num_samples == 2
+        iedges = list(double_inversion_gig.iedges_for_child(0))
+        assert len(iedges) == 1
+        assert iedges[0].is_inversion()
+        mrcas = double_inversion_gig.find_mrca_regions(0, 1)
+        assert len(mrcas) == 1
+        assert 3 in mrcas
+        mrca = mrcas[3]
+        assert (0, 100) in mrca
+        u, v = mrca[(0, 100)]
+        assert u == {(0, 100)}
+        assert v == {(0, 100)}
+
     @pytest.mark.parametrize("sample_resolve", [True, False])
     def test_extended_inversion(self, extended_inversion_gig, sample_resolve):
         gig = extended_inversion_gig
