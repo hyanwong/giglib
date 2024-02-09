@@ -209,7 +209,9 @@ class TestIndividualAttributes:
     def test_asdict(self, simple_ts):
         tables = gigl.Tables.from_tree_sequence(simple_ts)
         for i, ind in enumerate(tables.individuals):
-            assert ind.asdict()["parents"] == simple_ts.individual(i).parents
+            assert np.array_equal(
+                ind.asdict()["parents"], simple_ts.individual(i).parents
+            )
 
 
 class TestNodeAttributes:

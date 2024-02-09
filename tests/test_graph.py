@@ -4,14 +4,6 @@ import pytest
 import tskit
 
 
-class TestFunctions:
-    # Test high level functions
-    def test_simple_from_tree_sequence(self, simple_ts):
-        assert simple_ts.num_trees > 1
-        gig = gigl.from_tree_sequence(simple_ts)
-        assert np.all(gig.samples == gig.tables.samples())
-
-
 class TestConstructor:
     def test_from_empty_tables(self):
         tables = gigl.Tables()
@@ -178,6 +170,27 @@ class TestMethods:
         gig = tables.graph()
         for u in gig.samples:
             assert gig.sequence_length(u) == 0
+
+
+class TestTskit:
+    """
+    Methods that involve tree_sequence conversion
+    """
+
+    # Test high level functions
+    def test_simple_from_tree_sequence(self, simple_ts):
+        assert simple_ts.num_trees > 1
+        gig = gigl.from_tree_sequence(simple_ts)
+        assert np.all(gig.samples == gig.tables.samples())
+
+    def test_roundtrip(self, simple_ts):
+        gig = gigl.from_tree_sequence(simple_ts)
+        ts = gig.to_tree_sequence()
+        ts.tables.assert_equals(simple_ts.tables, ignore_provenance=True)
+
+    def test_bad_ts(self, inverted_duplicate_gig):
+        with pytest.raises(ValueError, match="Cannot convert to tree sequence"):
+            inverted_duplicate_gig.to_tree_sequence()
 
 
 class TestSampleResolving:

@@ -51,13 +51,14 @@ class NodeTableRow(TableRow):
     time: float
     flags: int = 0
     individual: int = NULL
+    # TODO: add metadata
 
     def is_sample(self):
         return (self.flags & NODE_IS_SAMPLE) > 0
 
 
 @dataclasses.dataclass(frozen=True)
-class IndividualTableRow:
+class IndividualTableRow(TableRow):
     parents: tuple = ()
 
 
@@ -417,7 +418,7 @@ class Tables:
         :param kwargs: Other parameters passed to the Tables constructor
         """
         ts_tables = ts.tables
-        tables = cls()
+        tables = cls(time_units=ts.time_units)
         if ts_tables.migrations.num_rows > 0:
             raise NotImplementedError
         if ts_tables.mutations.num_rows > 0:
@@ -436,4 +437,7 @@ class Tables:
             if chromosome is not None:
                 obj["parent_chromosome"] = obj["child_chromosome"] = chromosome
             tables.iedges.append(obj)
+        for row in ts_tables.individuals:
+            obj = dataclasses.asdict(row)
+            tables.individuals.append(obj)
         return tables
