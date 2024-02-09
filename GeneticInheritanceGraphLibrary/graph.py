@@ -222,26 +222,11 @@ class Graph:
         return self.max_position(u) or 0
 
     @staticmethod  # undocumented: internal use
-    def easy_intersect(lft_1, rgt_1, lft_2, rgt_2):
+    def intersect(lft_1, rgt_1, lft_2, rgt_2):
         # Return the intersection of two intervals, or None if they do not overlap
         if rgt_1 > lft_2 and rgt_2 > lft_1:
             return max(lft_1, lft_2), min(rgt_1, rgt_2)
         return None
-
-    @staticmethod  # undocumented: internal use
-    def intersect(a, b, c, d):
-        # Return the intersection of two intervals, allowing for a > b
-        # and/or c > d. Return None if no intersection, or an interval (x, y) with x < y
-        if a < b:
-            if c < d:
-                return Graph.easy_intersect(a, b, c, d)
-            else:
-                return Graph.easy_intersect(a, b, d, c)
-        else:
-            if c < d:
-                return Graph.easy_intersect(b, a, c, d)
-            else:
-                return Graph.easy_intersect(b, a, d, c)
 
     def sample_resolve(self):
         """
@@ -278,26 +263,30 @@ class Graph:
         tables = self.tables.copy()
         tables.iedges.clear()  # clear old iedges: trimmed ones will be added back
         while len(stack) > 0:
-            c, intervals = stack.popitem()  # the node `c` is treated as the child
-            if self.nodes[c].is_sample():
+            child, intervals = stack.popitem()
+            if self.nodes[child].is_sample():
                 intervals = P.closedopen(0, np.inf)
-            for ie in self.iedges_for_child(c):
-                p, c_lft, c_rgt = ie.parent, ie.child_left, ie.child_right  # cache
+            for ie in self.iedges_for_child(child):
+                parent = ie.parent
+                child_ivl = P.closedopen(ie.child_left, ie.child_right)
+                is_inversion = ie.is_inversion()
                 # JEROME'S NOTE (from previous algorithm): if we had an index here
                 # sorted by left coord we could binary search to first match, and
                 # could break once c_right > left (I think?), rather than having
                 # to intersect all the intervals with the current c_rgt/c_lft
-                for i in intervals:
-                    if child_ivl := self.easy_intersect(c_lft, c_rgt, i.lower, i.upper):
-                        parnt_ivl = ie.transform_interval(child_ivl, ROOTWARDS)
-                        if ie.is_inversion():
+                for interval in intervals:
+                    if c := child_ivl & interval:
+                        p = ie.transform_interval((c.lower, c.upper), ROOTWARDS)
+                        if is_inversion:
                             # For passing upwards, interval orientation doesn't matter
                             # so put the lowest position first, as `portion` requires
-                            stack[p] |= P.closedopen(parnt_ivl[1], parnt_ivl[0])
+                            stack[parent] |= P.closedopen(p[1], p[0])
                         else:
-                            stack[p] |= P.closedopen(*parnt_ivl)
+                            stack[parent] |= P.closedopen(*p)
                         # Add the trimmed interval to the new edge table
-                        tables.iedges.add_row(*child_ivl, *parnt_ivl, child=c, parent=p)
+                        tables.iedges.add_row(
+                            c.lower, c.upper, *p, child=child, parent=parent
+                        )
         tables.sort()
         return self.__class__(tables)
 
@@ -344,21 +333,6 @@ class Graph:
         if u == v:
             raise ValueError("u and v must be different nodes")
 
-        def trim(lft_1, rgt_1, lft_2, rgt_2):
-            """
-            An inversion-aware intersection routine, which returns the intersection
-            of two intervals, where the left and right of
-            the second interval could be swapped. If they are swapped, return the
-            interval in the reversed order. Return None if they do not overlap
-            """
-            if rgt_2 < lft_2:  # an inversion
-                if rgt_1 > rgt_2 and lft_2 > lft_1:
-                    return min(rgt_1, lft_2), max(lft_1, rgt_2)
-            else:
-                if rgt_1 > lft_2 and rgt_2 > lft_1:
-                    return max(lft_1, lft_2), min(rgt_1, rgt_2)
-            return None
-
         if time_cutoff is None:
             time_cutoff = np.inf
         # Use a dynamic stack as we hopefully will be visiting a minority of nodes
@@ -388,12 +362,12 @@ class Graph:
 
         logging.debug(f"Checking mrca of {u} and {v}: {stack}")
         while len(stack) > 0:
-            c, (u_dict, v_dict) = stack.popitem()  # node `c` = child
-            if node_times[c] > time_cutoff:
+            child, (u_dict, v_dict) = stack.popitem()  # node `c` = child
+            if node_times[child] > time_cutoff:
                 return result
-            logging.debug(f"Checking child {c}")
+            logging.debug(f"Checking child {child}")
             if len(u_dict) > 0 and len(v_dict) > 0:
-                logging.debug(f"Potential coalescence in {c}")
+                logging.debug(f"Potential coalescence in {child}")
                 logging.debug(f" u: {u_dict}")
                 logging.debug(f" v: {v_dict}")
                 # check for overlap between all intervals in u_dict and v_dict
@@ -414,13 +388,13 @@ class Graph:
                                 if mrca := u_interval & v_interval:
                                     coalesced |= mrca
                                     details = ({(u_key, i)}, {(v_key, j)})
-                                    result[c] = result[c].combine(
+                                    result[child] = result[child].combine(
                                         P.IntervalDict({mrca: details}), how=concat
                                     )
                 if not coalesced.empty:
                     # Work out the mapping of the mrca intervals into intervals in
                     # u and v, given keys into the uv_intervals dicts.
-                    for mrca, uv_details in result[c].items():
+                    for mrca, uv_details in result[child].items():
                         to_store = (set(), set())  # is a set too slow?
                         for store, details in zip(to_store, uv_details):
                             # Odd that we don't use the interval dict here: not sure why
@@ -430,48 +404,44 @@ class Graph:
                                     store.add((delta - mrca.lower, delta - mrca.upper))
                                 else:
                                     store.add((mrca.lower - delta, mrca.upper - delta))
-                        result[c][mrca] = to_store  # replace
+                        result[child][mrca] = to_store  # replace
 
                     # Remove the coalesced segments from the interval lists
                     for uv_dict in (u_dict, v_dict):
                         for key in uv_dict.keys():
                             uv_dict[key] -= coalesced
 
-            for ie in self.iedges_for_child(c):
+            for ie in self.iedges_for_child(child):
                 # See note in sample resolve algorithm re efficiency and
                 # indexing by left coord. Note this is more complex in the
                 # mrca case because we have to treat intervals with different
                 # offsets / orientations separately
+                parent = ie.parent
+                child_ivl = P.closedopen(ie.child_left, ie.child_right)  # cache
+                is_inversion = ie.is_inversion()
                 for u_or_v, interval_dict in enumerate((u_dict, v_dict)):
-                    for (delta, is_inverted), intervals in interval_dict.items():
+                    for (delta, already_inverted), intervals in interval_dict.items():
                         for interval in intervals:
-                            if child_ivl := trim(
-                                ie.child_left,
-                                ie.child_right,
-                                interval.lower,
-                                interval.upper,
-                            ):
-                                parent_ivl = ie.transform_interval(child_ivl, ROOTWARDS)
-                                if ie.is_inversion():
-                                    if is_inverted:
-                                        # already inverted, so 0 gets flipped backwards
-                                        x = delta - (child_ivl[0] + parent_ivl[0])
+                            if c := child_ivl & interval:
+                                p = ie.transform_interval((c.lower, c.upper), ROOTWARDS)
+                                if is_inversion:
+                                    if already_inverted:
+                                        # 0 gets flipped backwards
+                                        x = delta - (c.lower + p[0])
                                     else:
-                                        x = delta + (child_ivl[0] + parent_ivl[0])
-                                    is_inverted = not is_inverted
-                                    parent_ivl = P.closedopen(
-                                        parent_ivl[1], parent_ivl[0]
-                                    )
+                                        x = delta + (c.lower + p[0])
+                                    already_inverted = not already_inverted
+                                    parent_ivl = P.closedopen(p[1], p[0])
                                 else:
-                                    x = delta - child_ivl[0] + parent_ivl[0]
-                                    parent_ivl = P.closedopen(*parent_ivl)
-                                key = (x, is_inverted)
-                                if ie.parent not in stack:
-                                    stack[ie.parent] = ({}, {})
-                                if key in stack[ie.parent][u_or_v]:
-                                    stack[ie.parent][u_or_v][key] |= parent_ivl
+                                    x = delta - c.lower + p[0]
+                                    parent_ivl = P.closedopen(*p)
+                                key = (x, already_inverted)
+                                if parent not in stack:
+                                    stack[parent] = ({}, {})
+                                if key in stack[parent][u_or_v]:
+                                    stack[parent][u_or_v][key] |= parent_ivl
                                 else:
-                                    stack[ie.parent][u_or_v][key] = parent_ivl
+                                    stack[parent][u_or_v][key] = parent_ivl
         return {
             k: {(k.lower, k.upper): v for k, v in pv.items()}
             for k, pv in result.items()
