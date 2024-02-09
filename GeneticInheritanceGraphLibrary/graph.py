@@ -452,10 +452,9 @@ class Graph:
                                 interval.upper,
                             ):
                                 parent_ivl = ie.transform_interval(child_ivl, ROOTWARDS)
-                                # The offset of the current coordinate system
                                 if ie.is_inversion():
                                     if is_inverted:
-                                        # flip back
+                                        # already inverted, so 0 gets flipped backwards
                                         x = delta - (child_ivl[0] + parent_ivl[0])
                                     else:
                                         x = delta + (child_ivl[0] + parent_ivl[0])
