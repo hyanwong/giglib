@@ -4,14 +4,6 @@ import pytest
 import tskit
 
 
-class TestFunctions:
-    # Test high level functions
-    def test_simple_from_tree_sequence(self, simple_ts):
-        assert simple_ts.num_trees > 1
-        gig = gigl.from_tree_sequence(simple_ts)
-        assert np.all(gig.samples == gig.tables.samples())
-
-
 class TestConstructor:
     def test_from_empty_tables(self):
         tables = gigl.Tables()
@@ -178,6 +170,42 @@ class TestMethods:
         gig = tables.graph()
         for u in gig.samples:
             assert gig.sequence_length(u) == 0
+
+
+class TestTskit:
+    """
+    Methods that involve tree_sequence conversion
+    """
+
+    # Test high level functions
+    def test_simple_from_tree_sequence(self, simple_ts):
+        assert simple_ts.num_trees > 1
+        gig = gigl.from_tree_sequence(simple_ts)
+        assert np.all(gig.samples == gig.tables.samples())
+
+    def test_to_tree_sequence(self, degree2_2_tip_ts):
+        gig = gigl.from_tree_sequence(degree2_2_tip_ts)
+        L = degree2_2_tip_ts.sequence_length + 100
+        ts = gig.to_tree_sequence(sequence_length=L)
+        assert ts.num_samples == 2
+        assert ts.num_trees == 3
+        assert ts.at_index(2).num_edges == 0  # empty region at end
+        assert ts.sequence_length == L
+
+    def test_to_tree_sequence_bad_length(self, degree2_2_tip_ts):
+        gig = gigl.from_tree_sequence(degree2_2_tip_ts)
+        L = degree2_2_tip_ts.sequence_length - 1
+        with pytest.raises(tskit.LibraryError):
+            gig.to_tree_sequence(sequence_length=L)
+
+    def test_roundtrip(self, simple_ts):
+        gig = gigl.from_tree_sequence(simple_ts)
+        ts = gig.to_tree_sequence()
+        ts.tables.assert_equals(simple_ts.tables, ignore_provenance=True)
+
+    def test_bad_ts(self, inverted_duplicate_gig):
+        with pytest.raises(ValueError, match="Cannot convert to tree sequence"):
+            inverted_duplicate_gig.to_tree_sequence()
 
 
 class TestSampleResolving:

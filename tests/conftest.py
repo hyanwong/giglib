@@ -1,22 +1,32 @@
 import GeneticInheritanceGraphLibrary as gigl
 import msprime
+import numpy as np
 import pytest
+import tskit
 from tests.gigutil import iedge
 from tests.gigutil import make_nodes_table
 
 
-@pytest.fixture(scope="session")
-def simple_ts():
-    return msprime.sim_ancestry(
+def no_population_ts():
+    ts = msprime.sim_ancestry(
         2, recombination_rate=1, sequence_length=10, random_seed=1
     )
+    # remove population data: GIGs do not have defined populations
+    tables = ts.dump_tables()
+    tables.populations.clear()
+    tables.populations.metadata_schema = tskit.MetadataSchema(None)
+    tables.nodes.population = np.full_like(tables.nodes.population, tskit.NULL)
+    return tables.tree_sequence()
+
+
+@pytest.fixture(scope="session")
+def simple_ts():
+    return no_population_ts()
 
 
 @pytest.fixture(scope="session")
 def simple_ts_with_mutations():
-    ts = msprime.sim_ancestry(
-        2, recombination_rate=1, sequence_length=10, random_seed=1
-    )
+    ts = no_population_ts()
     mutated_ts = msprime.sim_mutations(ts, rate=0.1, random_seed=1)
     return mutated_ts
 

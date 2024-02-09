@@ -5,15 +5,18 @@ efficient access.
 """
 import collections
 import dataclasses
+import json
 import logging
 
 import numpy as np
 import portion as P
 import sortedcontainers
+import tskit
 
 from .constants import LEAFWARDS
 from .constants import ROOTWARDS
 from .tables import IEdgeTableRow
+from .tables import IndividualTableRow
 from .tables import NodeTableRow
 from .tables import Tables
 
@@ -155,6 +158,10 @@ class Graph:
                 prev_right = ie.child_right
 
     @property
+    def time_units(self):
+        return self.tables.time_units
+
+    @property
     def num_nodes(self):
         # Deprecated
         return len(self.tables.nodes)
@@ -172,6 +179,10 @@ class Graph:
     @property
     def nodes(self):
         return Items(self.tables.nodes, Node)
+
+    @property
+    def individuals(self):
+        return Items(self.tables.individuals, Individual)
 
     @property
     def iedges(self):
@@ -221,12 +232,44 @@ class Graph:
         """
         return self.max_position(u) or 0
 
-    @staticmethod  # undocumented: internal use
-    def intersect(lft_1, rgt_1, lft_2, rgt_2):
-        # Return the intersection of two intervals, or None if they do not overlap
-        if rgt_1 > lft_2 and rgt_2 > lft_1:
-            return max(lft_1, lft_2), min(rgt_1, rgt_2)
-        return None
+    def to_tree_sequence(self, sequence_length=None):
+        """
+        convert this GIG to a tree sequence. This can only be done if
+        each iedge has the same child_left as parent_left and the same
+        child_right as parent_right.
+
+        If sequence_length is not None, it will be used as the sequence length,
+        otherwise the sequence length will be the maximum position of any edge.
+        """
+        if np.any(
+            self.tables.iedges.child_left != self.tables.iedges.parent_left
+        ) or np.any(self.tables.iedges.child_right != self.tables.iedges.parent_right):
+            raise ValueError(
+                "Cannot convert to tree sequence: "
+                "child and parent intervals are not the same in all iedges"
+            )
+        if sequence_length is None:
+            sequence_length = self.tables.iedges.child_right.max()
+        tables = tskit.TableCollection(sequence_length)
+        tables.time_units = self.time_units
+        for node in self.nodes:
+            tables.nodes.add_row(
+                time=node.time, flags=node.flags, individual=node.individual
+            )
+        for ie in self.iedges:
+            tables.edges.add_row(
+                left=ie.child_left,
+                right=ie.child_right,
+                child=ie.child,
+                parent=ie.parent,
+            )
+        for individual in self.individuals:
+            tables.individuals.add_row(parents=individual.parents)
+
+        tables.provenances.add_row(
+            record=json.dumps({"parameters": {"command": "gig.to_tree_sequence"}})
+        )
+        return tables.tree_sequence()
 
     def sample_resolve(self):
         """
@@ -275,7 +318,7 @@ class Graph:
                 # could break once c_right > left (I think?), rather than having
                 # to intersect all the intervals with the current c_rgt/c_lft
                 for interval in intervals:
-                    if c := child_ivl & interval:
+                    if c := child_ivl & interval:  # intersect
                         p = ie.transform_interval((c.lower, c.upper), ROOTWARDS)
                         if is_inversion:
                             # For passing upwards, interval orientation doesn't matter
@@ -574,6 +617,15 @@ class IEdge(IEdgeTableRow):
 class Node(NodeTableRow):
     """
     A single node in a Graph. Similar to an node table row but with an ID.
+    """
+
+    id: int  # NOQA: A003
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True)
+class Individual(IndividualTableRow):
+    """
+    A single individual in a Graph. Similar to an individual table row but with an ID.
     """
 
     id: int  # NOQA: A003
