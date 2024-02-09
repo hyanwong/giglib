@@ -152,6 +152,14 @@ class BaseTable:
         self._data.append(self.RowClass(*args, **kwargs))
         return len(self._data) - 1
 
+    def add_rows(self, rowlist):
+        """
+        Add a list of rows to a BaseTable. Each row must contain objects of the
+        required table row type. This is a convenience function
+        """
+        for row in rowlist:
+            self.append(row)
+
     def append(self, obj) -> int:
         """
         Append a row to a BaseTable by picking required fields from a passed-in object.
