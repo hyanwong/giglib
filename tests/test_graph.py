@@ -192,6 +192,12 @@ class TestTskit:
         assert ts.at_index(2).num_edges == 0  # empty region at end
         assert ts.sequence_length == L
 
+    def test_to_tree_sequence_bad_length(self, degree2_2_tip_ts):
+        gig = gigl.from_tree_sequence(degree2_2_tip_ts)
+        L = degree2_2_tip_ts.sequence_length - 1
+        with pytest.raises(tskit.LibraryError):
+            gig.to_tree_sequence(sequence_length=L)
+
     def test_roundtrip(self, simple_ts):
         gig = gigl.from_tree_sequence(simple_ts)
         ts = gig.to_tree_sequence()
