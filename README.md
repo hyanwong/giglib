@@ -82,7 +82,7 @@ incomplete list of differences below:
 
 - **Iedges** The main difference is that intervals in the GeneticInheritanceGraphLibrary are stored
   in the iedges table, which has a `parent_left` and `child_left` column rather than a simple `left`
-  column as in *tskit* (and similarly for `right`).
+  column as in _tskit_ (and similarly for `right`).
 - **Tables and Graphs** The GeneticInheritanceGraphLibrary has a `Tables` and `Graph` class, corresponding
   to `TableCollection` and `TreeSequence` classes in _tskit_. Thus to create a GIG from scratch,
   you do `gig = tables.graph()`
@@ -90,6 +90,12 @@ incomplete list of differences below:
   the `len()` function should work, so the canonical usage looks like `gig.nodes[0]`, `len(gig.nodes)`,
   and `[u.id for u in gig.nodes]` rather than the equivalents in _tskit_ (`ts.node(0)`, `ts.num_nodes`,
   and `[u.id for u in ts.nodes()]`. Similarly, we use `gig.samples` (no braces) rather than `ts.samples()`.
+- **Internal iedge order** The iedges in a GIG are sorted such that all those for a given child are
+  adjacent (rather than all edges for a parent being adjacent as in _tskit_). Moreover, iedges are
+  sorted in decreasing order of child time, so that edges with more recent children come last. Since
+  edges for a given child are adjacent, child intervals for those edges cannot overlap. Edges for a
+  given child are ordered by left coordinate, which helps algorithmic efficiency. The internal
+  `gig.iedge_map_sorted_by_parent` array indexes into iedges in the order expected by tskit.
 - **Other stuff** More differences should be noted here!
 
 ## Examples

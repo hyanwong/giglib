@@ -377,8 +377,7 @@ class Tables:
             (
                 self.iedges.child_left,
                 self.iedges.child,
-                self.iedges.parent,
-                self.nodes.time[self.iedges.parent],  # Primary key
+                -self.nodes.time[self.iedges.child],  # Primary key
             )
         )
         new_iedges = IEdgeTable()
@@ -440,4 +439,5 @@ class Tables:
         for row in ts_tables.individuals:
             obj = dataclasses.asdict(row)
             tables.individuals.append(obj)
+        tables.sort()
         return tables
