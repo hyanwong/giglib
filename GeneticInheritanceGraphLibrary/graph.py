@@ -50,9 +50,9 @@ class Graph:
         # should have them, even if they have no edges
         self.parent_range = -np.ones((len(self.nodes), 2), dtype=np.int32)
         self.child_range = -np.ones((len(self.nodes), 2), dtype=np.int32)
-        self.iedge_map_sorted_by_child = np.arange(
+        self.iedge_map_sorted_by_parent = np.arange(
             len(self.iedges)
-        )  # to overwrite later
+        )  # to overwrite later - initialised here in case we return early with 0 edges
 
         # Cache
         self.samples = self.tables.samples()
@@ -96,60 +96,61 @@ class Graph:
                 f"child_left >= child_right for iedges {np.where(child_spans < 0)[0]}"
             )
 
-        # Check iedges are sorted so that all parent IDs are adjacent
-        iedges_parent = self.tables.iedges.parent
-        tot_parents = len(np.unique(iedges_parent))
-        if np.sum(np.diff(iedges_parent) != 0) != tot_parents - 1:
-            raise ValueError("iedges are not sorted by parent ID")
+        # Check iedges are sorted so that nodes are in decreasing order
+        # of child time, with ties broken by child ID, increasing
+        timediff = np.diff(self.tables.nodes.time[iedges_child])
+        node_id_diff = np.diff(iedges_child)
 
-        # Check iedges are also sorted by parent time
-        if np.any(np.diff(self.tables.nodes.time[iedges_parent]) < 0):
-            raise ValueError("iedges are not sorted by parent time")
+        if np.any(timediff > 0):
+            raise ValueError("iedges are not sorted by child time, descending")
 
-        # TODO: Check within a parent, edges are sorted by child ID
+        if np.any(node_id_diff[timediff == 0] < 0):
+            raise ValueError("iedges are not sorted by child time (desc) then ID (asc)")
+
+        # Check within a child, edges are sorted by left coord
+        if np.any(np.diff(self.tables.iedges.child_left)[node_id_diff == 0] <= 0):
+            raise ValueError("iedges for a given child are not sorted by left coord")
 
         # CREATE CACHED VARIABLES
 
         # Should probably cache more stuff here, e.g. list of samples
 
-        # index to sort edges so they are sorted by child time
-        # and grouped by child id. Within each group with the same child ID,
-        # the edges are sorted by child_left
-        # See https://github.com/tskit-dev/tskit/discussions/2869
-        self.iedge_map_sorted_by_child[:] = np.lexsort(
+        # index to sort edges so they are sorted as in tskit: first by parent time
+        # then grouped by parent id. Within each group with the same parent ID,
+        # the edges are sorted by child_is and then child_left
+        self.iedge_map_sorted_by_parent[:] = np.lexsort(
             (
-                self.tables.iedges.parent,
-                self.tables.iedges.child_right,
                 self.tables.iedges.child_left,
                 self.tables.iedges.child,
-                self.tables.nodes.time[self.tables.iedges.child],  # Primary key
+                self.tables.iedges.parent,
+                self.tables.nodes.time[self.tables.iedges.parent],  # Primary key
             )
         )
-        last_child = -1
-        for j, idx in enumerate(self.iedge_map_sorted_by_child):
-            ie = self.iedges[idx]
-            if ie.child != last_child:
-                self.parent_range[ie.child, 0] = j
-            if last_child != -1:
-                self.parent_range[last_child, 1] = j
-            last_child = ie.child
-        if last_child != -1:
-            self.parent_range[last_child, 1] = len(self.iedges)
-
         last_parent = -1
-        for ie in self.iedges:
+        for j, idx in enumerate(self.iedge_map_sorted_by_parent):
+            ie = self.iedges[idx]
             if ie.parent != last_parent:
-                self.child_range[ie.parent, 0] = ie.id
+                self.child_range[ie.parent, 0] = j
             if last_parent != -1:
-                self.child_range[last_parent, 1] = ie.id
+                self.child_range[last_parent, 1] = j
             last_parent = ie.parent
         if last_parent != -1:
             self.child_range[last_parent, 1] = len(self.iedges)
 
+        last_child = -1
+        for ie in self.iedges:
+            if ie.child != last_child:
+                self.parent_range[ie.child, 0] = ie.id
+            if last_child != -1:
+                self.parent_range[last_child, 1] = ie.id
+            last_child = ie.child
+        if last_child != -1:
+            self.parent_range[last_child, 1] = len(self.iedges)
+
         # Check every location has only one parent
         for u in range(len(self.nodes)):
             prev_right = -np.inf
-            for ie in sorted(self.iedges_for_child(u), key=lambda x: x.child_left):
+            for ie in self.iedges_for_child(u):
                 if ie.child_left < prev_right:
                     raise ValueError(
                         f"Node {u} has multiple or duplicate parents at position"
@@ -188,18 +189,18 @@ class Graph:
     def iedges(self):
         return Items(self.tables.iedges, IEdge)
 
-    def iedges_for_child(self, u):
+    def iedges_for_parent(self, u):
         """
         Iterate over all iedges with child u
         """
-        for i in range(*self.parent_range[u, :]):
-            yield self.iedges[self.iedge_map_sorted_by_child[i]]
+        for i in range(*self.child_range[u, :]):
+            yield self.iedges[self.iedge_map_sorted_by_parent[i]]
 
-    def iedges_for_parent(self, u):
+    def iedges_for_child(self, u):
         """
         Iterate over all iedges with parent u
         """
-        for i in range(*self.child_range[u, :]):
+        for i in range(*self.parent_range[u, :]):
             yield self.iedges[i]
 
     def max_position(self, u):
@@ -269,6 +270,7 @@ class Graph:
         tables.provenances.add_row(
             record=json.dumps({"parameters": {"command": "gig.to_tree_sequence"}})
         )
+        tables.sort()
         return tables.tree_sequence()
 
     def sample_resolve(self):

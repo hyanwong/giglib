@@ -78,8 +78,9 @@ class TestExtractColumn:
         tables = trivial_gig.tables
         assert np.array_equal(tables.nodes.time, [0, 0, 0, 1, 2])
         assert np.array_equal(tables.nodes.flags, [1, 1, 1, 0, 0])
-        assert np.array_equal(tables.iedges.parent, [3, 3, 4, 4, 4])
-        assert np.array_equal(tables.iedges.child_left, [0, 3, 0, 0, 0])
+        assert np.array_equal(tables.iedges.parent, [4, 3, 3, 4, 4])
+        assert np.array_equal(tables.iedges.child, [3, 0, 0, 1, 2])
+        assert np.array_equal(tables.iedges.child_left, [0, 0, 3, 0, 0])
 
 
 class TestMethods:
@@ -89,20 +90,20 @@ class TestMethods:
 
     def test_sort(self):
         tables = gigl.Tables()
-        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
-        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
-        tables.nodes.add_row(1)
         tables.nodes.add_row(2)
-        tables.iedges.add_row(5, 0, 0, 5, parent=3, child=2)
-        tables.iedges.add_row(0, 5, 0, 5, parent=2, child=0)
-        tables.iedges.add_row(0, 5, 0, 5, parent=3, child=0)  # Out of order
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.iedges.add_row(5, 0, 0, 5, parent=0, child=2)
+        tables.iedges.add_row(0, 5, 0, 5, parent=1, child=3)
+        tables.iedges.add_row(0, 5, 0, 5, parent=0, child=1)  # Out of order
         tables.sort()
-        assert tables.iedges[0].parent == 2
-        assert tables.iedges[1].parent == 3
-        assert tables.iedges[2].parent == 3
-        assert tables.iedges[0].child == 0
-        assert tables.iedges[1].child == 0
-        assert tables.iedges[2].child == 2
+        assert tables.iedges[0].parent == 0
+        assert tables.iedges[1].parent == 0
+        assert tables.iedges[2].parent == 1
+        assert tables.iedges[0].child == 1
+        assert tables.iedges[1].child == 2
+        assert tables.iedges[2].child == 3
 
 
 class TestBaseTable:
@@ -197,11 +198,14 @@ class TestIEdgeAttributes:
         ["parent", "child", "parent_left", "parent_right", "child_left", "child_right"],
     )
     def test_ts_attributes(self, simple_ts, name):
-        tables = gigl.Tables.from_tree_sequence(simple_ts)
+        gig = gigl.from_tree_sequence(simple_ts)
+        tables = gig.tables
         assert getattr(tables.iedges, name).dtype == np.int64
         suffix = name.split("_")[-1]
+        ts_order = gig.iedge_map_sorted_by_parent
         assert np.all(
-            getattr(tables.iedges, name) == getattr(simple_ts, "edges_" + suffix)
+            getattr(tables.iedges, name)[ts_order]
+            == getattr(simple_ts, "edges_" + suffix)
         )
 
 
@@ -220,5 +224,7 @@ class TestNodeAttributes:
         assert np.all(tables.nodes.flags == simple_ts.nodes_flags)
 
     def test_child(self, simple_ts):
-        tables = gigl.Tables.from_tree_sequence(simple_ts)
-        assert np.all(tables.iedges.child == simple_ts.edges_child)
+        gig = gigl.from_tree_sequence(simple_ts)
+        tables = gig.tables
+        ts_order = gig.iedge_map_sorted_by_parent
+        assert np.all(tables.iedges.child[ts_order] == simple_ts.edges_child)
