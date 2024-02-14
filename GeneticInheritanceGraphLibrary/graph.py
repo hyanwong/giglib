@@ -514,8 +514,6 @@ class Graph:
         tot_len = sum(x[1] - x[0] for v in mrcas_structure.values() for x in v.keys())
         # Pick a single breakpoint
         loc = rng.integers(tot_len)  # breakpoint is before this base
-        print("tot_len:", tot_len, "chosen loc:", loc)
-        print(mrcas_structure)
         for mrca_intervals in mrcas_structure.values():
             for x in mrca_intervals.keys():
                 if loc < x[1] - x[0]:
