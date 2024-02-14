@@ -23,3 +23,5 @@ def test_one_recomb_sim():
     print(gig.tables)
     ts = gig.to_tree_sequence()
     assert ts.num_samples == len(gig.samples)
+    assert ts.num_trees > 1
+    assert ts.at_index(0).num_edges > 0
