@@ -75,6 +75,7 @@ class Graph:
                 )
 
         # check all parents are strictly older than their children
+        # (NB: this also allows a time of np.inf for an "ultimate root" node)
         node_times = self.tables.nodes.time
         for i, ie in enumerate(self.iedges):
             if node_times[ie.parent] <= node_times[ie.child]:
@@ -342,15 +343,15 @@ class Graph:
         Returns a dict of dicts of the following form
             {
                 MRCA_node_ID1 : {(X, Y): (
-                    {(uA, uB), (uC, uD), ...},
-                    {(vA, vB), ...}
+                    [(uA, uB), (uC, uD), ...],
+                    [(vA, vB), ...]
                 )},
                 MRCA_node_ID2 : ...,
                 ...
             }
         Where in each inner dict, the key (X, Y) gives an interval (with X < Y)
         in the MRCA node, and the value is a 2-tuple giving the corresponding
-        intervals in u and v. In the example above there is a set of two
+        intervals in u and v. In the example above there is a list of two
         corresponding intervals in u: (uA, uB) and (uC, uD) representing a
         duplication of the MRCA interval into u. If uA > uB then that interval
         in u is inverted relative to that in the MRCA node.
@@ -369,7 +370,7 @@ class Graph:
         4. We do not add older regions to the stack if they have coalesced.
         5. We have a time cutoff, so that we don't have to go all the way
            back to the "origin of life"
-        6. We have to keep track of the offset (delta) of the current interval into the
+        6. We have to keep track of the offset of the current interval into the
            original genome, to allow mapping back to the original coordinates
         """
         if not isinstance(u, (int, np.integer)) or not isinstance(v, (int, np.integer)):
@@ -389,7 +390,7 @@ class Graph:
         # therefore store a *dictionary* of portion objects, keyed by offset and
         # orientation.
         #
-        # We store *two* such {(delta, orientation): intervals} dicts. The first
+        # We store *two* such {(offset, orientation): intervals} dicts. The first
         # tracks the ancestral regions of u, and the second the ancestral regions of v.
         # If a node has something in both dicts, intervals for u and v co-occur
         # (and could therefore coalesce), meaning the node is a potential MRCA.
@@ -440,15 +441,15 @@ class Graph:
                     # Work out the mapping of the mrca intervals into intervals in
                     # u and v, given keys into the uv_intervals dicts.
                     for mrca, uv_details in result[child].items():
-                        to_store = (set(), set())  # is a set too slow?
-                        for store, details in zip(to_store, uv_details):
+                        to_store = ([], [])
+                        for s, details in zip(to_store, uv_details):
                             # Odd that we don't use the interval dict here: not sure why
                             for key, _ in details:
-                                delta, inverted_relative_to_original = key
+                                offset, inverted_relative_to_original = key
                                 if inverted_relative_to_original:
-                                    store.add((delta - mrca.lower, delta - mrca.upper))
+                                    s.append((offset - mrca.lower, offset - mrca.upper))
                                 else:
-                                    store.add((mrca.lower - delta, mrca.upper - delta))
+                                    s.append((mrca.lower - offset, mrca.upper - offset))
                         result[child][mrca] = to_store  # replace
 
                     # Remove the coalesced segments from the interval lists
@@ -465,20 +466,20 @@ class Graph:
                 child_ivl = P.closedopen(ie.child_left, ie.child_right)  # cache
                 is_inversion = ie.is_inversion()
                 for u_or_v, interval_dict in enumerate((u_dict, v_dict)):
-                    for (delta, already_inverted), intervals in interval_dict.items():
+                    for (offset, already_inverted), intervals in interval_dict.items():
                         for interval in intervals:
                             if c := child_ivl & interval:
                                 p = ie.transform_interval((c.lower, c.upper), ROOTWARDS)
                                 if is_inversion:
                                     if already_inverted:
                                         # 0 gets flipped backwards
-                                        x = delta - (c.lower + p[0])
+                                        x = offset - (c.lower + p[0])
                                     else:
-                                        x = delta + (c.lower + p[0])
+                                        x = offset + (c.lower + p[0])
                                     already_inverted = not already_inverted
                                     parent_ivl = P.closedopen(p[1], p[0])
                                 else:
-                                    x = delta - c.lower + p[0]
+                                    x = offset - c.lower + p[0]
                                     parent_ivl = P.closedopen(*p)
                                 key = (x, already_inverted)
                                 if parent not in stack:
@@ -491,6 +492,50 @@ class Graph:
             k: {(k.lower, k.upper): v for k, v in pv.items()}
             for k, pv in result.items()
         }
+
+    @staticmethod
+    def random_matching_positions(mrcas_structure, rng):
+        """
+        Given a structure returned by the find_mrca_regions method, choose
+        a position uniformly at random from the mrca regions and return
+        the equivalent position in u and v.
+
+        Returns an equivalent position in u and v (chosen at random
+        if there are multiple equivalent positions for u, or multiple equivalent
+        positions for v). If this is a negative number, it indicates a position
+        reading in the reverse direction from that in the mrca (i.e. there have been
+        an odd number of inversions between the mrca and the sample).
+
+        It is hard to know from the MRCA structure whether intervals are
+        adjacent, so if this is used to locate a breakpoint, the choice of
+        whether a breakpoint is positioned to the left or right of the returned
+        position is left to the user.
+        """
+        tot_len = sum(x[1] - x[0] for v in mrcas_structure.values() for x in v.keys())
+        # Pick a single breakpoint
+        loc = rng.integers(tot_len)  # breakpoint is before this base
+        for mrca_intervals in mrcas_structure.values():
+            for x in mrca_intervals.keys():
+                if loc < x[1] - x[0]:
+                    u, v = mrca_intervals[x]
+                    assert len(u) != 0
+                    assert len(v) != 0
+                    u = u[0] if len(u) == 1 else rng.choice(u)
+                    v = v[0] if len(v) == 1 else rng.choice(v)
+                    # go the right number of positions into the interval
+                    # If inverted, we take the position minus 1, because an
+                    # inversion like (0, 10) -> (10, 0) maps pos 0 to pos 9
+                    # (not 10). If an inversion, we also negate the position
+                    # to indicate reading in the other direction
+
+                    # We should never choose the RH number in the interval,
+                    # Because that position is not included in the interval
+
+                    # TODO: check this works if loc is maxed out at u[1]
+                    u = u[0] + loc if u[0] < u[1] else -(u[1] - loc - 1)
+                    v = v[0] + loc if v[0] < v[1] else -(v[1] - loc - 1)
+                    return u, v
+                loc -= x[1] - x[0]
 
 
 class Items:

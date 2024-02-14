@@ -110,8 +110,11 @@ class DTWF_simulator:
     def run(self, num_diploids, seq_len, generations, random_seed=None):
         self.random = np.random.default_rng(random_seed)
         pop = self.initialise_population(generations, num_diploids)
+        # First generation by hand, so that we can specify the sequence length
         generations = generations - 1
         pop = self.new_population(generations, pop, seq_len=100)
+
+        # Subsequent generations
         while generations > 0:
             generations = generations - 1
             pop = self.new_population(generations, pop)
@@ -121,26 +124,121 @@ class DTWF_simulator:
 
 
 class DTWF_no_recombination_sim(DTWF_simulator):
-    def add_inheritance_paths(
-        self, parent_nodes, child_node, seq_len, recombination_rate
-    ):
+    def add_inheritance_paths(self, parent_nodes, child, seq_len, recombination_rate):
         "Add inheritance paths from a randomly chosen parent genome to the child genome."
         if recombination_rate != 0:
             raise ValueError("Recombination rate must be zero for this simulation.")
-        inherit_from = self.random.integers(2)  # randomly choose 1st or 2nd parent node
-        parent = parent_nodes[inherit_from]
-        left = 0
+        rand_parent = self.random.integers(2)  # randomly choose 1st or 2nd parent node
+        parent = parent_nodes[rand_parent]
+        lft = 0
         if seq_len is not None:
-            right = seq_len
+            rgt = seq_len
         else:
-            right = np.max(
+            rgt = np.max(
                 self.tables.iedges.child_right[self.tables.iedges.child == parent]
             )
-        self.tables.iedges.add_row(
-            parent=parent_nodes[inherit_from],
-            child=child_node,
-            parent_left=left,
-            parent_right=right,
-            child_left=left,
-            child_right=right,
-        )
+        self.tables.iedges.add_row(lft, rgt, lft, rgt, child=child, parent=parent)
+
+
+class DTWF_one_recombination_no_SV_slow_sim(DTWF_simulator):
+    """
+    A simple DTWF simulator with recombination but no structural variants.
+
+    We pick one breakpoint per meiosis, but it would be possible to modify the code
+    easily enough to have any number of breakpoints. Interference between
+    breakpoints is more tricky (2 randomly chosen breakpoints could be arbitrarily
+    close together), but could be implemented by rejection sampling.:
+    """
+
+    def initialise_population(self, time, size, L) -> dict[int, tuple[int, int, int]]:
+        # Make a "fake" MRCA node so we can use the find_mrca_regions method
+        # to locate comparable regions for recombination in the parent genomes
+        self.grand_mrca = self.tables.nodes.add_row(time=np.inf)
+
+        temp_pop = dict(self.make_diploid(time) for _ in range(size))
+        for nodes in temp_pop.values():
+            for u in nodes:
+                self.tables.iedges.add_row(0, L, 0, L, child=u, parent=self.grand_mrca)
+        return temp_pop
+
+    def run(self, num_diploids, seq_len, generations, random_seed=None):
+        self.random = np.random.default_rng(random_seed)
+        pop = self.initialise_population(generations, num_diploids, seq_len)
+        while generations > 0:
+            generations = generations - 1
+            # Since we do this in generations, we can freeze the tables into a GIG
+            # each generation. This is an inefficient way to be able to run
+            # find_mrca_regions, but it will have to do until we solve
+            # https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/69
+
+            # Since we are not sorting, running .graph() here also helps us catch any
+            # bugs dues to e.g. not adding edges in the expected order. Therefore
+            # if this
+            self.gig = self.tables.graph()
+            pop = self.new_population(generations, pop)
+
+        # Remove the grand MRCA node at time np.inf, plus all edges to it.
+        output_tables = gigl.Tables()
+        output_tables.time_units = self.tables.time_units
+        node_map = {}
+        for individual in self.gig.individuals:
+            # No need to change the individuals: the grand MRCA has no associated
+            # individuals, and the existing individuals do not reference node IDs
+            output_tables.individuals.append(individual)
+        for node in self.gig.nodes:
+            if np.isfinite(node.time):
+                node_map[node.id] = output_tables.nodes.append(node)
+        for ie in self.gig.iedges:
+            try:
+                output_tables.iedges.add_row(
+                    ie.child_left,
+                    ie.child_right,
+                    ie.parent_left,
+                    ie.parent_right,
+                    child=node_map[ie.child],
+                    parent=node_map[ie.parent],
+                )
+            except KeyError:
+                assert ie.parent == self.grand_mrca
+        return output_tables.graph()
+
+    def add_inheritance_paths(self, parent_nodes, child, seq_len, recombination_rate):
+        mrcas = self.gig.find_mrca_regions(*parent_nodes)
+
+        # pick a single breakpoint
+        comparable_pts = self.gig.random_matching_positions(mrcas, self.random)
+
+        if comparable_pts[0] * comparable_pts[1] < 0:
+            raise ValueError("Recombination between inverted regions not yet supported")
+            # NB: we could assume that a breakpoint between regions of interted
+            # orientation leads to a nonviable embryo, and reject this meiosis
+        # if both breaks are inverted relative to the mrca (i.e. negative) that's fine,
+        # as they are both in the same orientation relative to each other. We hack it
+        # here because if negative, the positions are out-by-one
+        rnd = self.random.integers(4)
+        break_to_right_of_position = rnd & 1
+        breaks = [abs(b + break_to_right_of_position) for b in comparable_pts]
+
+        if rnd & 2:  # Use 2nd bit to randomly choose 1st or 2nd parent node
+            # We need to randomise the order of parent nodes to avoid
+            # all children of this parent having the same genome to left / right
+            lft_parent, rgt_parent = parent_nodes
+            lft_parent_break, rgt_parent_break = breaks
+        else:
+            rgt_parent, lft_parent = parent_nodes
+            rgt_parent_break, lft_parent_break = breaks
+
+        # Must add edges in the correct order to preserve edge sorting by left coord
+        brk = lft_parent_break
+        if brk > 0:  # If break not placed just before position 0
+            pL, pR = 0, brk  # parent left and right start at the same pos as child
+            self.tables.iedges.add_row(0, brk, pL, pR, child=child, parent=lft_parent)
+        if seq_len is None:
+            # TODO - make this more efficient, as all the edges should be adjacent
+            seq_len = np.max(
+                self.tables.iedges.child_right[self.tables.iedges.child == rgt_parent]
+            )
+        if rgt_parent_break < seq_len:  # If break not just after the last pos
+            pL, pR = rgt_parent_break, seq_len
+            cR = brk + (pR - pL)  # child rgt must account for len of rgt parent region
+            self.tables.iedges.add_row(brk, cR, pL, pR, child=child, parent=rgt_parent)

@@ -38,6 +38,16 @@ The easiest example is an inversion. This would be an iedge like
 {parent: P, child: C, child_left: 100, child_right: 200, parent_left: 200, parent_right: 100}
 ```
 
+There is a subtle gotcha here, because intervals in a GIG, as in _tskit_, are treated as half-closed
+(i.e. do not include the position given by the right coordinate). When we invert an interval, it
+therefore does not include the *left* parent coordinate, but does include the *right* parent coordinate.
+Any transformed position is thus out by one. Or to put it another way, an inversion specified
+by child_left=0, child_right=3, parent_left=3, parent_right=0 transforms the points
+0, 1, 2 to 2, 1, 0 - although the *interval* 0, 3 is transformed to 0, 3., the *point* 0 is transformed
+to position 2, not position 3. See
+[here](https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/41#issuecomment-1858530867)
+for more discussion.
+
 ### Duplications
 
 A tandem duplication is represented by two iedges, one for each duplicated region:

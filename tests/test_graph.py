@@ -514,8 +514,8 @@ class TestFindMrcas:
         mrca = mrcas[3]
         assert (0, 100) in mrca
         u, v = mrca[(0, 100)]
-        assert u == {(0, 100)}
-        assert v == {(0, 100)}
+        assert u == [(0, 100)]
+        assert v == [(0, 100)]
 
     @pytest.mark.parametrize("sample_resolve", [True, False])
     def test_extended_inversion(self, extended_inversion_gig, sample_resolve):
@@ -545,13 +545,13 @@ class TestFindMrcas:
         mrca = mrcas[3]
         assert (10, 15) in mrca  # the duplicated+inverted section
         u, v = mrca[(10, 15)]
-        assert u == {(0, 5), (15, 10)}
-        assert v == {(0, 5)}
+        assert set(u) == {(0, 5), (15, 10)}
+        assert v == [(0, 5)]
 
         assert (15, 20) in mrca  # only the inverted section
         u, v = mrca[(15, 20)]
-        assert u == {(10, 5)}
-        assert v == {(5, 10)}
+        assert u == [(10, 5)]
+        assert v == [(5, 10)]
 
     def test_inverted_duplicate_with_missing(self, inverted_duplicate_with_missing_gig):
         assert inverted_duplicate_with_missing_gig.num_samples == 2
@@ -561,13 +561,13 @@ class TestFindMrcas:
         mrca = mrcas[3]
         assert (10, 15) in mrca  # the duplicated+inverted section
         u, v = mrca[(10, 15)]
-        assert u == {(0, 5), (35, 30)}
-        assert v == {(0, 5)}
+        assert set(u) == {(0, 5), (35, 30)}
+        assert v == [(0, 5)]
 
         assert (15, 20) in mrca  # only the inverted section
         u, v = mrca[(15, 20)]
-        assert u == {(30, 25)}
-        assert v == {(5, 10)}
+        assert u == [(30, 25)]
+        assert v == [(5, 10)]
 
     def test_no_recomb_sv_dup_del(self, all_sv_types_gig):
         assert all_sv_types_gig.num_samples >= 2
@@ -607,16 +607,34 @@ class TestFindMrcas:
         mrca = mrcas[12]
         # "normal" region
         assert (0, 80) in mrca
-        assert mrca[(0, 80)] == ({(0, 80)}, {(0, 80)})
+        assert mrca[(0, 80)] == ([(0, 80)], [(0, 80)])
 
         # start of inverted region
         assert (80, 100) in mrca
-        assert mrca[(80, 100)] == ({(80, 100)}, {(160, 140)})
+        assert mrca[(80, 100)] == ([(80, 100)], [(160, 140)])
 
         # duplicated inverted region
         assert (100, 160) in mrca
-        assert mrca[(100, 160)] == ({(100, 160), (200, 260)}, {(140, 80)})
+        assert set(mrca[(100, 160)][0]) == {(100, 160), (200, 260)}
+        assert mrca[(100, 160)][1] == [(140, 80)]
 
         # duplicated non-inverted region
         assert (160, 200) in mrca
-        assert mrca[(160, 200)] == ({(160, 200), (260, 300)}, {(160, 200)})
+        assert set(mrca[(160, 200)][0]) == {(160, 200), (260, 300)}
+        assert mrca[(160, 200)][1] == [(160, 200)]
+
+    def test_random_matching_positions(self, simple_ts):
+        rng = np.random.default_rng(1)
+        ts = simple_ts.keep_intervals([(0, 2)]).trim()
+        gig = gigl.from_tree_sequence(ts)
+        assert gig.samples[0] == 0
+        assert gig.samples[1] == 1
+        mrcas = gig.find_mrca_regions(0, 1)
+        all_breaks = set()
+        for _ in range(20):
+            # in 20 replicates we should definitely have both 0 and 1
+            breaks = gig.random_matching_positions(mrcas, rng)
+            assert len(breaks) == 2
+            assert breaks[0] == breaks[1]
+            all_breaks.add(breaks[0])
+        assert all_breaks == {0, 1}
