@@ -493,6 +493,52 @@ class Graph:
             for k, pv in result.items()
         }
 
+    @staticmethod
+    def random_matching_positions(mrcas_structure, rng):
+        """
+        Given a structure returned by the find_mrca_regions method, choose
+        a position uniformly at random from the mrca regions and return
+        the equivalent position in u and v.
+
+        Returns an equivalent position in u and v (chosen at random
+        if there are multiple equivalent positions for u, or multiple equivalent
+        positions for v). If this is a negative number, it indicates a position
+        reading in the reverse direction from that in the mrca (i.e. there have been
+        an odd number of inversions between the mrca and the sample).
+
+        It is hard to know from the MRCA structure whether intervals are
+        adjacent, so if this is used to locate a breakpoint, the choice of
+        whether a breakpoint is positioned to the left or right of the returned
+        position is left to the user.
+        """
+        tot_len = sum(x[1] - x[0] for v in mrcas_structure.values() for x in v.keys())
+        # Pick a single breakpoint
+        loc = rng.integers(tot_len)  # breakpoint is before this base
+        print("tot_len:", tot_len, "chosen loc:", loc)
+        print(mrcas_structure)
+        for mrca_intervals in mrcas_structure.values():
+            for x in mrca_intervals.keys():
+                if loc < x[1] - x[0]:
+                    u, v = mrca_intervals[x]
+                    assert len(u) != 0
+                    assert len(v) != 0
+                    u = u[0] if len(u) == 1 else rng.choice(u)
+                    v = v[0] if len(v) == 1 else rng.choice(v)
+                    # go the right number of positions into the interval
+                    # If inverted, we take the position minus 1, because an
+                    # inversion like (0, 10) -> (10, 0) maps pos 0 to pos 9
+                    # (not 10). If an inversion, we also negate the position
+                    # to indicate reading in the other direction
+
+                    # We should never choose the RH number in the interval,
+                    # Because that position is not included in the interval
+
+                    # TODO: check this works if loc is maxed out at u[1]
+                    u = u[0] + loc if u[0] < u[1] else -(u[1] - loc - 1)
+                    v = v[0] + loc if v[0] < v[1] else -(v[1] - loc - 1)
+                    return u, v
+                loc -= x[1] - x[0]
+
 
 class Items:
     """

@@ -623,16 +623,18 @@ class TestFindMrcas:
         assert set(mrca[(160, 200)][0]) == {(160, 200), (260, 300)}
         assert mrca[(160, 200)][1] == [(160, 200)]
 
-    def test_find_mrca_breakpoints(self, inverted_duplicate_gig):
-        np.random.seed(1)
-        assert inverted_duplicate_gig.num_samples == 2
-        mrcas = inverted_duplicate_gig.find_mrca_regions(0, 1)
-        assert len(mrcas) == 1
-        # pick the number of breakpoints (no interference between breakpoints here:
-        # we can have 2 breakpoints arbitrarily close together, although we could
-        # probably implement interference via rejection sampling.
-
-        # here we could assume that a breakpoint between regions of interted orientation
-        # leads to nonviable gametes
-
-        # Return a
+    def test_random_matching_positions(self, simple_ts):
+        rng = np.random.default_rng(1)
+        ts = simple_ts.keep_intervals([(0, 2)]).trim()
+        gig = gigl.from_tree_sequence(ts)
+        assert gig.samples[0] == 0
+        assert gig.samples[1] == 1
+        mrcas = gig.find_mrca_regions(0, 1)
+        all_breaks = set()
+        for _ in range(20):
+            # in 20 replicates we should definitely have both 0 and 1
+            breaks = gig.random_matching_positions(mrcas, rng)
+            assert len(breaks) == 2
+            assert breaks[0] == breaks[1]
+            all_breaks.add(breaks[0])
+        assert all_breaks == {0, 1}
