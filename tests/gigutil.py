@@ -140,9 +140,11 @@ class DTWF_no_recombination_sim(DTWF_simulator):
         self.tables.iedges.add_row(lft, rgt, lft, rgt, child=child, parent=parent)
 
 
-class DTWF_one_recombination_no_SV_slow_sim(DTWF_simulator):
+class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
     """
-    A simple DTWF simulator with recombination but no structural variants.
+    A simple DTWF simulator with recombination, in which we do not allow recombination
+    between regions which are in inverted orientation relative to each other (we simply
+    pick a different breakpoint)
 
     We pick one breakpoint per meiosis, but it would be possible to modify the code
     easily enough to have any number of breakpoints. Interference between
@@ -161,17 +163,9 @@ class DTWF_one_recombination_no_SV_slow_sim(DTWF_simulator):
                 self.tables.iedges.add_row(0, L, 0, L, child=u, parent=self.grand_mrca)
         return temp_pop
 
-    def run(
-        self, num_diploids, seq_len, gens, *, left_sort_mrcas=False, random_seed=None
-    ):
-        """
-        if left_pos_sort_mrcas is True, then before calling gig.random_matching_positions
-        the mrcas list will be sorted by the left position of the mrca region (rather
-        than using the ID of the MRCA node). This is useful for testing against a simpler
-        model that picks a breakpoint from left to right along the matching regions.
-        """
+    def run(self, num_diploids, seq_len, gens, *, random_seed=None):
         self.random = np.random.default_rng(random_seed)
-        self.left_sort_mrcas = left_sort_mrcas
+        self.num_tries_for_breakpoint = 20  # number of tries to find a breakpoint
         pop = self.initialise_population(gens, num_diploids, seq_len)
         while gens > 0:
             gens = gens - 1
@@ -181,8 +175,9 @@ class DTWF_one_recombination_no_SV_slow_sim(DTWF_simulator):
             # https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/69
 
             # Since we are not sorting, running .graph() here also helps us catch any
-            # bugs dues to e.g. not adding edges in the expected order. Therefore
-            # if this
+            # bugs due to e.g. not adding edges in the expected order. Therefore
+            # if this call to .graph() fails, it identifies a case where we cannot
+            # guarantee that a call to find_mrca_regions on the tables will work.
             self.gig = self.tables.graph()
             pop = self.new_population(gens, pop)
 
@@ -211,26 +206,32 @@ class DTWF_one_recombination_no_SV_slow_sim(DTWF_simulator):
                 assert ie.parent == self.grand_mrca
         return output_tables.graph()
 
+    def find_comparable_points(self, gig, parent_nodes):
+        """
+        Find comparable points in the parent nodes, and return the
+        coordinates of the matching regions in the parent nodes.
+        """
+        mrcas = gig.find_mrca_regions(*parent_nodes)
+        comparable_pts = gig.random_matching_positions(mrcas, self.random)
+        # Pick a single breakpoint: if both breaks are inverted relative to the mrca
+        # (i.e. negative) it's OK: both have the same orientation relative to each other
+        tries = 0
+        while comparable_pts[0] * comparable_pts[1] < 0:
+            comparable_pts = self.gig.random_matching_positions(mrcas, self.random)
+            tries += 1
+            if tries > self.num_tries_for_breakpoint:
+                raise ValueError(
+                    "Could not find a pair of matching regions in the same orientation"
+                )
+        return comparable_pts
+
     def add_inheritance_paths(self, parent_nodes, child, seq_len, _):
-        mrcas = self.gig.find_mrca_regions(*parent_nodes)
+        comparable_pts = self.find_comparable_points(self.gig, parent_nodes)
 
-        if self.left_sort_mrcas:
-            mrcas = self.sort_mrcas_by_left_coord(
-                mrcas
-            )  # Purely for testing: see docstring
-
-        # pick a single breakpoint
-        comparable_pts = self.gig.random_matching_positions(mrcas, self.random)
-
-        if comparable_pts[0] * comparable_pts[1] < 0:
-            raise ValueError("Recombination between inverted regions not yet supported")
-            # NB: we could assume that a breakpoint between regions of interted
-            # orientation leads to a nonviable embryo, and reject this meiosis
-        # if both breaks are inverted relative to the mrca (i.e. negative) that's fine,
-        # as they are both in the same orientation relative to each other. We hack it
-        # here because if negative, the positions are out-by-one
         rnd = self.random.integers(4)
         break_to_right_of_position = rnd & 1
+        # Minor hack when both comparable_pts are negative, in which case
+        # the positions mark the right of the break, rather than the left
         breaks = [abs(b + break_to_right_of_position) for b in comparable_pts]
 
         if rnd & 2:  # Use 2nd bit to randomly choose 1st or 2nd parent node
@@ -256,20 +257,3 @@ class DTWF_one_recombination_no_SV_slow_sim(DTWF_simulator):
             pL, pR = rgt_parent_break, seq_len
             cR = brk + (pR - pL)  # child rgt must account for len of rgt parent region
             self.tables.iedges.add_row(brk, cR, pL, pR, child=child, parent=rgt_parent)
-
-    @staticmethod
-    def sort_mrcas_by_left_coord(mrcas):
-        """
-        This is only used for testing: it creates a new mrca dict with arbitrary keys
-        but where each value is a single interval with the appropriate matching coords in
-        u and v. The items in the dict are sorted by the left coordinate of the mrca.
-        The keys can be arbitray because we don;t use the identity of the MRCA node to
-        determine breakpoint dynamics.
-        """
-        tmp = []
-        for mrca_regions in mrcas.values():
-            for region, equivalents in mrca_regions.items():
-                tmp.append((region, equivalents))
-        return {
-            k: {v[0]: v[1]} for k, v in enumerate(sorted(tmp, key=lambda x: x[0][0]))
-        }

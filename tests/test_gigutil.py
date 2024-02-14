@@ -1,8 +1,9 @@
 import numpy as np
+import pytest
 import tskit
 
 from .gigutil import DTWF_no_recombination_sim
-from .gigutil import DTWF_one_recombination_no_SV_slow_sim
+from .gigutil import DTWF_one_break_no_rec_inversions_slow_sim
 
 
 # Tests for functions in tests/gigutil.py
@@ -94,6 +95,33 @@ class tskit_DTWF_simulator:
         return self.tables.tree_sequence()
 
 
+class DTWF_one_break_no_rec_inversions_test(DTWF_one_break_no_rec_inversions_slow_sim):
+    """
+    A GIG simulator used for testing: this version should result in the same breakpoints
+    as in the tskit_DTWF_simulator.
+    """
+
+    def find_comparable_points(self, gig, parent_nodes):
+        """ """
+        mrcas = gig.find_mrca_regions(*parent_nodes)
+        # Create a new mrca dict with arbitrary keys but where each value is a single
+        # interval with the appropriate matching coords in u and v. Items in the dict
+        # are sorted by the left coordinate of the mrca. Keys can be arbitrary because
+        # we don't use the identity of the MRCA node to determine breakpoint dynamics.
+        tmp = []
+        for mrca_regions in mrcas.values():
+            for region, equivalents in mrca_regions.items():
+                tmp.append((region, equivalents))
+        comparable_pts = gig.random_matching_positions(
+            {k: {v[0]: v[1]} for k, v in enumerate(sorted(tmp, key=lambda x: x[0][0]))},
+            self.random,
+        )
+        return comparable_pts  # Don't bother with inversions: testing doesn't use them
+
+
+# MAIN TESTS BELOW
+
+
 class TestSimpleSims:
     def test_no_recomb_sim(self):
         gens = 10
@@ -106,9 +134,9 @@ class TestSimpleSims:
 
 
 class TestDTWF_recombination_no_SV_sims:
-    def test_one_recombination_slow_sim(self):
+    def test_one_break_slow_sim(self):
         gens = 10
-        simulator = DTWF_one_recombination_no_SV_slow_sim()
+        simulator = DTWF_one_break_no_rec_inversions_slow_sim()
         gig = simulator.run(num_diploids=10, seq_len=100, gens=gens, random_seed=1)
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
         assert gig.num_iedges > 0
@@ -117,14 +145,14 @@ class TestDTWF_recombination_no_SV_sims:
         assert ts.num_trees > 1
         assert ts.at_index(0).num_edges > 0
 
-    def test_one_recombination_slow_sim_vs_tskit(self):
+    @pytest.mark.parametrize("seed", [123, 321])
+    def test_one_break_slow_sim_vs_tskit(self, seed):
         # The tskit_DTWF_simulator should produce identical results to the GIG simulator
         gens = 9
         L = 97
-        seed = 12
-        gig_simulator = DTWF_one_recombination_no_SV_slow_sim()
+        gig_simulator = DTWF_one_break_no_rec_inversions_test()
         ts_simulator = tskit_DTWF_simulator(sequence_length=L)
-        gig = gig_simulator.run(7, L, gens=gens, left_sort_mrcas=True, random_seed=seed)
+        gig = gig_simulator.run(7, L, gens=gens, random_seed=seed)
         ts = ts_simulator.run(7, gens=gens, random_seed=seed)
         ts.tables.assert_equals(gig.to_tree_sequence().tables, ignore_provenance=True)
         assert ts.num_trees > 0
