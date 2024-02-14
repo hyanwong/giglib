@@ -150,7 +150,7 @@ class DTWF_one_recombination_no_SV_slow_sim(DTWF_simulator):
     close together), but could be implemented by rejection sampling.:
     """
 
-    def initialise_population(self, time, size, L) -> dict[int, tuple[int, int, int]]:
+    def initialise_population(self, time, size, L) -> dict[int, tuple[int, int]]:
         # Make a "fake" MRCA node so we can use the find_mrca_regions method
         # to locate comparable regions for recombination in the parent genomes
         self.grand_mrca = self.tables.nodes.add_row(time=np.inf)
@@ -161,11 +161,20 @@ class DTWF_one_recombination_no_SV_slow_sim(DTWF_simulator):
                 self.tables.iedges.add_row(0, L, 0, L, child=u, parent=self.grand_mrca)
         return temp_pop
 
-    def run(self, num_diploids, seq_len, generations, random_seed=None):
+    def run(
+        self, num_diploids, seq_len, gens, *, left_sort_mrcas=False, random_seed=None
+    ):
+        """
+        if left_pos_sort_mrcas is True, then before calling gig.random_matching_positions
+        the mrcas list will be sorted by the left position of the mrca region (rather
+        than using the ID of the MRCA node). This is useful for testing against a simpler
+        model that picks a breakpoint from left to right along the matching regions.
+        """
         self.random = np.random.default_rng(random_seed)
-        pop = self.initialise_population(generations, num_diploids, seq_len)
-        while generations > 0:
-            generations = generations - 1
+        self.left_sort_mrcas = left_sort_mrcas
+        pop = self.initialise_population(gens, num_diploids, seq_len)
+        while gens > 0:
+            gens = gens - 1
             # Since we do this in generations, we can freeze the tables into a GIG
             # each generation. This is an inefficient way to be able to run
             # find_mrca_regions, but it will have to do until we solve
@@ -175,7 +184,7 @@ class DTWF_one_recombination_no_SV_slow_sim(DTWF_simulator):
             # bugs dues to e.g. not adding edges in the expected order. Therefore
             # if this
             self.gig = self.tables.graph()
-            pop = self.new_population(generations, pop)
+            pop = self.new_population(gens, pop)
 
         # Remove the grand MRCA node at time np.inf, plus all edges to it.
         output_tables = gigl.Tables()
@@ -202,8 +211,13 @@ class DTWF_one_recombination_no_SV_slow_sim(DTWF_simulator):
                 assert ie.parent == self.grand_mrca
         return output_tables.graph()
 
-    def add_inheritance_paths(self, parent_nodes, child, seq_len, recombination_rate):
+    def add_inheritance_paths(self, parent_nodes, child, seq_len, _):
         mrcas = self.gig.find_mrca_regions(*parent_nodes)
+
+        if self.left_sort_mrcas:
+            mrcas = self.sort_mrcas_by_left_coord(
+                mrcas
+            )  # Purely for testing: see docstring
 
         # pick a single breakpoint
         comparable_pts = self.gig.random_matching_positions(mrcas, self.random)
@@ -242,3 +256,20 @@ class DTWF_one_recombination_no_SV_slow_sim(DTWF_simulator):
             pL, pR = rgt_parent_break, seq_len
             cR = brk + (pR - pL)  # child rgt must account for len of rgt parent region
             self.tables.iedges.add_row(brk, cR, pL, pR, child=child, parent=rgt_parent)
+
+    @staticmethod
+    def sort_mrcas_by_left_coord(mrcas):
+        """
+        This is only used for testing: it creates a new mrca dict with arbitrary keys
+        but where each value is a single interval with the appropriate matching coords in
+        u and v. The items in the dict are sorted by the left coordinate of the mrca.
+        The keys can be arbitray because we don;t use the identity of the MRCA node to
+        determine breakpoint dynamics.
+        """
+        tmp = []
+        for mrca_regions in mrcas.values():
+            for region, equivalents in mrca_regions.items():
+                tmp.append((region, equivalents))
+        return {
+            k: {v[0]: v[1]} for k, v in enumerate(sorted(tmp, key=lambda x: x[0][0]))
+        }
