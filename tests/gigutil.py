@@ -207,7 +207,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         output_tables = gigl.Tables()
         output_tables.time_units = self.tables.time_units
         node_map = {}
-        for individual in self.gig.individuals:
+        for individual in self.tables.individuals:
             # No need to change the individuals: the grand MRCA has no associated
             # individuals, and the existing individuals do not reference node IDs
             output_tables.individuals.append(individual)

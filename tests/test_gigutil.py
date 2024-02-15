@@ -229,7 +229,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         simulator.tables.iedges = new_iedges
         simulator.tables.sort()
         # Check it gives a valid gig
-        gig = simulator.tables.graph()
+        gig = simulator.tables.copy().graph()
         num_inversions = 0
         for ie in gig.iedges:
             if ie.is_inversion():
