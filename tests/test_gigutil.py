@@ -238,10 +238,17 @@ class TestDTWF_one_break_no_rec_inversions_slow:
 
         # Can progress the simulation
         gig = simulator.run_more(num_diploids=100, gens=4, random_seed=1)
-        # check we still have an inversion in the ancestry
+        # check we still have an inversion in the ancestry: it's not been lost by drift
         gig = gig.sample_resolve()
         num_inversions = 0
         for ie in gig.iedges:
             if ie.is_inversion():
                 num_inversions += 1
         assert num_inversions == 1
+
+        # Check we can turn the decapitated gig tables into a tree sequence
+        # (because decapitation should remove the only SV)
+        new_gig = gig.decapitate(time=gig.max_time)
+        ts = new_gig.to_tree_sequence()
+        assert ts.max_time == new_gig.max_time
+        assert ts.max_time < gig.max_time

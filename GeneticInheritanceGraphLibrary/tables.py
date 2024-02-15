@@ -426,6 +426,44 @@ class Tables:
         self.nodes = node_table
         # TODO - same for mutations, when we implement them
 
+    def decapitate(self, time):
+        """
+        Remove nodes that are older than a certain time, and edges that have those
+        as parents. Also remove individuals associated with those nodes
+        """
+        individuals = IndividualTable()
+        individual_map = {NULL: NULL}
+        nodes = NodeTable()
+        node_map = {}
+        iedges = IEdgeTable()
+        for u, nd in enumerate(self.nodes):
+            if nd.time < time:
+                i = nd.individual
+                indiv = self.individuals[i]
+                if i not in individual_map:
+                    individual_map[i] = individuals.add_row(
+                        parents=tuple(
+                            individual_map.get(j, NULL) for j in indiv.parents
+                        )
+                    )
+                node_map[u] = nodes.add_row(
+                    time=nd.time, flags=nd.flags, individual=individual_map[i]
+                )
+        for ie in self.iedges:
+            if ie.parent in node_map:
+                iedges.add_row(
+                    ie.child_left,
+                    ie.child_right,
+                    ie.parent_left,
+                    ie.parent_right,
+                    child=node_map[ie.child],
+                    parent=node_map[ie.parent],
+                )
+        self.nodes = nodes
+        self.iedges = iedges
+        self.individuals = individuals
+        self.sort()
+
     @classmethod
     def from_tree_sequence(cls, ts, *, chromosome=None, timedelta=0, **kwargs):
         """
