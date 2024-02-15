@@ -227,6 +227,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
             except KeyError:
                 assert ie.parent == self.grand_mrca
         # Shouldn't need to sort really: we could do as a check?
+        # No need to make a copy here, as we have started with a new tables object
         return output_tables.graph()
 
     def run(self, num_diploids, seq_len, gens, *, random_seed=None):
@@ -252,7 +253,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
             # bugs due to e.g. not adding edges in the expected order. Therefore
             # if this call to .graph() fails, it identifies a case where an efficient
             # implementation to allow find_mrca_regions on the tables could fail.
-            self.gig = self.tables.graph()
+            self.gig = self.tables.copy().graph()
             self.new_population(gens, size=num_diploids[-gens - 1])
         return self.tables_to_gig_without_grand_mrca()
 
@@ -271,7 +272,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         while gens > 0:
             gens -= 1
             # See comment above about why we currently need to run .graph() here
-            self.gig = self.tables.graph()
+            self.gig = self.tables.copy().graph()
             self.new_population(gens, size=num_diploids[-gens - 1])
         return self.tables_to_gig_without_grand_mrca()
 
