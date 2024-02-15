@@ -343,6 +343,13 @@ class Tables:
             return False
         return True
 
+    def clear(self):
+        """
+        Clear all tables
+        """
+        for name in self.table_classes.keys():
+            getattr(self, name).clear()
+
     def copy(self):
         """
         Return a deep copy of the tables
@@ -402,6 +409,22 @@ class Tables:
         if len(self.nodes) == 0:
             return np.array([], dtype=np.int32)
         return np.where(self.nodes.flags & NODE_IS_SAMPLE)[0]
+
+    def change_times(self, timedelta):
+        """
+        Add a value to all times (nodes and mutations)
+        """
+        # TODO: urrently node rows are frozen, so we can't change them in-place
+        # We should make them more easily editable.
+        node_table = NodeTable()
+        for node in self.nodes:
+            node_table.add_row(
+                time=node.time + timedelta,
+                flags=node.flags,
+                individual=node.individual,
+            )
+        self.nodes = node_table
+        # TODO - same for mutations, when we implement them
 
     @classmethod
     def from_tree_sequence(cls, ts, *, chromosome=None, timedelta=0, **kwargs):
