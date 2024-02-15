@@ -64,6 +64,7 @@ class IndividualTableRow(TableRow):
 
 class BaseTable:
     RowClass = None
+    _frozen = False
 
     def __getattr__(self, name):
         # Extract column by name. This is a bit of a hack: can be replaced later
@@ -79,16 +80,30 @@ class BaseTable:
         # do this without diving into C implementations.
         self._data = []
 
+    def freeze(self):
+        """
+        Freeze the table so that it cannot be modified
+        """
+        # turn the data into a tuple so that it is immutable. This doesn't
+        # make a copy, but just passes the data by reference
+        self._data = tuple(self._data)
+        self._frozen = True
+
+    def __setattr__(self, attr, value):
+        if self._frozen:
+            raise AttributeError("Trying to set attribute on a frozen instance")
+        return super().__setattr__(attr, value)
+
     def copy(self):
         """
-        Returns a deep copy of this table
+        Returns an unfrozen deep copy of this table
         """
         copy = self.__class__()
-        copy._data = self._data.copy()
+        copy._data = list(self._data).copy()
         return copy
 
     def __eq__(self, other):
-        return self._data == other._data
+        return tuple(self._data) == tuple(other._data)
 
     def clear(self):
         """
@@ -171,6 +186,7 @@ class BaseTable:
         Example:
             new_id = table.append({"field1": "foo", "field2": "bar"})
         """
+
         kwargs = self.to_dict(obj)
         return self.add_row(
             **{k: v for k, v in kwargs.items() if k in self.RowClass.__annotations__}
@@ -324,6 +340,8 @@ class Tables:
     similar to a tskit TableCollection.
     """
 
+    _frozen = False
+
     table_classes = {
         "nodes": NodeTable,
         "iedges": IEdgeTable,
@@ -343,6 +361,19 @@ class Tables:
             return False
         return True
 
+    def freeze(self):
+        """
+        Freeze all tables so they cannot be modified
+        """
+        for name in self.table_classes.keys():
+            getattr(self, name).freeze()
+        self._frozen = True
+
+    def __setattr__(self, attr, value):
+        if self._frozen:
+            raise AttributeError("Trying to set attribute on a frozen instance")
+        return super().__setattr__(attr, value)
+
     def clear(self):
         """
         Clear all tables
@@ -352,7 +383,7 @@ class Tables:
 
     def copy(self):
         """
-        Return a deep copy of the tables
+        Return an unfrozen deep copy of the tables
         """
         copy = self.__class__()
         for name in self.table_classes.keys():
