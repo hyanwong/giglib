@@ -343,6 +343,13 @@ class Tables:
             return False
         return True
 
+    def clear(self):
+        """
+        Clear all tables
+        """
+        for name in self.table_classes.keys():
+            getattr(self, name).clear()
+
     def copy(self):
         """
         Return a deep copy of the tables
@@ -402,6 +409,60 @@ class Tables:
         if len(self.nodes) == 0:
             return np.array([], dtype=np.int32)
         return np.where(self.nodes.flags & NODE_IS_SAMPLE)[0]
+
+    def change_times(self, timedelta):
+        """
+        Add a value to all times (nodes and mutations)
+        """
+        # TODO: urrently node rows are frozen, so we can't change them in-place
+        # We should make them more easily editable.
+        node_table = NodeTable()
+        for node in self.nodes:
+            node_table.add_row(
+                time=node.time + timedelta,
+                flags=node.flags,
+                individual=node.individual,
+            )
+        self.nodes = node_table
+        # TODO - same for mutations, when we implement them
+
+    def decapitate(self, time):
+        """
+        Remove nodes that are older than a certain time, and edges that have those
+        as parents. Also remove individuals associated with those nodes
+        """
+        individuals = IndividualTable()
+        individual_map = {NULL: NULL}
+        nodes = NodeTable()
+        node_map = {}
+        iedges = IEdgeTable()
+        for u, nd in enumerate(self.nodes):
+            if nd.time < time:
+                i = nd.individual
+                indiv = self.individuals[i]
+                if i not in individual_map:
+                    individual_map[i] = individuals.add_row(
+                        parents=tuple(
+                            individual_map.get(j, NULL) for j in indiv.parents
+                        )
+                    )
+                node_map[u] = nodes.add_row(
+                    time=nd.time, flags=nd.flags, individual=individual_map[i]
+                )
+        for ie in self.iedges:
+            if ie.parent in node_map:
+                iedges.add_row(
+                    ie.child_left,
+                    ie.child_right,
+                    ie.parent_left,
+                    ie.parent_right,
+                    child=node_map[ie.child],
+                    parent=node_map[ie.parent],
+                )
+        self.nodes = nodes
+        self.iedges = iedges
+        self.individuals = individuals
+        self.sort()
 
     @classmethod
     def from_tree_sequence(cls, ts, *, chromosome=None, timedelta=0, **kwargs):

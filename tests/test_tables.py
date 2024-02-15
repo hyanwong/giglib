@@ -105,6 +105,12 @@ class TestMethods:
         assert tables.iedges[1].child == 2
         assert tables.iedges[2].child == 3
 
+    def test_change_times(self, trivial_gig):
+        tables = trivial_gig.tables
+        times = tables.nodes.time
+        tables.change_times(timedelta=1.5)
+        assert np.isclose(tables.nodes.time, times + 1.5).all()
+
 
 class TestBaseTable:
     # Test various basic table methods

@@ -164,6 +164,11 @@ class Graph:
         return self.tables.time_units
 
     @property
+    def max_time(self):
+        # Should also incorporate mutation times here
+        return self.tables.nodes.time.max()
+
+    @property
     def num_nodes(self):
         # Deprecated
         return len(self.tables.nodes)
@@ -273,6 +278,14 @@ class Graph:
         )
         tables.sort()
         return tables.tree_sequence()
+
+    def decapitate(self, time):
+        """
+        Return a new GIG with all nodes older than time removed.
+        """
+        tables = self.tables.copy()  # placeholder for making these editable
+        tables.decapitate(time)
+        return self.__class__(tables)
 
     def sample_resolve(self):
         """
@@ -510,6 +523,9 @@ class Graph:
         adjacent, so if this is used to locate a breakpoint, the choice of
         whether a breakpoint is positioned to the left or right of the returned
         position is left to the user.
+
+        The ``rng`` parameter is intended to be a numpy random number generator with a
+        method ``integers()`` that behaves like ``np.random.default_rng().integers``.
         """
         tot_len = sum(x[1] - x[0] for v in mrcas_structure.values() for x in v.keys())
         # Pick a single breakpoint

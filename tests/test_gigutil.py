@@ -1,3 +1,4 @@
+import GeneticInheritanceGraphLibrary as gigl
 import numpy as np
 import pytest
 import tskit
@@ -126,15 +127,33 @@ class TestSimpleSims:
     def test_no_recomb_sim(self):
         gens = 10
         simulator = DTWF_no_recombination_sim()
-        gig = simulator.run(
-            num_diploids=10, seq_len=100, generations=gens, random_seed=1
-        )
+        gig = simulator.run(num_diploids=10, seq_len=100, gens=gens, random_seed=1)
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
         assert gig.num_iedges > 0
 
+    def test_variable_population_size(self):
+        gens = 2
+        simulator = DTWF_no_recombination_sim()
+        gig = simulator.run(
+            num_diploids=(2, 10, 20), seq_len=100, gens=gens, random_seed=1
+        )
+        times, counts = np.unique(gig.tables.nodes.time, return_counts=True)
+        assert np.array_equal(times, [0, 1, 2])
+        assert np.array_equal(counts, [40, 20, 4])
+        assert len(gig.individuals) == 2 + 10 + 20
 
-class TestDTWF_recombination_no_SV_sims:
-    def test_one_break_slow_sim(self):
+    def test_run_more(self):
+        simulator = DTWF_no_recombination_sim()
+        gens1 = 2
+        gig = simulator.run(num_diploids=2, seq_len=100, gens=gens1, random_seed=1)
+        assert len(np.unique(gig.tables.nodes.time)) == gens1 + 1
+        gens2 = 3
+        gig = simulator.run_more(num_diploids=4, seq_len=100, gens=gens2, random_seed=1)
+        assert len(np.unique(gig.tables.nodes.time)) == gens1 + gens2 + 1
+
+
+class TestDTWF_one_break_no_rec_inversions_slow:
+    def test_plain_sim(self):
         gens = 10
         simulator = DTWF_one_break_no_rec_inversions_slow_sim()
         gig = simulator.run(num_diploids=10, seq_len=100, gens=gens, random_seed=1)
@@ -145,8 +164,23 @@ class TestDTWF_recombination_no_SV_sims:
         assert ts.num_trees > 1
         assert ts.at_index(0).num_edges > 0
 
+    def test_run_more(self):
+        gens1 = 10
+        simulator = DTWF_one_break_no_rec_inversions_slow_sim()
+        gig = simulator.run(num_diploids=10, seq_len=100, gens=gens1, random_seed=1)
+        gens2 = 2
+        gig = simulator.run_more(num_diploids=(4, 2), gens=gens2, random_seed=1)
+        times, counts = np.unique(gig.tables.nodes.time, return_counts=True)
+        assert len(times) == gens1 + gens2 + 1
+        assert times[0] == 0
+        assert counts[0] == 4  # 2 * 2
+        assert times[1] == 1
+        assert counts[1] == 8  # 4 * 2
+        assert times[2] == 2
+        assert counts[2] == 20
+
     @pytest.mark.parametrize("seed", [123, 321])
-    def test_one_break_slow_sim_vs_tskit(self, seed):
+    def test_vs_tskit_implementation(self, seed):
         # The tskit_DTWF_simulator should produce identical results to the GIG simulator
         gens = 9
         L = 97
@@ -161,3 +195,60 @@ class TestDTWF_recombination_no_SV_sims:
         ts = ts.simplify(keep_unary=True, filter_individuals=False, filter_nodes=False)
         gig = gig.sample_resolve()
         ts.tables.assert_equals(gig.to_tree_sequence().tables, ignore_provenance=True)
+
+    def test_inversion(self):
+        simulator = DTWF_one_break_no_rec_inversions_slow_sim()
+        simulator.run(num_diploids=2, seq_len=1000, gens=1, random_seed=1)
+        # Insert an inversion by editing the tables
+        times, inverses = np.unique(simulator.tables.nodes.time, return_inverse=True)
+        assert len(times) == 3  # also includes the grand MRCA
+        first_gen = np.where(inverses == np.where([times == 1])[0])[0]
+        second_gen = np.where(inverses == np.where([times == 0])[0])[0]
+        assert len(first_gen) == 4  # haploid genomes
+        assert len(second_gen) == 4  # haploid genomes
+        # Edit the existing iedges to create an inversion
+        # on a single iedge
+        new_iedges = gigl.tables.IEdgeTable()
+        for ie in simulator.tables.iedges:
+            if ie.child == second_gen[0] and ie.child_left == 0:
+                assert ie.parent_left == 0
+                assert ie.child_right == ie.parent_right
+                assert ie.child_right > 200  # check seed gives breakpoint a bit along
+                new_iedges.add_row(0, 100, 0, 100, child=ie.child, parent=ie.parent)
+                new_iedges.add_row(100, 200, 200, 100, child=ie.child, parent=ie.parent)
+                new_iedges.add_row(
+                    200,
+                    ie.child_right,
+                    200,
+                    ie.parent_right,
+                    child=ie.child,
+                    parent=ie.parent,
+                )
+            else:
+                new_iedges.append(ie)
+        simulator.tables.iedges = new_iedges
+        simulator.tables.sort()
+        # Check it gives a valid gig
+        gig = simulator.tables.graph()
+        num_inversions = 0
+        for ie in gig.iedges:
+            if ie.is_inversion():
+                num_inversions += 1
+        assert num_inversions == 1
+
+        # Can progress the simulation
+        gig = simulator.run_more(num_diploids=100, gens=4, random_seed=1)
+        # check we still have an inversion in the ancestry: it's not been lost by drift
+        gig = gig.sample_resolve()
+        num_inversions = 0
+        for ie in gig.iedges:
+            if ie.is_inversion():
+                num_inversions += 1
+        assert num_inversions == 1
+
+        # Check we can turn the decapitated gig tables into a tree sequence
+        # (because decapitation should remove the only SV)
+        new_gig = gig.decapitate(time=gig.max_time)
+        ts = new_gig.to_tree_sequence()
+        assert ts.max_time == new_gig.max_time
+        assert ts.max_time < gig.max_time

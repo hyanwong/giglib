@@ -62,25 +62,29 @@ class DTWF_simulator:
             ),
         )
 
-    def new_population(
-        self, time, prev_pop, recombination_rate=0, seq_len=None
-    ) -> dict[int, tuple[int, int]]:
+    def new_population(self, time, recombination_rate=0, size=None, seq_len=None):
         """
-        if seq_len is specified, use this as the expected sequence length of the
+        If seq_len is specified, use this as the expected sequence length of the
         parents of the new population, otherwise take from the parent.sequence_length
+
+        If num_diploids is specified, use this as the number of diploids in the new
+        population, otherwise use the number of diploids in the previous population.
         """
-        pop = {}  # fill with individual_ID: (maternal_genome_ID, paternal_genome_ID)
+        if self.pop is None:
+            raise ValueError("Need to initialise a new population first")
+        prev_pop = self.pop
+        self.pop = {}  # fill with individualID: (maternal_genomeID, paternal_genomeID)
 
         # Cache the list of individual IDs in the previous population, for efficiency
         prev_individuals = np.array([i for i in prev_pop.keys()], dtype=np.int32)
 
-        for _ in range(len(prev_pop)):
+        for _ in range(len(prev_pop) if size is None else size):
             # 1. Pick two individual parent IDs at random, `replace=True` allows selfing
             mother_and_father = self.random.choice(prev_individuals, 2, replace=True)
 
             # 2. Get 1 new individual ID + 2 new node IDs
             child_id, child_genomes = self.make_diploid(time, mother_and_father)
-            pop[child_id] = child_genomes  # store the genome IDs
+            self.pop[child_id] = child_genomes  # store the genome IDs
 
             # 3. Add inheritance paths to both child genomes
             for child_genome, parent_individual in zip(
@@ -90,7 +94,6 @@ class DTWF_simulator:
                 self.add_inheritance_paths(
                     parent_genomes, child_genome, seq_len, recombination_rate
                 )
-        return pop
 
     def add_inheritance_paths(
         self, parent_nodes, child_node, seq_len, recombination_rate
@@ -100,24 +103,60 @@ class DTWF_simulator:
         )
 
     def initialise_population(self, time, size) -> dict[int, tuple[int, int]]:
-        # Just return a dictionary by repeating step 2 above
+        self.tables.clear()
+        self.pop = None
         return dict(self.make_diploid(time) for _ in range(size))
 
     def __init__(self):
         self.tables = gigl.Tables()
         self.tables.time_units = "generations"  # optional, but helpful when plotting
 
-    def run(self, num_diploids, seq_len, generations, random_seed=None):
+    def run(self, num_diploids, seq_len, gens, *, random_seed=None):
+        """
+        Initialise and run a new population for a given number of generations. The last
+        generation will be at time 0 and the first at time `gens`.
+
+        The num_diploids param can be an array of length `gens + 1` giving the diploid
+        population size in each generation. This allows quick growth of a population
+
+        Returns a gig represeting the ancestry of the population at time 0
+        """
         self.random = np.random.default_rng(random_seed)
-        pop = self.initialise_population(generations, num_diploids)
+        if isinstance(num_diploids, int):
+            num_diploids = [num_diploids] * (gens + 1)
+
+        self.pop = self.initialise_population(gens, num_diploids[-gens - 1])
         # First generation by hand, so that we can specify the sequence length
-        generations = generations - 1
-        pop = self.new_population(generations, pop, seq_len=100)
+        gens -= 1
+        self.new_population(gens, seq_len=100, size=num_diploids[-gens - 1])
 
         # Subsequent generations
-        while generations > 0:
-            generations = generations - 1
-            pop = self.new_population(generations, pop)
+        while gens > 0:
+            gens -= 1
+            self.new_population(gens, size=num_diploids[-gens - 1])
+
+        self.tables.sort()
+        # We should probably simplify or at least sample_resolve here?
+        # Probably a parameter `simplify` would be useful?
+        return self.tables.graph()
+
+    def run_more(self, num_diploids, seq_len, gens, random_seed=None):
+        """
+        The num_diploids parameter can be an array of length `gens` giving the diploid
+        population size in each generation.
+        """
+        if self.pop is None:
+            raise ValueError("Need to call run() first")
+        if random_seed is not None:
+            self.random = np.random.default_rng(random_seed)
+        if isinstance(num_diploids, int):
+            num_diploids = [num_diploids] * (gens)
+
+        # augment the generations
+        self.tables.change_times(gens)
+        while gens > 0:
+            gens -= 1
+            self.new_population(gens, size=num_diploids[-gens - 1])
 
         self.tables.sort()
         return self.tables.graph()
@@ -163,24 +202,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
                 self.tables.iedges.add_row(0, L, 0, L, child=u, parent=self.grand_mrca)
         return temp_pop
 
-    def run(self, num_diploids, seq_len, gens, *, random_seed=None):
-        self.random = np.random.default_rng(random_seed)
-        self.num_tries_for_breakpoint = 20  # number of tries to find a breakpoint
-        pop = self.initialise_population(gens, num_diploids, seq_len)
-        while gens > 0:
-            gens = gens - 1
-            # Since we do this in generations, we can freeze the tables into a GIG
-            # each generation. This is an inefficient way to be able to run
-            # find_mrca_regions, but it will have to do until we solve
-            # https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/69
-
-            # Since we are not sorting, running .graph() here also helps us catch any
-            # bugs due to e.g. not adding edges in the expected order. Therefore
-            # if this call to .graph() fails, it identifies a case where we cannot
-            # guarantee that a call to find_mrca_regions on the tables will work.
-            self.gig = self.tables.graph()
-            pop = self.new_population(gens, pop)
-
+    def tables_to_gig_without_grand_mrca(self):
         # Remove the grand MRCA node at time np.inf, plus all edges to it.
         output_tables = gigl.Tables()
         output_tables.time_units = self.tables.time_units
@@ -189,10 +211,10 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
             # No need to change the individuals: the grand MRCA has no associated
             # individuals, and the existing individuals do not reference node IDs
             output_tables.individuals.append(individual)
-        for node in self.gig.nodes:
+        for i, node in enumerate(self.tables.nodes):
             if np.isfinite(node.time):
-                node_map[node.id] = output_tables.nodes.append(node)
-        for ie in self.gig.iedges:
+                node_map[i] = output_tables.nodes.append(node)
+        for ie in self.tables.iedges:
             try:
                 output_tables.iedges.add_row(
                     ie.child_left,
@@ -204,7 +226,54 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
                 )
             except KeyError:
                 assert ie.parent == self.grand_mrca
+        # Shouldn't need to sort really: we could do as a check?
         return output_tables.graph()
+
+    def run(self, num_diploids, seq_len, gens, *, random_seed=None):
+        """
+        The num_diploids param can be an array of length `gens + 1` giving the diploid
+        population size in each generation. This allows quick growth of a population
+        """
+        self.random = np.random.default_rng(random_seed)
+        self.num_tries_for_breakpoint = 20  # number of tries to find a breakpoint
+        if isinstance(num_diploids, int):
+            num_diploids = [num_diploids] * (gens + 1)
+        self.pop = self.initialise_population(
+            gens, size=num_diploids[-gens - 1], L=seq_len
+        )
+        while gens > 0:
+            gens -= 1
+            # Since we do this in generations, we can freeze the tables into a GIG
+            # each generation. This is an inefficient way to be able to run
+            # find_mrca_regions, but it will have to do until we solve
+            # https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/69
+
+            # Since we are not sorting, running .graph() here also helps us catch any
+            # bugs due to e.g. not adding edges in the expected order. Therefore
+            # if this call to .graph() fails, it identifies a case where an efficient
+            # implementation to allow find_mrca_regions on the tables could fail.
+            self.gig = self.tables.graph()
+            self.new_population(gens, size=num_diploids[-gens - 1])
+        return self.tables_to_gig_without_grand_mrca()
+
+    def run_more(self, num_diploids, gens, random_seed=None):
+        """
+        The num_diploids parameter can be an array of length `gens` giving the diploid
+        population size in each generation.
+        """
+        if self.pop is None:
+            raise ValueError("Need to call run() first")
+        if random_seed is not None:
+            self.random = np.random.default_rng(random_seed)
+        if isinstance(num_diploids, int):
+            num_diploids = [num_diploids] * (gens)
+        self.tables.change_times(gens)
+        while gens > 0:
+            gens -= 1
+            # See comment above about why we currently need to run .graph() here
+            self.gig = self.tables.graph()
+            self.new_population(gens, size=num_diploids[-gens - 1])
+        return self.tables_to_gig_without_grand_mrca()
 
     def find_comparable_points(self, gig, parent_nodes):
         """
