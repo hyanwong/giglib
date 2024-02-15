@@ -40,6 +40,7 @@ class Graph:
             )
         self.tables = tables
         self._validate()
+        self.tables.freeze()
 
     def _validate(self):
         assert hasattr(self, "tables")

@@ -45,6 +45,61 @@ class TestCreation:
             gigl.Tables.from_tree_sequence(bad_ts)
 
 
+class TestFreeze:
+    @pytest.mark.parametrize(
+        "TableClass, params",
+        [
+            ("NodeTable", {"time": 0}),
+            (
+                "IEdgeTable",
+                {
+                    "child_left": 0,
+                    "child_right": 1,
+                    "parent_left": 0,
+                    "parent_right": 1,
+                    "child": 0,
+                    "parent": 1,
+                },
+            ),
+        ],
+    )
+    def test_freeze_table(self, TableClass, params):
+        table = getattr(gigl.tables, TableClass)()
+        table.add_row(**params)
+        table.freeze()
+        with pytest.raises(AttributeError):
+            table.add_row(**params)
+        # Try replacing the data directly
+        with pytest.raises(AttributeError, match="frozen"):
+            table._data = []
+        with pytest.raises(AttributeError, match="frozen"):
+            table.clear()
+        unfrozen = table.copy()
+        unfrozen.add_row(**params)
+        assert len(unfrozen) == 2
+        unfrozen._data = []
+        assert len(unfrozen) == 0
+        unfrozen.add_row(**params)
+        assert len(unfrozen) == 1
+        unfrozen.clear()
+
+    def test_freeze(self, trivial_gig):
+        tables = trivial_gig.tables
+        with pytest.raises(AttributeError):
+            tables.nodes.add_row(time=0)
+        with pytest.raises(AttributeError):
+            tables.tables.clear()
+        with pytest.raises(AttributeError):
+            tables.tables.sort()
+        tables = tables.copy()
+        # we can modify the copy
+        tables.sort()
+        tables.nodes.add_row(time=0)
+        assert len(tables.nodes) == 1 + len(trivial_gig.nodes)
+        tables.clear()
+        assert len(tables.nodes) == 0
+
+
 class TestCopy:
     def test_copy(self, trivial_gig):
         tables = trivial_gig.tables
@@ -106,7 +161,7 @@ class TestMethods:
         assert tables.iedges[2].child == 3
 
     def test_change_times(self, trivial_gig):
-        tables = trivial_gig.tables
+        tables = trivial_gig.tables.copy()
         times = tables.nodes.time
         tables.change_times(timedelta=1.5)
         assert np.isclose(tables.nodes.time, times + 1.5).all()
@@ -115,7 +170,7 @@ class TestMethods:
 class TestBaseTable:
     # Test various basic table methods
     def test_append_row_values(self, trivial_gig):
-        tables = trivial_gig.tables
+        tables = trivial_gig.tables.copy()
         assert len(tables.nodes) == 5
         tables.nodes.append({"time": 3, "flags": 0})
         assert len(tables.nodes) == 6
