@@ -138,7 +138,7 @@ class DTWF_simulator:
         self.tables.sort()
         # We should probably simplify or at least sample_resolve here?
         # Probably a parameter `simplify` would be useful?
-        return self.tables.graph()
+        return self.tables.copy().graph()
 
     def run_more(self, num_diploids, seq_len, gens, random_seed=None):
         """
@@ -159,7 +159,7 @@ class DTWF_simulator:
             self.new_population(gens, size=num_diploids[-gens - 1])
 
         self.tables.sort()
-        return self.tables.graph()
+        return self.tables.copy().graph()
 
 
 class DTWF_no_recombination_sim(DTWF_simulator):
