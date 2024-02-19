@@ -3,8 +3,7 @@ import numpy as np
 import pytest
 import tskit
 
-from .gigutil import DTWF_no_recombination_sim
-from .gigutil import DTWF_one_break_no_rec_inversions_slow_sim
+from . import sim
 
 
 # Tests for functions in tests/gigutil.py
@@ -96,7 +95,7 @@ class tskit_DTWF_simulator:
         return self.tables.tree_sequence()
 
 
-class DTWF_one_break_no_rec_inversions_test(DTWF_one_break_no_rec_inversions_slow_sim):
+class DTWF_one_break_no_rec_inversions_test(sim.DTWF_one_break_no_rec_inversions_slow):
     """
     A GIG simulator used for testing: this version should result in the same breakpoints
     as in the tskit_DTWF_simulator.
@@ -126,14 +125,14 @@ class DTWF_one_break_no_rec_inversions_test(DTWF_one_break_no_rec_inversions_slo
 class TestSimpleSims:
     def test_no_recomb_sim(self):
         gens = 10
-        simulator = DTWF_no_recombination_sim()
+        simulator = sim.DTWF_no_recombination()
         gig = simulator.run(num_diploids=10, seq_len=100, gens=gens, random_seed=1)
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
         assert gig.num_iedges > 0
 
     def test_variable_population_size(self):
         gens = 2
-        simulator = DTWF_no_recombination_sim()
+        simulator = sim.DTWF_no_recombination()
         gig = simulator.run(
             num_diploids=(2, 10, 20), seq_len=100, gens=gens, random_seed=1
         )
@@ -143,7 +142,7 @@ class TestSimpleSims:
         assert len(gig.individuals) == 2 + 10 + 20
 
     def test_run_more(self):
-        simulator = DTWF_no_recombination_sim()
+        simulator = sim.DTWF_no_recombination()
         gens1 = 2
         gig = simulator.run(num_diploids=2, seq_len=100, gens=gens1, random_seed=1)
         assert len(np.unique(gig.tables.nodes.time)) == gens1 + 1
@@ -155,7 +154,7 @@ class TestSimpleSims:
 class TestDTWF_one_break_no_rec_inversions_slow:
     def test_plain_sim(self):
         gens = 10
-        simulator = DTWF_one_break_no_rec_inversions_slow_sim()
+        simulator = sim.DTWF_one_break_no_rec_inversions_slow()
         gig = simulator.run(num_diploids=10, seq_len=100, gens=gens, random_seed=1)
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
         assert gig.num_iedges > 0
@@ -166,7 +165,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
 
     def test_run_more(self):
         gens1 = 10
-        simulator = DTWF_one_break_no_rec_inversions_slow_sim()
+        simulator = sim.DTWF_one_break_no_rec_inversions_slow()
         gig = simulator.run(num_diploids=10, seq_len=100, gens=gens1, random_seed=1)
         gens2 = 2
         gig = simulator.run_more(num_diploids=(4, 2), gens=gens2, random_seed=1)
@@ -197,7 +196,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         ts.tables.assert_equals(gig.to_tree_sequence().tables, ignore_provenance=True)
 
     def test_inversion(self):
-        simulator = DTWF_one_break_no_rec_inversions_slow_sim()
+        simulator = sim.DTWF_one_break_no_rec_inversions_slow()
         simulator.run(num_diploids=2, seq_len=1000, gens=1, random_seed=1)
         # Insert an inversion by editing the tables
         times, inverses = np.unique(simulator.tables.nodes.time, return_inverse=True)
