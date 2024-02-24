@@ -88,7 +88,8 @@ breaks one of the fundamental tskit ideas.
 
 ## API differences
 
-The API of this GeneticInheritanceGraphLibrary intentionally mirrors that of _tskit_, apart from the
+The API provided by the GeneticInheritanceGraphLibrary defined in this GitHub repository
+intentionally mirrors that of _tskit_, apart from the
 incomplete list of differences below:
 
 - **Iedges** The main difference is that intervals in the GeneticInheritanceGraphLibrary are stored
