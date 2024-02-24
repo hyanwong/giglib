@@ -3,7 +3,7 @@
 A basic repo for kicking around ideas for the "(Generalised) Genetic Inheritance Graph" structure, which should be able to
 capture genetic inheritance with genomic rearrangements, and hence describe inherited structural variation. This is
 not meant to be stable software, and the API is subject to change at any time, but for the moment you can
-try it out by converting a tree sequence to a GIG (although such a gig will not contain structural variations)
+try it out by converting a [succinct tree sequence](https://tskit.dev) to a GIG (although such a gig will not contain structural variations)
 
 ```python
 import msprime
