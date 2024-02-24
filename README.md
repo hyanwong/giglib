@@ -3,7 +3,8 @@
 A basic repo for kicking around ideas for the "(Generalised) Genetic Inheritance Graph" structure, which should be able to
 capture genetic inheritance with genomic rearrangements, and hence describe inherited structural variation. This is
 not meant to be stable software, and the API is subject to change at any time, but for the moment you can
-try it out by converting a [succinct tree sequence](https://tskit.dev) to a GIG (although such a gig will not contain structural variations)
+try it out by converting a [succinct tree sequence]([https://tskit.dev](https://tskit.dev/tutorials/what_is.html)
+to a GIG (although such a gig will not contain structural variations)
 
 ```python
 import msprime
@@ -18,7 +19,7 @@ print(len(gig.nodes), "nodes in this GIG")
 
 ## Basic idea
 
-In [`tskit`](tskit.dev) we use edge annotations to describe which pieces of DNA are inherited in terms of a left and right coordinate.
+In [`tskit`](https://tskit.dev) we use edge annotations to describe which pieces of DNA are inherited in terms of a left and right coordinate.
 It should be possible to extend this to track the L & R in the edge *child*, and the L & R in the edge *parent* separately.
 The left and right values in each case refer to the coordinate system of the child and parent respectively.
 
