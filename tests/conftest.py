@@ -96,47 +96,106 @@ def double_inversion_gig():
 
 
 @pytest.fixture(scope="session")
-def all_sv_types_gig():
+def all_sv_types_no_re_gig():
     """
     Contains a single deletion, a single duplication, and a single inversion.
     See https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/2
     """
     # time | flags
     node_data = [
-        (0, gigl.NODE_IS_SAMPLE),
-        (0, gigl.NODE_IS_SAMPLE),
-        (0, gigl.NODE_IS_SAMPLE),
-        (0, gigl.NODE_IS_SAMPLE),
-        (0, gigl.NODE_IS_SAMPLE),
-        (0, gigl.NODE_IS_SAMPLE),
-        (1, 0),
-        (2, 0),
-        (2, 0),
-        (3, 0),
-        (4, 0),
-        (5, 0),
         (6, 0),
+        (5, 0),
+        (4, 0),
+        (4, 0),
+        (2, 0),
+        (2, 0),
+        (2, 0),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
     tables.iedges.add_rows(
         [
-            iedge(0, 300, 0, 300, c=0, p=6),
-            iedge(0, 300, 0, 300, c=1, p=6),
-            iedge(0, 200, 0, 200, c=6, p=9),
-            iedge(200, 300, 100, 200, c=6, p=9),
-            iedge(0, 200, 0, 200, c=9, p=11),
-            iedge(0, 100, 0, 100, c=2, p=7),
-            iedge(0, 100, 0, 100, c=3, p=7),
-            iedge(0, 50, 0, 50, c=7, p=10),
-            iedge(50, 100, 150, 200, c=7, p=10),
-            iedge(0, 200, 0, 200, c=10, p=11),
-            iedge(0, 200, 0, 200, c=4, p=8),
-            iedge(0, 200, 0, 200, c=5, p=8),
-            iedge(0, 80, 0, 80, c=8, p=12),
-            iedge(80, 160, 160, 80, c=8, p=12),
-            iedge(160, 200, 160, 200, c=8, p=12),
-            iedge(0, 200, 0, 200, c=11, p=12),
+            iedge(0, 200, 0, 200, c=1, p=0),
+            iedge(0, 200, 0, 200, c=2, p=1),
+            iedge(0, 200, 0, 200, c=3, p=1),
+            iedge(0, 50, 0, 50, c=4, p=2),
+            iedge(50, 100, 150, 200, c=4, p=2),
+            iedge(0, 200, 0, 200, c=5, p=3),
+            iedge(200, 300, 100, 200, c=5, p=3),
+            iedge(0, 20, 0, 20, c=6, p=0),
+            iedge(20, 120, 120, 20, c=6, p=0),
+            iedge(120, 200, 120, 200, c=6, p=0),
+            iedge(0, 100, 0, 100, c=7, p=4),
+            iedge(0, 100, 0, 100, c=8, p=4),
+            iedge(0, 300, 0, 300, c=9, p=5),
+            iedge(0, 300, 0, 300, c=10, p=5),
+            iedge(0, 200, 0, 200, c=11, p=6),
+            iedge(0, 200, 0, 200, c=12, p=6),
+        ]
+    )
+    return gigl.Graph(tables)
+
+
+@pytest.fixture(scope="session")
+def all_sv_types_re_gig():
+    # time | flags
+    node_data = [
+        (6, 0),
+        (5, 0),
+        (4, 0),
+        (4, 0),
+        (3, 0),
+        (3, 0),
+        (3, 0),
+        (2, 0),
+        (1, 0),  # new "RE" node
+        (1, 0),  # new "RE" node
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+    ]
+    tables = gigl.Tables()
+    tables.nodes = make_nodes_table(node_data, tables)
+    tables.iedges.add_rows(
+        [
+            iedge(0, 200, 0, 200, c=1, p=0),
+            iedge(0, 200, 0, 200, c=2, p=1),
+            iedge(0, 200, 0, 200, c=3, p=1),
+            # deletion
+            iedge(0, 50, 0, 50, c=4, p=2),
+            iedge(50, 100, 150, 200, c=4, p=2),
+            # duplication
+            iedge(0, 200, 0, 200, c=5, p=3),
+            iedge(200, 300, 100, 200, c=5, p=3),
+            # inversion
+            iedge(0, 20, 0, 20, c=6, p=0),
+            iedge(20, 120, 120, 20, c=6, p=0),
+            iedge(120, 200, 120, 200, c=6, p=0),
+
+            # Extra coalescent node for duplication
+            iedge(0, 300, 0, 300, c=7, p=5),
+
+            # recombination combines two SVs
+            iedge(0, 70, 0, 70, c=8, p=4),
+            iedge(70, 200, 170, 300, c=8, p=7),
+
+            # recombination reinstates original coords
+            iedge(0, 150, 0, 150, c=9, p=7),
+            iedge(150, 200, 150, 200, c=9, p=6),
+
+            iedge(0, 100, 0, 100, c=10, p=4),  # unrecombined
+            iedge(0, 200, 0, 200, c=11, p=8),
+            iedge(0, 300, 0, 300, c=12, p=5),  # unrecombined
+            iedge(0, 200, 0, 200, c=13, p=9),
+            iedge(0, 200, 0, 200, c=14, p=6),  # unrecombined
         ]
     )
     tables.sort()
