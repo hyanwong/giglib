@@ -107,9 +107,20 @@ class DTWF_simulator:
         self.pop = None
         return dict(self.make_diploid(time) for _ in range(size))
 
-    def __init__(self):
+    def __init__(self, use_validation=True):
         self.tables = gigl.Tables()
         self.tables.time_units = "generations"  # optional, but helpful when plotting
+        self.use_validation = use_validation
+
+    def add_iedge_params(self):
+        """
+        Return the validation params to use when calling tables.add_iedge_row
+        """
+        return {
+            "validate_child_adjacency": self.use_validation,
+            "validate_intervals": self.use_validation,
+            "validate_node_times": self.use_validation,
+        }
 
     def run(self, num_diploids, seq_len, gens, *, random_seed=None):
         """
@@ -176,7 +187,18 @@ class DTWF_no_recombination_sim(DTWF_simulator):
             rgt = np.max(
                 self.tables.iedges.child_right[self.tables.iedges.child == parent]
             )
-        self.tables.iedges.add_row(lft, rgt, lft, rgt, child=child, parent=parent)
+        print(self.tables.iedges.flags)
+
+        self.tables.add_iedge_row(
+            lft,
+            rgt,
+            lft,
+            rgt,
+            child=child,
+            parent=parent,
+            **self.add_iedge_params(),
+        )
+        print(self.tables.iedges.flags)
 
 
 class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
@@ -199,11 +221,21 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         temp_pop = dict(self.make_diploid(time) for _ in range(size))
         for nodes in temp_pop.values():
             for u in nodes:
-                self.tables.iedges.add_row(0, L, 0, L, child=u, parent=self.grand_mrca)
+                self.tables.add_iedge_row(
+                    0,
+                    L,
+                    0,
+                    L,
+                    child=u,
+                    parent=self.grand_mrca,
+                    **self.add_iedge_params(),
+                )
         return temp_pop
 
     def tables_to_gig_without_grand_mrca(self):
         # Remove the grand MRCA node at time np.inf, plus all edges to it.
+        # This requires a bit rearrangement to the tables so we make a set of
+        # new ones
         output_tables = gigl.Tables()
         output_tables.time_units = self.tables.time_units
         node_map = {}
@@ -216,7 +248,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
                 node_map[i] = output_tables.nodes.append(node)
         for ie in self.tables.iedges:
             try:
-                output_tables.iedges.add_row(
+                output_tables.add_iedge_row(
                     ie.child_left,
                     ie.child_right,
                     ie.parent_left,
@@ -244,16 +276,6 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         )
         while gens > 0:
             gens -= 1
-            # Since we do this in generations, we can freeze the tables into a GIG
-            # each generation. This is an inefficient way to be able to run
-            # find_mrca_regions, but it will have to do until we solve
-            # https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/69
-
-            # Since we are not sorting, running .graph() here also helps us catch any
-            # bugs due to e.g. not adding edges in the expected order. Therefore
-            # if this call to .graph() fails, it identifies a case where an efficient
-            # implementation to allow find_mrca_regions on the tables could fail.
-            self.gig = self.tables.copy().graph()
             self.new_population(gens, size=num_diploids[-gens - 1])
         return self.tables_to_gig_without_grand_mrca()
 
@@ -271,23 +293,21 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         self.tables.change_times(gens)
         while gens > 0:
             gens -= 1
-            # See comment above about why we currently need to run .graph() here
-            self.gig = self.tables.copy().graph()
             self.new_population(gens, size=num_diploids[-gens - 1])
         return self.tables_to_gig_without_grand_mrca()
 
-    def find_comparable_points(self, gig, parent_nodes):
+    def find_comparable_points(self, tables, parent_nodes):
         """
         Find comparable points in the parent nodes, and return the
         coordinates of the matching regions in the parent nodes.
         """
-        mrcas = gig.find_mrca_regions(*parent_nodes)
-        comparable_pts = gig.random_matching_positions(mrcas, self.random)
+        mrcas = tables.find_mrca_regions(*parent_nodes)
+        comparable_pts = tables.random_matching_positions(mrcas, self.random)
         # Pick a single breakpoint: if both breaks are inverted relative to the mrca
         # (i.e. negative) it's OK: both have the same orientation relative to each other
         tries = 0
         while comparable_pts[0] * comparable_pts[1] < 0:
-            comparable_pts = self.gig.random_matching_positions(mrcas, self.random)
+            comparable_pts = tables.random_matching_positions(mrcas, self.random)
             tries += 1
             if tries > self.num_tries_for_breakpoint:
                 raise ValueError(
@@ -296,7 +316,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         return comparable_pts
 
     def add_inheritance_paths(self, parent_nodes, child, seq_len, _):
-        comparable_pts = self.find_comparable_points(self.gig, parent_nodes)
+        comparable_pts = self.find_comparable_points(self.tables, parent_nodes)
 
         rnd = self.random.integers(4)
         break_to_right_of_position = rnd & 1
@@ -317,7 +337,15 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         brk = lft_parent_break
         if brk > 0:  # If break not placed just before position 0
             pL, pR = 0, brk  # parent left and right start at the same pos as child
-            self.tables.iedges.add_row(0, brk, pL, pR, child=child, parent=lft_parent)
+            self.tables.add_iedge_row(
+                0,
+                brk,
+                pL,
+                pR,
+                child=child,
+                parent=lft_parent,
+                **self.add_iedge_params(),
+            )
         if seq_len is None:
             # TODO - make this more efficient, as all the edges should be adjacent
             seq_len = np.max(
@@ -326,4 +354,12 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         if rgt_parent_break < seq_len:  # If break not just after the last pos
             pL, pR = rgt_parent_break, seq_len
             cR = brk + (pR - pL)  # child rgt must account for len of rgt parent region
-            self.tables.iedges.add_row(brk, cR, pL, pR, child=child, parent=rgt_parent)
+            self.tables.add_iedge_row(
+                brk,
+                cR,
+                pL,
+                pR,
+                child=child,
+                parent=rgt_parent,
+                **self.add_iedge_params(),
+            )

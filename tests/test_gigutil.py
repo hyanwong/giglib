@@ -1,4 +1,3 @@
-import GeneticInheritanceGraphLibrary as gigl
 import numpy as np
 import pytest
 import tskit
@@ -209,26 +208,44 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         assert len(second_gen) == 4  # haploid genomes
         # Edit the existing iedges to create an inversion
         # on a single iedge
-        new_iedges = gigl.tables.IEdgeTable()
+        new_tables = simulator.tables.copy(omit_iedges=True)
         for ie in simulator.tables.iedges:
             if ie.child == second_gen[0] and ie.child_left == 0:
                 assert ie.parent_left == 0
                 assert ie.child_right == ie.parent_right
                 assert ie.child_right > 200  # check seed gives breakpoint a bit along
-                new_iedges.add_row(0, 100, 0, 100, child=ie.child, parent=ie.parent)
-                new_iedges.add_row(100, 200, 200, 100, child=ie.child, parent=ie.parent)
-                new_iedges.add_row(
+
+                new_tables.add_iedge_row(
+                    0,
+                    100,
+                    0,
+                    100,
+                    child=ie.child,
+                    parent=ie.parent,
+                    **simulator.add_iedge_params(),
+                )
+                new_tables.add_iedge_row(
+                    100,
+                    200,
+                    200,
+                    100,
+                    child=ie.child,
+                    parent=ie.parent,
+                    **simulator.add_iedge_params(),
+                )
+                new_tables.add_iedge_row(
                     200,
                     ie.child_right,
                     200,
                     ie.parent_right,
                     child=ie.child,
                     parent=ie.parent,
+                    **simulator.add_iedge_params(),
                 )
             else:
-                new_iedges.append(ie)
-        simulator.tables.iedges = new_iedges
-        simulator.tables.sort()
+                new_tables.add_iedge_row(**ie.asdict(), **simulator.add_iedge_params())
+        new_tables.sort()
+        simulator.tables = new_tables
         # Check it gives a valid gig
         gig = simulator.tables.copy().graph()
         num_inversions = 0
