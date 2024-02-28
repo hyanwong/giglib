@@ -132,3 +132,10 @@ assert len(gig.iedges) == 1
 assert len(gig.samples) == 1
 assert gig.iedges[0].is_inversion()
 ```
+
+### Simulations
+
+Examples of code that runs simulations are provided in the test suite. The
+[sim.py file](https://github.com/hyanwong/GeneticInheritanceGraphLibrary/blob/main/tests/sim.py)
+is a convenience wrapper that links out to other files containing simulation code.
+Currently only forward simulation code is provided.
