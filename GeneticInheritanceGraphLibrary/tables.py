@@ -5,7 +5,10 @@ import numpy.typing as npt
 import pandas as pd
 import tskit
 
-from .constants import NODE_IS_SAMPLE, NULL, IEDGES_PARENT_OLDER_THAN_CHILD, VALID_GIG
+from .constants import IEDGES_PARENT_OLDER_THAN_CHILD
+from .constants import NODE_IS_SAMPLE
+from .constants import NULL
+from .constants import VALID_GIG
 from .util import truncate_rows
 
 
@@ -198,7 +201,7 @@ class BaseTable:
         row_indexes = truncate_rows(len(self), limit)
         for j in row_indexes:
             if j == -1:
-                rows.append(f"__skipped__{len(self)-limit}")
+                rows.append(f"__skipped__{len(self) - limit}")
             else:
                 row = self[j]
                 rows.append(
@@ -237,6 +240,7 @@ class IEdgeTable(BaseTable):
     * we define an iedges_by_child() method which is only valid if the iedges
       for a given child are all adjacent
     """
+
     RowClass = IEdgeTableRow
 
     def __init__(self):
@@ -276,17 +280,24 @@ class IEdgeTable(BaseTable):
 
     def add_int_row(self, *args, **kwargs) -> int:
         """
-        Add a row to an IEdgeTable, checking that the first 4 positional arguments (genome
-        intervals) and six named keyword args can be converted to integers (and converting
-        them if required). This allows edges from e.g. tskit (which allows floating-point
-        positions) to be passed in.
+        Add a row to an IEdgeTable, checking that the first 4 positional arguments
+        (genome intervals) and six named keyword args can be converted to integers
+        (and converting them if required). This allows edges from e.g. tskit
+        (which allows floating-point positions) to be passed in.
 
         :return: The row ID of the newly added row
         """
         # NB: here we override the default method to allow integer conversion and
         # left -> child_left, parent_left etc., to aid conversion from tskit
         # For simplicity, this only applies for named args, not positional ones
-        pcols = ("child_left", "child_right", "parent_left", "parent_right", "child", "parent")
+        pcols = (
+            "child_left",
+            "child_right",
+            "parent_left",
+            "parent_right",
+            "child",
+            "parent",
+        )
         args = [self._check_int(v) if i < 4 else v for i, v in enumerate(args)]
         kwargs = {k: self._check_int(v) if k in pcols else v for k, v in kwargs.items()}
         return self.add_row(*args, **kwargs)
@@ -398,7 +409,10 @@ class Tables:
         """
         if node_time_validation:
             try:
-                if self.nodes[kwargs['child']].time >= self.nodes[kwargs['parent']].time:
+                if (
+                    self.nodes[kwargs["child"]].time
+                    >= self.nodes[kwargs["parent"]].time
+                ):
                     raise ValueError("Child time is not less than parent time")
             except IndexError:
                 raise ValueError(
@@ -406,7 +420,7 @@ class Tables:
                 )
         elif node_time_validation is None:
             self.edges.unset_bitflag(IEDGES_PARENT_OLDER_THAN_CHILD)
-        self.edges.add_row(*args **kwargs)
+        self.edges.add_row(*args**kwargs)
 
     def freeze(self):
         """
