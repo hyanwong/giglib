@@ -278,7 +278,6 @@ class TestSampleResolving:
         assert iedge_rows[1].parent == 5
         assert iedge_rows[1].parent_left == iedge_rows[1].child_left == 170
         assert iedge_rows[1].parent_right == iedge_rows[1].child_right == 300
- 
 
     def test_sample_resolve_no_edges(self):
         tables = gigl.Tables()

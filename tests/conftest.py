@@ -179,18 +179,18 @@ def all_sv_types_re_gig():
             iedge(0, 20, 0, 20, c=6, p=0),
             iedge(20, 120, 120, 20, c=6, p=0),
             iedge(120, 200, 120, 200, c=6, p=0),
-
+            #
             # Extra coalescent node for duplication
             iedge(0, 300, 0, 300, c=7, p=5),
-
+            #
             # recombination combines two SVs
             iedge(0, 70, 0, 70, c=8, p=4),
             iedge(70, 200, 170, 300, c=8, p=7),
-
+            #
             # recombination reinstates original coords
             iedge(0, 150, 0, 150, c=9, p=7),
             iedge(150, 200, 150, 200, c=9, p=6),
-
+            #
             iedge(0, 100, 0, 100, c=10, p=4),  # unrecombined
             iedge(0, 200, 0, 200, c=11, p=8),
             iedge(0, 300, 0, 300, c=12, p=5),  # unrecombined
