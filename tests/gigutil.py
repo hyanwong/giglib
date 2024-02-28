@@ -108,6 +108,15 @@ class DTWF_simulator:
         return dict(self.make_diploid(time) for _ in range(size))
 
     def __init__(self, use_validation=True):
+        """
+        Create a simulation class, which can then simulate a forward Discrete Time
+        Wright-Fisher model with varying population sizes over generations.
+
+        If use_validation is True (default), when adding edges we check that they
+        create a valid set of tables suitable for using the find_mrca_regions() method.
+        Setting this to False saves a small fraction (about 2%) of the simulation time,
+        at the expense of not doing any validation (dangerous!)
+        """
         self.tables = gigl.Tables()
         self.tables.time_units = "generations"  # optional, but helpful when plotting
         self.use_validation = use_validation
