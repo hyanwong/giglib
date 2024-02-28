@@ -5,8 +5,7 @@ import numpy.typing as npt
 import pandas as pd
 import tskit
 
-from .constants import NODE_IS_SAMPLE
-from .constants import NULL
+from .constants import NODE_IS_SAMPLE, NULL, IEDGES_PARENT_OLDER_THAN_CHILD, VALID_GIG
 from .util import truncate_rows
 
 
@@ -229,7 +228,26 @@ class BaseTable:
 
 
 class IEdgeTable(BaseTable):
+    """
+    A table containing the iedges. This contains more complex logic than other
+    GIG tables as we want to be able to run algorithms on an IEdgeTable without
+    freezing it into a valid GIG.
+
+    For example:
+    * we define an iedges_by_child() method which is only valid if the iedges
+      for a given child are all adjacent
+    """
     RowClass = IEdgeTableRow
+
+    def __init__(self):
+        # save some flags to indicate if this is a valid
+        self.flags = VALID_GIG
+        # map each child ID to the index of the first edge with that child
+        self.first_edge_for_child = {}
+        super().__init__()
+
+    def unset_bitflag(self, flag):
+        self.flags &= ~flag
 
     def _from_tskit(self, kwargs):
         new_kw = {}
@@ -240,33 +258,38 @@ class IEdgeTable(BaseTable):
         return new_kw
 
     def append(self, obj) -> int:
+        """
+        Append a row to an IEdgeTable taking the named attributes of the passed-in
+        object to populate the row. If a `left` field is present in the object,
+        is it placed in the ``parent_left`` and ``child_left`` attributes of this
+        row (and similarly for a ``right`` field). This allows tskit conversion.
+
+        To enable tskit conversion, the special add_int_row() method is used,
+        which is slower than the standard add_row. If you require efficiency,
+        you are therefore recommended to call add_row() directly, ensuring that
+        the intervals and node IDs are integers before you pass them in.
+        """
         kwargs = self._from_tskit(self.to_dict(obj))
-        return self.add_row(
+        return self.add_int_row(
             **{k: v for k, v in kwargs.items() if k in self.RowClass.__annotations__}
         )
 
-    def add_row(self, *args, **kwargs) -> int:
+    def add_int_row(self, *args, **kwargs) -> int:
         """
-        Add a row to an IEdgeTable. If a `left` field is present in the object,
-        is it placed in the ``parent_left`` and ``child_left`` attributes of this
-        row (and similarly for a ``right`` field).
-
-        To allow tskit conversion, named parameters corresponding to genome
-        positions (i.e. child_left, child_right, parent_left, parent_right)
-        are converted to integers.
+        Add a row to an IEdgeTable, checking that the first 4 positional arguments (genome
+        intervals) and six named keyword args can be converted to integers (and converting
+        them if required). This allows edges from e.g. tskit (which allows floating-point
+        positions) to be passed in.
 
         :return: The row ID of the newly added row
-
-        Example:
-            new_id = tables.iedges.append(ts.edge(0))
         """
         # NB: here we override the default method to allow integer conversion and
         # left -> child_left, parent_left etc., to aid conversion from tskit
         # For simplicity, this only applies for named args, not positional ones
-        pcols = ("child_left", "child_right", "parent_left", "parent_right")
+        pcols = ("child_left", "child_right", "parent_left", "parent_right", "child", "parent")
         args = [self._check_int(v) if i < 4 else v for i, v in enumerate(args)]
         kwargs = {k: self._check_int(v) if k in pcols else v for k, v in kwargs.items()}
-        return super().add_row(*args, **kwargs)
+        return self.add_row(*args, **kwargs)
 
     @property
     def parent(self) -> npt.NDArray[np.int64]:
@@ -360,6 +383,30 @@ class Tables:
         if self.time_units != other.time_units:
             return False
         return True
+
+    def add_iedge_row(self, *args, node_time_validation=None, **kwargs):
+        """
+        Calls the edge.add_row function and also (optionally)
+        validate features of the nodes used (e.g. that the parent
+        node time is older than the child node time).
+
+        :param bool node_time_validation: If True, check the nodes referred
+            to are valid and in the right time-order. If False do not
+            check but assume the user has checked already. If None (default)
+            do not check, and set flags to indicate the tables may not be a
+            valid GIG.
+        """
+        if node_time_validation:
+            try:
+                if self.nodes[kwargs['child']].time >= self.nodes[kwargs['parent']].time:
+                    raise ValueError("Child time is not less than parent time")
+            except IndexError:
+                raise ValueError(
+                    "Child or parent ID does not correspond to a node in the node table"
+                )
+        elif node_time_validation is None:
+            self.edges.unset_bitflag(IEDGES_PARENT_OLDER_THAN_CHILD)
+        self.edges.add_row(*args **kwargs)
 
     def freeze(self):
         """
