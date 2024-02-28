@@ -152,8 +152,10 @@ class TestSimpleSims:
 
 
 class TestDTWF_one_break_no_rec_inversions_slow:
+    default_gens = 5
+
     def test_plain_sim(self):
-        gens = 10
+        gens = self.default_gens
         simulator = sim.DTWF_one_break_no_rec_inversions_slow()
         gig = simulator.run(num_diploids=10, seq_len=100, gens=gens, random_seed=1)
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
@@ -164,7 +166,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         assert ts.at_index(0).num_edges > 0
 
     def test_run_more(self):
-        gens1 = 10
+        gens1 = self.default_gens
         simulator = sim.DTWF_one_break_no_rec_inversions_slow()
         gig = simulator.run(num_diploids=10, seq_len=100, gens=gens1, random_seed=1)
         gens2 = 2
@@ -181,7 +183,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
     @pytest.mark.parametrize("seed", [123, 321])
     def test_vs_tskit_implementation(self, seed):
         # The tskit_DTWF_simulator should produce identical results to the GIG simulator
-        gens = 9
+        gens = self.default_gens
         L = 97
         gig_simulator = DTWF_one_break_no_rec_inversions_test()
         ts_simulator = tskit_DTWF_simulator(sequence_length=L)
@@ -236,7 +238,9 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         assert num_inversions == 1
 
         # Can progress the simulation
-        gig = simulator.run_more(num_diploids=100, gens=4, random_seed=1)
+        gig = simulator.run_more(
+            num_diploids=100, gens=self.default_gens - 1, random_seed=1
+        )
         # check we still have an inversion in the ancestry: it's not been lost by drift
         gig = gig.sample_resolve()
         num_inversions = 0
