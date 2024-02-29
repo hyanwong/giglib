@@ -337,10 +337,11 @@ class IEdgeTable(BaseTable):
             which should be more efficient but could lead to later algorithmic failures.
             If None (default) do not check, and set flags to indicate the tables
             may not be a valid GIG.
-        :param bool validate_child_interval: If True, check the child left is less than
-            child_right. If False, do not perform this check and assume the user has
-            checked already which should be more efficient but could lead to later
-            algorithmic failures. If None (default) do not check, and set flags to
+        :param bool validate_intervals: If True, check the child left is less than
+            child right and the absolute parent span is the same as the child span.
+            If False, do not perform this check and assume the user has
+            checked already (which should be more efficient but could lead to later
+            algorithmic failures). If None (default) do not check, and set flags to
             indicate the tables may not be a valid GIG.
         :return: The row ID of the newly added row
 
