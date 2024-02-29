@@ -287,7 +287,7 @@ class IEdgeTable(BaseTable):
         # save some flags to indicate if this is a valid
         self.flags = VALID_GIG
         # map each child ID to the index of the first edge with that child
-        self.edges_for_child = {}
+        self._id_range_for_child = {}
         super().__init__()
 
     def copy(self):
@@ -296,7 +296,7 @@ class IEdgeTable(BaseTable):
         """
         copy = super().copy()
         copy.flags = self.flags
-        copy.edges_for_child = self.edges_for_child.copy()
+        copy._id_range_for_child = self._id_range_for_child.copy()
         return copy
 
     def clear(self):
@@ -305,13 +305,13 @@ class IEdgeTable(BaseTable):
         """
         self.flags = VALID_GIG
         # map each child ID to the index of the first edge with that child
-        self.edges_for_child = {}
+        self._id_range_for_child = {}
         super().clear()
 
     def __eq__(self, other):
         if self.flags != other.flags:
             return False
-        if self.edges_for_child != other.edges_for_child:
+        if self._id_range_for_child != other._id_range_for_child:
             return False
         return super().__eq__(other)
 
@@ -350,16 +350,16 @@ class IEdgeTable(BaseTable):
         c = kwargs["child"]
         num_iedges = len(self)
         if validate_child_adjacency:
-            if num_iedges > 0 and self[-1].child != c and c in self.edges_for_child:
+            if num_iedges > 0 and self[-1].child != c and c in self._id_range_for_child:
                 raise ValueError(
                     f"Adding an edge with child ID {c} would make IDs non-adjacent"
                 )
         if validate_child_adjacency is None:
             self.unset_bitflag(IEDGES_CHILD_IDS_ADJACENT)
         try:
-            self.edges_for_child[c][1] = num_iedges + 1
+            self._id_range_for_child[c][1] = num_iedges + 1
         except KeyError:
-            self.edges_for_child[c] = [num_iedges, num_iedges + 1]
+            self._id_range_for_child[c] = [num_iedges, num_iedges + 1]
 
         row_id = super().add_row(*args, **kwargs)
         if validate_intervals:
@@ -431,7 +431,7 @@ class IEdgeTable(BaseTable):
                 "Cannot use this method unless iedges have adjacent child IDs"
             )
         try:
-            return np.arange(*self.edges_for_child[u])
+            return np.arange(*self._id_range_for_child[u])
         except KeyError:
             return np.arange(0)
 
@@ -587,6 +587,10 @@ class IndividualTable(BaseTable):
         Equivalent to iterating over the "parents"
         and adding each in turn. For efficiency, parents
         should be a numpy array of ints of at least 2 dimensions.
+
+        To create individuals without parents you can pass a
+        2D array whose second dimension is of length zero, e.g.
+        ``np.array([], dtype=int).reshape(num_individuals, 0)``
 
         Returns a numpy array of individual IDs whose shape is
         given by the shape of the input array minus the last

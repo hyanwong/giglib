@@ -355,10 +355,10 @@ class TestIEdgeTable:
         tables = trivial_gig.tables.copy()
         tables.iedges.add_row(10, 20, 10, 20, child=0, parent=4)
         assert tables.iedges.flags != gigl.VALID_GIG
-        assert len(tables.iedges.edges_for_child) > 0
+        assert len(tables.iedges._id_range_for_child) > 0
         tables.iedges.clear()
         assert tables.iedges.flags == gigl.VALID_GIG
-        assert len(tables.iedges.edges_for_child) == 0
+        assert len(tables.iedges._id_range_for_child) == 0
 
 
 class TestNodeTable:
