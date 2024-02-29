@@ -45,22 +45,26 @@ class DTWF_simulator:
     # For visualising unsimplified tree sequences, it helps to flag all nodes as samples
     default_node_flags = gigl.NODE_IS_SAMPLE
 
-    def make_diploids(self, time, parent_individuals):
+    def make_diploids(self, time, parent_individuals, node_flags=None):
         """
         Make a set of individuals with their diploid genomes by adding to tables,
         returning two arrays of IDs: the individual IDs and the node IDs.
         """
         individual_ids = self.tables.individuals.add_rows(parents=parent_individuals)
+        if node_flags is None:
+            node_flags = self.default_node_flags
         return (
             individual_ids,
             self.tables.nodes.add_rows(
                 time=time,
-                flags=self.default_node_flags,
+                flags=node_flags,
                 individual=np.broadcast_to(individual_ids, (2, len(individual_ids))).T,
             ),
         )
 
-    def new_population(self, time, recombination_rate=0, size=None, seq_len=None):
+    def new_population(
+        self, time, recombination_rate=0, size=None, seq_len=None, node_flags=None
+    ):
         """
         If seq_len is specified, use this as the expected sequence length of the
         parents of the new population, otherwise take from the parent.sequence_length
@@ -82,7 +86,9 @@ class DTWF_simulator:
         # 1. Pick individual parent ID pairs at random, `replace=True` allows selfing
         mum_dad_arr = self.random.choice(prev_individuals, (size, 2), replace=True)
         # 2. Get new individual IDs + twice as many new node IDs
-        child_id_arr, child_genomes_arr = self.make_diploids(time, mum_dad_arr)
+        child_id_arr, child_genomes_arr = self.make_diploids(
+            time, mum_dad_arr, node_flags
+        )
         assert len(mum_dad_arr) == len(child_id_arr) == len(child_genomes_arr)
         for mother_and_father, child_id, child_genomes in zip(
             mum_dad_arr, child_id_arr, child_genomes_arr
@@ -107,7 +113,9 @@ class DTWF_simulator:
             "Implement an add_inheritance_paths method to make a DTWF simulator"
         )
 
-    def initialise_population(self, time, size) -> dict[int, tuple[int, int]]:
+    def initialise_population(
+        self, time, size, node_flags=None
+    ) -> dict[int, tuple[int, int]]:
         self.tables.clear()
         self.pop = None
         return dict(
@@ -115,6 +123,7 @@ class DTWF_simulator:
                 *self.make_diploids(
                     time,
                     parent_individuals=np.array([], dtype=int).reshape(size, 0),
+                    node_flags=node_flags,
                 )
             )
         )
@@ -143,13 +152,26 @@ class DTWF_simulator:
             "validate_node_times": self.use_validation,
         }
 
-    def run(self, num_diploids, seq_len, gens, *, random_seed=None):
+    def run(
+        self,
+        num_diploids,
+        seq_len,
+        gens,
+        *,
+        random_seed=None,
+        initial_node_flags=None,
+        further_node_flags=None
+    ):
         """
         Initialise and run a new population for a given number of generations. The last
         generation will be at time 0 and the first at time `gens`.
 
         The num_diploids param can be an array of length `gens + 1` giving the diploid
-        population size in each generation. This allows quick growth of a population
+        population size in each generation. This allows quick growth of a population.
+
+        ``initial_node_flags`` will be passed as node_flags to the
+        ``initialise_population()`` method. ``further_node_flags`` will be passed
+        to subsequent generations.
 
         Returns a gig represeting the ancestry of the population at time 0
         """
@@ -157,18 +179,28 @@ class DTWF_simulator:
         if isinstance(num_diploids, int):
             num_diploids = [num_diploids] * (gens + 1)
 
-        self.pop = self.initialise_population(gens, num_diploids[-gens - 1])
+        self.pop = self.initialise_population(
+            gens, num_diploids[-gens - 1], node_flags=initial_node_flags
+        )
         # First generation by hand, so that we can specify the sequence length
         gens -= 1
-        self.new_population(gens, seq_len=100, size=num_diploids[-gens - 1])
+        self.new_population(
+            gens,
+            seq_len=100,
+            size=num_diploids[-gens - 1],
+            node_flags=further_node_flags,
+        )
 
         # Subsequent generations
         while gens > 0:
             gens -= 1
-            self.new_population(gens, size=num_diploids[-gens - 1])
+            self.new_population(
+                gens, size=num_diploids[-gens - 1], node_flags=further_node_flags
+            )
 
         self.tables.sort()
         # We should probably simplify or at least sample_resolve here?
+        # We should also mark gen 0 as samples and unmark the others.
         # Probably a parameter `simplify` would be useful?
         return self.tables.copy().graph()
 
@@ -232,7 +264,9 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
     close together), but could be implemented by rejection sampling.:
     """
 
-    def initialise_population(self, time, size, L) -> dict[int, tuple[int, int]]:
+    def initialise_population(
+        self, time, size, L, node_flags=None
+    ) -> dict[int, tuple[int, int]]:
         # Make a "fake" MRCA node so we can use the find_mrca_regions method
         # to locate comparable regions for recombination in the parent genomes
         self.tables.clear()
@@ -243,6 +277,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
                 *self.make_diploids(
                     time,
                     parent_individuals=np.array([], dtype=int).reshape(size, 0),
+                    node_flags=node_flags,
                 )
             )
         )
@@ -261,8 +296,8 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
 
     def tables_to_gig_without_grand_mrca(self):
         # Remove the grand MRCA node at time np.inf, plus all edges to it.
-        # This requires a bit rearrangement to the tables so we make a set of
-        # new ones
+        # This requires a bit rearrangement to the tables, so we make a set of
+        # new ones. We also mark only the most recent generation as samples.
         output_tables = gigl.Tables()
         output_tables.time_units = self.tables.time_units
         node_map = {}
@@ -272,7 +307,13 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
             output_tables.individuals.append(individual)
         for i, node in enumerate(self.tables.nodes):
             if np.isfinite(node.time):
-                node_map[i] = output_tables.nodes.append(node)
+                if node.time != 0:
+                    flags = node.flags & ~gigl.NODE_IS_SAMPLE
+                else:
+                    flags = node.flags | gigl.NODE_IS_SAMPLE
+                node_map[i] = output_tables.nodes.add_row(
+                    time=node.time, flags=flags, individual=node.individual
+                )
         for ie in self.tables.iedges:
             try:
                 output_tables.add_iedge_row(
@@ -289,7 +330,16 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         # No need to make a copy here, as we have started with a new tables object
         return output_tables.graph()
 
-    def run(self, num_diploids, seq_len, gens, *, random_seed=None):
+    def run(
+        self,
+        num_diploids,
+        seq_len,
+        gens,
+        *,
+        random_seed=None,
+        initial_node_flags=None,
+        further_node_flags=None
+    ):
         """
         The num_diploids param can be an array of length `gens + 1` giving the diploid
         population size in each generation. This allows quick growth of a population
@@ -299,11 +349,13 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         if isinstance(num_diploids, int):
             num_diploids = [num_diploids] * (gens + 1)
         self.pop = self.initialise_population(
-            gens, size=num_diploids[-gens - 1], L=seq_len
+            gens, size=num_diploids[-gens - 1], L=seq_len, node_flags=initial_node_flags
         )
         while gens > 0:
             gens -= 1
-            self.new_population(gens, size=num_diploids[-gens - 1])
+            self.new_population(
+                gens, size=num_diploids[-gens - 1], node_flags=further_node_flags
+            )
         return self.tables_to_gig_without_grand_mrca()
 
     def run_more(self, num_diploids, gens, random_seed=None):

@@ -4,6 +4,8 @@ import tskit
 
 from . import sim
 
+INVERTED_CHILD_FLAG = 1 << 17
+
 
 # Tests for functions in tests/gigutil.py
 class tskit_DTWF_simulator:
@@ -93,6 +95,10 @@ class tskit_DTWF_simulator:
         while gens > 0:
             gens = gens - 1
             pop = self.new_population(gens, pop)
+        # make sure only nodes at time 0 are samples
+        self.tables.nodes.flags = np.where(
+            self.tables.nodes.time == 0, tskit.NODE_IS_SAMPLE, 0
+        ).astype(self.tables.nodes.flags.dtype)
         self.tables.sort()
         return self.tables.tree_sequence()
 
@@ -145,21 +151,30 @@ class TestSimpleSims:
 
     def test_run_more(self):
         simulator = sim.DTWF_no_recombination()
-        gens1 = 2
-        gig = simulator.run(num_diploids=2, seq_len=100, gens=gens1, random_seed=1)
-        assert len(np.unique(gig.tables.nodes.time)) == gens1 + 1
-        gens2 = 3
-        gig = simulator.run_more(num_diploids=4, seq_len=100, gens=gens2, random_seed=1)
-        assert len(np.unique(gig.tables.nodes.time)) == gens1 + gens2 + 1
+        gens = 2
+        gig = simulator.run(num_diploids=2, seq_len=100, gens=gens, random_seed=1)
+        assert len(np.unique(gig.tables.nodes.time)) == gens + 1
+        new_gens = 3
+        gig = simulator.run_more(
+            num_diploids=4, seq_len=100, gens=new_gens, random_seed=1
+        )
+        assert len(np.unique(gig.tables.nodes.time)) == gens + new_gens + 1
 
 
 class TestDTWF_one_break_no_rec_inversions_slow:
     default_gens = 5
+    seq_len = 531
+    inversion = tskit.Interval(100, 200)
+
+    simulator = None
+    ts = None  # only used to extract a tree sequence from subfunctions
 
     def test_plain_sim(self):
         gens = self.default_gens
-        simulator = sim.DTWF_one_break_no_rec_inversions_slow()
-        gig = simulator.run(num_diploids=10, seq_len=100, gens=gens, random_seed=1)
+        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow()
+        gig = self.simulator.run(
+            num_diploids=10, seq_len=self.seq_len, gens=gens, random_seed=1
+        )
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
         assert gig.num_iedges > 0
         ts = gig.to_tree_sequence()
@@ -168,13 +183,15 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         assert ts.at_index(0).num_edges > 0
 
     def test_run_more(self):
-        gens1 = self.default_gens
-        simulator = sim.DTWF_one_break_no_rec_inversions_slow()
-        gig = simulator.run(num_diploids=10, seq_len=100, gens=gens1, random_seed=1)
-        gens2 = 2
-        gig = simulator.run_more(num_diploids=(4, 2), gens=gens2, random_seed=1)
+        gens = self.default_gens
+        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow()
+        gig = self.simulator.run(
+            num_diploids=10, seq_len=self.seq_len, gens=gens, random_seed=1
+        )
+        new_gens = 2
+        gig = self.simulator.run_more(num_diploids=(4, 2), gens=new_gens, random_seed=1)
         times, counts = np.unique(gig.tables.nodes.time, return_counts=True)
-        assert len(times) == gens1 + gens2 + 1
+        assert len(times) == gens + new_gens + 1
         assert times[0] == 0
         assert counts[0] == 4  # 2 * 2
         assert times[1] == 1
@@ -186,10 +203,9 @@ class TestDTWF_one_break_no_rec_inversions_slow:
     def test_vs_tskit_implementation(self, seed):
         # The tskit_DTWF_simulator should produce identical results to the GIG simulator
         gens = self.default_gens
-        L = 97
-        gig_simulator = DTWF_one_break_no_rec_inversions_test()
-        ts_simulator = tskit_DTWF_simulator(sequence_length=L)
-        gig = gig_simulator.run(7, L, gens=gens, random_seed=seed)
+        self.simulator = DTWF_one_break_no_rec_inversions_test()
+        ts_simulator = tskit_DTWF_simulator(sequence_length=self.seq_len)
+        gig = self.simulator.run(7, self.seq_len, gens=gens, random_seed=seed)
         ts = ts_simulator.run(7, gens=gens, random_seed=seed)
         ts.tables.assert_equals(gig.to_tree_sequence().tables, ignore_provenance=True)
         assert ts.num_trees > 0
@@ -200,10 +216,29 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         ts.tables.assert_equals(gig.to_tree_sequence().tables, ignore_provenance=True)
 
     def test_inversion(self):
-        simulator = sim.DTWF_one_break_no_rec_inversions_slow()
-        simulator.run(num_diploids=2, seq_len=1000, gens=1, random_seed=123)
+        """
+        Run a simulation in which a single inversion is introduced then the
+        population explodes so that the inversion is not lost.
+        Note that this routine can be called directly e.g.
+            from tests.test_gigutil import TestDTWF_one_break_no_rec_inversions_slow
+
+            cls = TestDTWF_one_break_no_rec_inversions_slow()
+            cls.test_inversion()
+            print(cls.ts)
+        """
+        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow()
+        self.simulator.run(
+            num_diploids=2,
+            seq_len=self.seq_len,
+            gens=1,
+            random_seed=123,
+            further_node_flags=np.array(
+                [[INVERTED_CHILD_FLAG, 0], [0, 0]], dtype=np.int32
+            ),
+        )
         # Insert an inversion by editing the tables
-        times, inverses = np.unique(simulator.tables.nodes.time, return_inverse=True)
+        tables = self.simulator.tables
+        times, inverses = np.unique(tables.nodes.time, return_inverse=True)
         assert len(times) == 3  # also includes the grand MRCA
         first_gen = np.where(inverses == np.where([times == 1])[0])[0]
         second_gen = np.where(inverses == np.where([times == 0])[0])[0]
@@ -211,67 +246,115 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         assert len(second_gen) == 4  # haploid genomes
         # Edit the existing iedges to create an inversion
         # on a single iedge
-        new_tables = simulator.tables.copy(omit_iedges=True)
-        for ie in simulator.tables.iedges:
-            if ie.child == second_gen[0] and ie.child_left == 0:
+        new_tables = tables.copy(omit_iedges=True)
+        inverted_child_id = np.where(tables.nodes.flags == INVERTED_CHILD_FLAG)[0]
+        assert len(inverted_child_id) == 1
+        inverted_child_id = inverted_child_id[0]
+        assert inverted_child_id in second_gen
+        for ie in tables.iedges:
+            if ie.child == inverted_child_id and ie.child_left == 0:
                 assert ie.parent_left == 0
                 assert ie.child_right == ie.parent_right
                 assert ie.child_right > 200  # check seed gives breakpoint a bit along
 
                 new_tables.add_iedge_row(
                     0,
-                    100,
+                    self.inversion.left,
                     0,
-                    100,
-                    child=ie.child,
+                    self.inversion.left,
+                    child=inverted_child_id,
                     parent=ie.parent,
-                    **simulator.add_iedge_params(),
+                    **self.simulator.add_iedge_params(),
                 )
                 new_tables.add_iedge_row(
-                    100,
-                    200,
-                    200,
-                    100,
-                    child=ie.child,
+                    self.inversion.left,
+                    self.inversion.right,
+                    self.inversion.right,
+                    self.inversion.left,
+                    child=inverted_child_id,
                     parent=ie.parent,
-                    **simulator.add_iedge_params(),
+                    **self.simulator.add_iedge_params(),
                 )
                 new_tables.add_iedge_row(
-                    200,
+                    self.inversion.right,
                     ie.child_right,
-                    200,
+                    self.inversion.right,
                     ie.parent_right,
-                    child=ie.child,
+                    child=inverted_child_id,
                     parent=ie.parent,
-                    **simulator.add_iedge_params(),
+                    **self.simulator.add_iedge_params(),
                 )
             else:
-                new_tables.add_iedge_row(**ie.asdict(), **simulator.add_iedge_params())
+                new_tables.add_iedge_row(
+                    **ie.asdict(), **self.simulator.add_iedge_params()
+                )
         new_tables.sort()
-        simulator.tables = new_tables
+        self.simulator.tables = new_tables
         # Check it gives a valid gig
-        gig = simulator.tables.copy().graph()
+        gig = self.simulator.tables.copy().graph()
         num_inversions = 0
         for ie in gig.iedges:
             if ie.is_inversion():
                 num_inversions += 1
+                assert ie.child_left == self.inversion.left
+                assert ie.child_right == self.inversion.right
         assert num_inversions == 1
 
         # Can progress the simulation
-        gig = simulator.run_more(
+        gig = self.simulator.run_more(
             num_diploids=100, gens=self.default_gens - 1, random_seed=1
         )
+        # should have deleted the grand MRCA (used for matching)
+        assert len(gig.nodes) == len(self.simulator.tables.nodes) - 1
+        assert gig.num_samples == 100 * 2
         # check we still have an inversion in the ancestry: it's not been lost by drift
+        old_num_iedges = len(gig.iedges)
         gig = gig.sample_resolve()
+        assert old_num_iedges != len(gig.iedges)  # sample resolve should have an effect
         num_inversions = 0
         for ie in gig.iedges:
             if ie.is_inversion():
                 num_inversions += 1
+                inverted_child_id = ie.child
         assert num_inversions == 1
 
         # Check we can turn the decapitated gig tables into a tree sequence
         # (because decapitation should remove the only SV)
-        new_gig = gig.decapitate(time=gig.max_time)
-        ts = new_gig.to_tree_sequence()
+        tables = gig.tables.copy()
+        # shouldn't be able to edit a row like this really (in case
+        # we change the time)
+        # tables.nodes[inverted_child_id] = tables.
+        node_map = tables.decapitate(time=gig.max_time)
+        new_gig = tables.graph()
+        assert new_gig.nodes[node_map[inverted_child_id]]
+        self.ts = ts = new_gig.to_tree_sequence()  # also store in the class
         assert ts.max_time == new_gig.max_time
         assert ts.max_time < gig.max_time
+        inversion_above_node = np.where(ts.nodes_flags == INVERTED_CHILD_FLAG)[0]
+        assert len(inversion_above_node) == 1
+        inversion_samples = list(ts.at(150).samples(inversion_above_node[0]))
+        non_inversion_samples = np.zeros(ts.num_nodes, dtype=bool)
+        non_inversion_samples[ts.samples()] = True
+        non_inversion_samples[inversion_samples] = False
+        non_inversion_samples = np.where(non_inversion_samples)[0]
+
+        # the average divergence between samples with the inversion and without
+        # should be maxed out within the inversion site but not elsewhere
+        max_divergence = ts.max_time * 2
+        breaks = list(ts.breakpoints())
+        assert len(breaks) > 40
+        sample_sets = [inversion_samples, non_inversion_samples]
+        divergence = ts.divergence(sample_sets, mode="branch", windows="trees")
+        # check av divergence at LHS and RHS of inversion definitely lower than max
+        # it won't be much lower though, because we have rather few generations
+        # relative to the population size
+        assert np.all(divergence[:10] < max_divergence * 0.999)
+        assert np.all(divergence[-10:] < max_divergence * 0.999)
+        for left, right, val in zip(breaks[:-1], breaks[1:], divergence):
+            if right > self.inversion.left and left < self.inversion.right:
+                assert np.isclose(val, max_divergence)
+        windows = [0, self.inversion.left, self.inversion.right, ts.sequence_length]
+        divergence = ts.divergence(sample_sets, mode="branch", windows=windows)
+        assert divergence[0] < max_divergence * 0.999
+        assert np.isclose(divergence[1], max_divergence)
+        assert divergence[2] < max_divergence * 0.999
