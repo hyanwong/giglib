@@ -31,8 +31,6 @@ class TestConstructor:
         assert len(gig.iedges) == 0
         assert len(gig.samples) == 1
         # Cached values should be defined but empty
-        assert gig.parent_range.shape == (len(gig.nodes), 2)
-        assert np.all(gig.parent_range == gigl.NULL)
         assert gig.child_range.shape == (len(gig.nodes), 2)
         assert np.all(gig.child_range == gigl.NULL)
         assert gig.iedge_map_sorted_by_parent.shape == (0,)
@@ -159,10 +157,10 @@ class TestMethods:
         for u in gig.samples:
             assert gig.sequence_length(u) == simple_ts.sequence_length
 
-    def test_sequence_length_root(self, all_sv_types_gig):
+    def test_sequence_length_root(self, all_sv_types_no_re_gig):
         # root will have no upward edges
-        root = len(all_sv_types_gig.nodes) - 1
-        assert all_sv_types_gig.sequence_length(root) == 200
+        root = len(all_sv_types_no_re_gig.nodes) - 1
+        assert all_sv_types_no_re_gig.sequence_length(root) == 200
 
     def test_no_sequence_length(self):
         tables = gigl.Tables()
@@ -218,16 +216,16 @@ class TestSampleResolving:
         new_gig = gig.sample_resolve()  # Shouldn't make any changes
         assert gig.tables == new_gig.tables
 
-    def test_all_svs_sample_resolve(self, all_sv_types_gig):
+    def test_all_svs_no_re_sample_resolve(self, all_sv_types_no_re_gig):
         """
-        The all_sv_types_gig is not sample resolved, so we should see changes
-        (in particular, 10->11 should be split into two edges)
+        The all_sv_types_no_re_gig is not sample resolved, so we should see changes (in
+        particular, 1->2 should be split into two edges, either side of the deletion)
         """
-        new_gig = all_sv_types_gig.sample_resolve()  # Shouldn't make any changes
-        assert len(new_gig.iedges) - len(all_sv_types_gig.iedges) == 1
+        new_gig = all_sv_types_no_re_gig.sample_resolve()  # Should only split one iedge
+        assert len(new_gig.iedges) - len(all_sv_types_no_re_gig.iedges) == 1
         new_edges = iter(new_gig.tables.iedges)
-        for iedge_row in all_sv_types_gig.tables.iedges:
-            if iedge_row.parent == 11 and iedge_row.child == 10:
+        for iedge_row in all_sv_types_no_re_gig.tables.iedges:
+            if iedge_row.parent == 1 and iedge_row.child == 2:
                 assert iedge_row.parent_left == iedge_row.child_left == 0
                 assert iedge_row.parent_right == iedge_row.child_right == 200
                 new_iedge = next(new_edges)
@@ -238,6 +236,46 @@ class TestSampleResolving:
                 assert new_iedge.parent_right == new_iedge.child_right == 200
             else:
                 assert iedge_row == next(new_edges)
+
+    def test_all_svs_re_sample_resolve(self, all_sv_types_re_gig):
+        """
+        An even more complicated gig. In particular, recombination means that some of
+        the iedges leading into the RE nodes should be trimmed. We should still split
+        the 1->2 iedge but also we have an internal edge from 5->7 that contains
+        a missing section
+        """
+        new_gig = all_sv_types_re_gig.sample_resolve()
+        assert len(new_gig.iedges) - len(all_sv_types_re_gig.iedges) == 2
+        iedge_rows = list(all_sv_types_re_gig.iedges_for_child(2))
+        assert len(iedge_rows) == 1
+        assert iedge_rows[0].parent == 1
+        assert iedge_rows[0].parent_left == iedge_rows[0].child_left == 0
+        assert iedge_rows[0].parent_right == iedge_rows[0].child_right == 200
+
+        iedge_rows = list(new_gig.iedges_for_child(2))
+        print(iedge_rows)
+        assert len(iedge_rows) == 2
+        assert iedge_rows[0].parent == 1
+        assert iedge_rows[0].parent_left == iedge_rows[0].child_left == 0
+        assert iedge_rows[0].parent_right == iedge_rows[0].child_right == 50
+        assert iedge_rows[1].parent == 1
+        assert iedge_rows[1].parent_left == iedge_rows[1].child_left == 150
+        assert iedge_rows[1].parent_right == iedge_rows[1].child_right == 200
+
+        # One of the recombination nodes
+        iedge_rows = list(all_sv_types_re_gig.iedges_for_child(7))
+        assert len(iedge_rows) == 1
+        assert iedge_rows[0].parent == 5
+        assert iedge_rows[0].parent_left == iedge_rows[0].child_left == 0
+        assert iedge_rows[0].parent_right == iedge_rows[0].child_right == 300
+        iedge_rows = list(new_gig.iedges_for_child(7))
+        assert len(iedge_rows) == 2
+        assert iedge_rows[0].parent == 5
+        assert iedge_rows[0].parent_left == iedge_rows[0].child_left == 0
+        assert iedge_rows[0].parent_right == iedge_rows[0].child_right == 150
+        assert iedge_rows[1].parent == 5
+        assert iedge_rows[1].parent_left == iedge_rows[1].child_left == 170
+        assert iedge_rows[1].parent_right == iedge_rows[1].child_right == 300
 
     def test_sample_resolve_no_edges(self):
         tables = gigl.Tables()
@@ -332,14 +370,14 @@ class TestIEdge:
         ie = gig.iedges[gig.iedge_map_sorted_by_parent[0]]  # tskit order
         assert getattr(ie, name) == getattr(simple_ts.edge(0), suffix)
 
-    def test_span(self, all_sv_types_gig):
-        for ie in all_sv_types_gig.iedges:
+    def test_span(self, all_sv_types_no_re_gig):
+        for ie in all_sv_types_no_re_gig.iedges:
             assert ie.span == np.abs(ie.child_right - ie.child_left)
             assert ie.span == np.abs(ie.parent_right - ie.parent_left)
 
-    def test_is_inversion(self, all_sv_types_gig):
+    def test_is_inversion(self, all_sv_types_no_re_gig):
         num_inversions = 0
-        for ie in all_sv_types_gig.iedges:
+        for ie in all_sv_types_no_re_gig.iedges:
             if ie.is_inversion():
                 num_inversions += 1
                 assert ie.parent_right - ie.parent_left < 0
@@ -396,245 +434,3 @@ class TestIEdge:
         assert ie.transform_position(17, gigl.ROOTWARDS) == 22
         assert ie.transform_position(18, gigl.ROOTWARDS) == 21
         assert ie.transform_position(19, gigl.ROOTWARDS) == 20
-
-    # TODO - add gigl.LEAFWARDS test
-    @pytest.mark.parametrize("direction", [gigl.ROOTWARDS])
-    def test_notransform_interval(self, direction):
-        ie = gigl.graph.IEdge(10, 20, 10, 20, child=0, parent=1, id=0)
-        assert ie.transform_interval((12, 17), direction) == (12, 17)
-        assert ie.transform_interval((10, 20), direction) == (10, 20)
-        nd_type = "child" if direction == gigl.ROOTWARDS else "parent"
-        with pytest.raises(ValueError, match=f"not in {nd_type} interval"):
-            ie.transform_interval((9, 12), direction)
-        with pytest.raises(ValueError, match=f"not in {nd_type} interval"):
-            ie.transform_interval((17, 21), direction)
-
-    def test_transform_interval_linear(self):
-        ie = gigl.graph.IEdge(0, 10, 10, 20, child=0, parent=1, id=0)
-        assert ie.transform_interval((0, 10), gigl.ROOTWARDS) == (10, 20)
-        assert ie.transform_interval((2, 7), gigl.ROOTWARDS) == (12, 17)
-        with pytest.raises(ValueError, match="not in child interval"):
-            ie.transform_interval((-1, 10), gigl.ROOTWARDS)
-        with pytest.raises(ValueError, match="not in child interval"):
-            ie.transform_interval((1, 11), gigl.ROOTWARDS)
-
-    def test_transform_interval_inversion(self):
-        ie = gigl.graph.IEdge(10, 20, 30, 20, child=0, parent=1, id=0)
-        assert ie.transform_interval((10, 20), gigl.ROOTWARDS) == (30, 20)
-        assert ie.transform_interval((11, 19), gigl.ROOTWARDS) == (29, 21)
-        with pytest.raises(ValueError, match="not in child interval"):
-            ie.transform_interval((5, 21), gigl.ROOTWARDS)
-
-
-class TestFindMrcas:
-    def test_find_mrca_single_tree(self):
-        span = 123
-        comb_ts = tskit.Tree.generate_comb(5, span=span).tree_sequence
-        # make a gig with many unary nodes above node 0
-        comb_ts = comb_ts.simplify([0, 4], keep_unary=True)
-        gig = gigl.from_tree_sequence(comb_ts)
-        full_span = (0, span)
-        shared_regions = gig.find_mrca_regions(0, 1)
-        assert len(shared_regions) == 1
-        assert comb_ts.first().root in shared_regions
-        mrca_intervals = shared_regions[comb_ts.first().root]
-        assert len(mrca_intervals) == 1
-        mrca, uv_interval_lists = mrca_intervals.popitem()
-        assert mrca == full_span
-        assert len(uv_interval_lists) == 2
-        for interval_list in uv_interval_lists:
-            assert len(interval_list) == 1
-            assert full_span in interval_list
-
-    def test_find_mrca_2_trees(self, degree2_2_tip_ts):
-        num_trees = 2
-        assert degree2_2_tip_ts.num_trees == num_trees
-        gig = gigl.from_tree_sequence(degree2_2_tip_ts)
-        shared_regions = gig.find_mrca_regions(0, 1)
-        internal_nodes = [node.id for node in degree2_2_tip_ts.nodes() if node.time > 0]
-        assert len(shared_regions) == num_trees
-        for mrca_id in internal_nodes:
-            assert mrca_id in shared_regions
-            val = shared_regions[mrca_id]
-            assert len(val) == 1
-            interval, (u, v) = val.popitem()
-            assert len(u) == 1
-            assert len(v) == 1
-            assert interval in u
-            assert interval in v
-
-    def test_time_cutoff(self, degree2_2_tip_ts):
-        # set a cutoff so that the mrca in one tree is never visited
-        assert degree2_2_tip_ts.num_trees == 2
-        assert degree2_2_tip_ts.num_samples == 2
-        T = degree2_2_tip_ts.nodes_time
-        tree0 = degree2_2_tip_ts.first()
-        tree1 = degree2_2_tip_ts.last()
-        assert T[tree0.root] != T[tree1.root]
-        gig = gigl.from_tree_sequence(degree2_2_tip_ts)
-        assert gig.sequence_length(0) == degree2_2_tip_ts.sequence_length
-        assert gig.sequence_length(1) == degree2_2_tip_ts.sequence_length
-        cutoff = (T[[tree0.root, tree1.root]]).mean()
-        shared_regions = gig.find_mrca_regions(0, 1, cutoff)
-        assert len(shared_regions) == 1
-        used_tree = tree0 if T[tree0.root] < T[tree1.root] else tree1
-        unused_tree = tree1 if T[tree0.root] < T[tree1.root] else tree0
-        assert used_tree.root in shared_regions
-        assert unused_tree.root not in shared_regions
-
-    def test_simple_non_sv(self, simple_ts):
-        assert simple_ts.num_trees > 1
-        assert simple_ts.num_samples >= 2
-        max_trees = 0
-        gig = gigl.from_tree_sequence(simple_ts)
-        for u in range(len(gig.samples)):
-            for v in range(u + 1, len(gig.samples)):
-                mrcas = gig.find_mrca_regions(u, v)
-                equiv_ts = simple_ts.simplify([u, v], filter_nodes=False)
-                max_trees = max(max_trees, equiv_ts.num_trees)
-                for tree in equiv_ts.trees():
-                    interval = (int(tree.interval.left), int(tree.interval.right))
-                    mrca = tree.get_mrca(u, v)
-                    assert interval in mrcas[mrca]
-                    u_equivalent, v_equivalent = mrcas[mrca][interval]
-                    assert len(u_equivalent) == 1  # No duplications
-                    assert len(v_equivalent) == 1  # No duplications
-                    assert interval in u_equivalent
-                    assert interval in v_equivalent
-        assert max_trees > 2  # at least some cases with 3 or more mrcas
-
-    def test_double_inversion(self, double_inversion_gig):
-        assert double_inversion_gig.num_samples == 2
-        iedges = list(double_inversion_gig.iedges_for_child(0))
-        assert len(iedges) == 1
-        assert iedges[0].is_inversion()
-        mrcas = double_inversion_gig.find_mrca_regions(0, 1)
-        assert len(mrcas) == 1
-        assert 3 in mrcas
-        mrca = mrcas[3]
-        assert (0, 100) in mrca
-        u, v = mrca[(0, 100)]
-        assert u == [(0, 100)]
-        assert v == [(0, 100)]
-
-    @pytest.mark.parametrize("sample_resolve", [True, False])
-    def test_extended_inversion(self, extended_inversion_gig, sample_resolve):
-        gig = extended_inversion_gig
-        if sample_resolve:
-            gig = gig.sample_resolve()
-        assert gig.min_position(0) == 20
-        assert gig.max_position(0) == 155
-        assert gig.min_position(1) == 0
-        assert gig.max_position(1) == 100
-        mrcas = gig.find_mrca_regions(0, 1)
-        assert len(mrcas) == 1
-        assert 3 in mrcas
-        mrca = mrcas[3]
-        assert (15, 100) in mrca  # the inverson only leaves 15..100 shared
-        u, v = mrca[(15, 100)]
-        assert len(v) == 1
-        assert (15, 100) in v
-        assert len(u) == 1
-        assert (155, 70) in u  # inverted region is span 85 from 155 leftward in sample
-
-    def test_inverted_duplicate(self, inverted_duplicate_gig):
-        assert inverted_duplicate_gig.num_samples == 2
-        mrcas = inverted_duplicate_gig.find_mrca_regions(0, 1)
-        assert len(mrcas) == 1
-        assert 3 in mrcas
-        mrca = mrcas[3]
-        assert (10, 15) in mrca  # the duplicated+inverted section
-        u, v = mrca[(10, 15)]
-        assert set(u) == {(0, 5), (15, 10)}
-        assert v == [(0, 5)]
-
-        assert (15, 20) in mrca  # only the inverted section
-        u, v = mrca[(15, 20)]
-        assert u == [(10, 5)]
-        assert v == [(5, 10)]
-
-    def test_inverted_duplicate_with_missing(self, inverted_duplicate_with_missing_gig):
-        assert inverted_duplicate_with_missing_gig.num_samples == 2
-        mrcas = inverted_duplicate_with_missing_gig.find_mrca_regions(0, 1)
-        assert len(mrcas) == 1
-        assert 3 in mrcas
-        mrca = mrcas[3]
-        assert (10, 15) in mrca  # the duplicated+inverted section
-        u, v = mrca[(10, 15)]
-        assert set(u) == {(0, 5), (35, 30)}
-        assert v == [(0, 5)]
-
-        assert (15, 20) in mrca  # only the inverted section
-        u, v = mrca[(15, 20)]
-        assert u == [(30, 25)]
-        assert v == [(5, 10)]
-
-    def test_no_recomb_sv_dup_del(self, all_sv_types_gig):
-        assert all_sv_types_gig.num_samples >= 2
-        sample_u = 0
-        sample_v = 2
-        mrcas = all_sv_types_gig.find_mrca_regions(sample_u, sample_v)
-        assert len(mrcas) == 1
-        assert 11 in mrcas
-
-        # (0, 50) should be unchanged
-        assert (0, 50) in mrcas[11]
-        u, v = mrcas[11][(0, 50)]
-        assert len(u) == len(v) == 1
-        assert (0, 50) in u
-        assert (0, 50) in v
-
-        # (150, 50) should be duplicated
-        assert (150, 200) in mrcas[11]
-        u, v = mrcas[11][(150, 200)]
-        assert len(u) == 2  # duplication
-        assert (150, 200) in u  # duplication
-        assert (250, 300) in u  # duplication
-        assert len(v) == 1
-        assert (50, 100) in v  # deletion
-
-        # (50, 150) should be deleted, with no MRCA
-        assert (50, 150) not in mrcas[11]
-        assert len(mrcas[11]) == 2
-
-    def test_no_recomb_sv_dup_inv(self, all_sv_types_gig):
-        assert all_sv_types_gig.num_samples >= 2
-        sample_u = 0
-        sample_v = 4
-        mrcas = all_sv_types_gig.find_mrca_regions(sample_u, sample_v)
-        assert len(mrcas) == 1
-        assert 12 in mrcas
-        mrca = mrcas[12]
-        # "normal" region
-        assert (0, 80) in mrca
-        assert mrca[(0, 80)] == ([(0, 80)], [(0, 80)])
-
-        # start of inverted region
-        assert (80, 100) in mrca
-        assert mrca[(80, 100)] == ([(80, 100)], [(160, 140)])
-
-        # duplicated inverted region
-        assert (100, 160) in mrca
-        assert set(mrca[(100, 160)][0]) == {(100, 160), (200, 260)}
-        assert mrca[(100, 160)][1] == [(140, 80)]
-
-        # duplicated non-inverted region
-        assert (160, 200) in mrca
-        assert set(mrca[(160, 200)][0]) == {(160, 200), (260, 300)}
-        assert mrca[(160, 200)][1] == [(160, 200)]
-
-    def test_random_matching_positions(self, simple_ts):
-        rng = np.random.default_rng(1)
-        ts = simple_ts.keep_intervals([(0, 2)]).trim()
-        gig = gigl.from_tree_sequence(ts)
-        assert gig.samples[0] == 0
-        assert gig.samples[1] == 1
-        mrcas = gig.find_mrca_regions(0, 1)
-        all_breaks = set()
-        for _ in range(20):
-            # in 20 replicates we should definitely have both 0 and 1
-            breaks = gig.random_matching_positions(mrcas, rng)
-            assert len(breaks) == 2
-            assert breaks[0] == breaks[1]
-            all_breaks.add(breaks[0])
-        assert all_breaks == {0, 1}

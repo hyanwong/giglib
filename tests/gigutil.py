@@ -45,24 +45,26 @@ class DTWF_simulator:
     # For visualising unsimplified tree sequences, it helps to flag all nodes as samples
     default_node_flags = gigl.NODE_IS_SAMPLE
 
-    def make_diploid(
-        self, time, parent_individuals=None
-    ) -> tuple[int, tuple[int, int]]:
+    def make_diploids(self, time, parent_individuals, node_flags=None):
         """
-        Make an individual and its diploid genomes by adding to tables, returning IDs.
-        Specifying parent_individuals is optional but stores the pedigree stored.
+        Make a set of individuals with their diploid genomes by adding to tables,
+        returning two arrays of IDs: the individual IDs and the node IDs.
         """
-        individual_id = self.tables.individuals.add_row(parents=parent_individuals)
-        return individual_id, (
-            self.tables.nodes.add_row(
-                time=time, flags=self.default_node_flags, individual=individual_id
-            ),
-            self.tables.nodes.add_row(
-                time=time, flags=self.default_node_flags, individual=individual_id
+        individual_ids = self.tables.individuals.add_rows(parents=parent_individuals)
+        if node_flags is None:
+            node_flags = self.default_node_flags
+        return (
+            individual_ids,
+            self.tables.nodes.add_rows(
+                time=time,
+                flags=node_flags,
+                individual=np.broadcast_to(individual_ids, (2, len(individual_ids))).T,
             ),
         )
 
-    def new_population(self, time, recombination_rate=0, size=None, seq_len=None):
+    def new_population(
+        self, time, recombination_rate=0, size=None, seq_len=None, node_flags=None
+    ):
         """
         If seq_len is specified, use this as the expected sequence length of the
         parents of the new population, otherwise take from the parent.sequence_length
@@ -78,12 +80,21 @@ class DTWF_simulator:
         # Cache the list of individual IDs in the previous population, for efficiency
         prev_individuals = np.array([i for i in prev_pop.keys()], dtype=np.int32)
 
-        for _ in range(len(prev_pop) if size is None else size):
-            # 1. Pick two individual parent IDs at random, `replace=True` allows selfing
-            mother_and_father = self.random.choice(prev_individuals, 2, replace=True)
+        if size is None:
+            size = len(prev_pop)
 
-            # 2. Get 1 new individual ID + 2 new node IDs
-            child_id, child_genomes = self.make_diploid(time, mother_and_father)
+        # 1. Pick individual parent ID pairs at random, `replace=True` allows selfing
+        mum_dad_arr = self.random.choice(prev_individuals, (size, 2), replace=True)
+        # 2. Get new individual IDs + twice as many new node IDs
+        child_id_arr, child_genomes_arr = self.make_diploids(
+            time, mum_dad_arr, node_flags
+        )
+        assert len(mum_dad_arr) == len(child_id_arr) == len(child_genomes_arr)
+        for mother_and_father, child_id, child_genomes in zip(
+            mum_dad_arr, child_id_arr, child_genomes_arr
+        ):
+            # assert (self.tables.nodes[child_genomes[0]].individual ==
+            # self.tables.nodes[child_genomes[1]].individual)  # removed for speed
             self.pop[child_id] = child_genomes  # store the genome IDs
 
             # 3. Add inheritance paths to both child genomes
@@ -102,22 +113,65 @@ class DTWF_simulator:
             "Implement an add_inheritance_paths method to make a DTWF simulator"
         )
 
-    def initialise_population(self, time, size) -> dict[int, tuple[int, int]]:
+    def initialise_population(
+        self, time, size, node_flags=None
+    ) -> dict[int, tuple[int, int]]:
         self.tables.clear()
         self.pop = None
-        return dict(self.make_diploid(time) for _ in range(size))
+        return dict(
+            zip(
+                *self.make_diploids(
+                    time,
+                    parent_individuals=np.array([], dtype=int).reshape(size, 0),
+                    node_flags=node_flags,
+                )
+            )
+        )
 
-    def __init__(self):
+    def __init__(self, use_validation=True):
+        """
+        Create a simulation class, which can then simulate a forward Discrete Time
+        Wright-Fisher model with varying population sizes over generations.
+
+        If use_validation is True (default), when adding edges we check that they
+        create a valid set of tables suitable for using the find_mrca_regions() method.
+        Setting this to False saves a small fraction (about 2%) of the simulation time,
+        at the expense of not doing any validation (dangerous!)
+        """
         self.tables = gigl.Tables()
         self.tables.time_units = "generations"  # optional, but helpful when plotting
+        self.use_validation = use_validation
 
-    def run(self, num_diploids, seq_len, gens, *, random_seed=None):
+    def add_iedge_params(self):
+        """
+        Return the validation params to use when calling tables.add_iedge_row
+        """
+        return {
+            "validate_child_adjacency": self.use_validation,
+            "validate_intervals": self.use_validation,
+            "validate_node_times": self.use_validation,
+        }
+
+    def run(
+        self,
+        num_diploids,
+        seq_len,
+        gens,
+        *,
+        random_seed=None,
+        initial_node_flags=None,
+        further_node_flags=None
+    ):
         """
         Initialise and run a new population for a given number of generations. The last
         generation will be at time 0 and the first at time `gens`.
 
         The num_diploids param can be an array of length `gens + 1` giving the diploid
-        population size in each generation. This allows quick growth of a population
+        population size in each generation. This allows quick growth of a population.
+
+        ``initial_node_flags`` will be passed as node_flags to the
+        ``initialise_population()`` method. ``further_node_flags`` will be passed
+        to subsequent generations.
 
         Returns a gig represeting the ancestry of the population at time 0
         """
@@ -125,18 +179,28 @@ class DTWF_simulator:
         if isinstance(num_diploids, int):
             num_diploids = [num_diploids] * (gens + 1)
 
-        self.pop = self.initialise_population(gens, num_diploids[-gens - 1])
+        self.pop = self.initialise_population(
+            gens, num_diploids[-gens - 1], node_flags=initial_node_flags
+        )
         # First generation by hand, so that we can specify the sequence length
         gens -= 1
-        self.new_population(gens, seq_len=100, size=num_diploids[-gens - 1])
+        self.new_population(
+            gens,
+            seq_len=100,
+            size=num_diploids[-gens - 1],
+            node_flags=further_node_flags,
+        )
 
         # Subsequent generations
         while gens > 0:
             gens -= 1
-            self.new_population(gens, size=num_diploids[-gens - 1])
+            self.new_population(
+                gens, size=num_diploids[-gens - 1], node_flags=further_node_flags
+            )
 
         self.tables.sort()
         # We should probably simplify or at least sample_resolve here?
+        # We should also mark gen 0 as samples and unmark the others.
         # Probably a parameter `simplify` would be useful?
         return self.tables.copy().graph()
 
@@ -176,7 +240,16 @@ class DTWF_no_recombination_sim(DTWF_simulator):
             rgt = np.max(
                 self.tables.iedges.child_right[self.tables.iedges.child == parent]
             )
-        self.tables.iedges.add_row(lft, rgt, lft, rgt, child=child, parent=parent)
+
+        self.tables.add_iedge_row(
+            lft,
+            rgt,
+            lft,
+            rgt,
+            child=child,
+            parent=parent,
+            **self.add_iedge_params(),
+        )
 
 
 class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
@@ -191,19 +264,40 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
     close together), but could be implemented by rejection sampling.:
     """
 
-    def initialise_population(self, time, size, L) -> dict[int, tuple[int, int]]:
+    def initialise_population(
+        self, time, size, L, node_flags=None
+    ) -> dict[int, tuple[int, int]]:
         # Make a "fake" MRCA node so we can use the find_mrca_regions method
         # to locate comparable regions for recombination in the parent genomes
+        self.tables.clear()
+        self.pop = None
         self.grand_mrca = self.tables.nodes.add_row(time=np.inf)
-
-        temp_pop = dict(self.make_diploid(time) for _ in range(size))
+        temp_pop = dict(
+            zip(
+                *self.make_diploids(
+                    time,
+                    parent_individuals=np.array([], dtype=int).reshape(size, 0),
+                    node_flags=node_flags,
+                )
+            )
+        )
         for nodes in temp_pop.values():
             for u in nodes:
-                self.tables.iedges.add_row(0, L, 0, L, child=u, parent=self.grand_mrca)
+                self.tables.add_iedge_row(
+                    0,
+                    L,
+                    0,
+                    L,
+                    child=u,
+                    parent=self.grand_mrca,
+                    **self.add_iedge_params(),
+                )
         return temp_pop
 
     def tables_to_gig_without_grand_mrca(self):
         # Remove the grand MRCA node at time np.inf, plus all edges to it.
+        # This requires a bit rearrangement to the tables, so we make a set of
+        # new ones. We also mark only the most recent generation as samples.
         output_tables = gigl.Tables()
         output_tables.time_units = self.tables.time_units
         node_map = {}
@@ -213,10 +307,16 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
             output_tables.individuals.append(individual)
         for i, node in enumerate(self.tables.nodes):
             if np.isfinite(node.time):
-                node_map[i] = output_tables.nodes.append(node)
+                if node.time != 0:
+                    flags = node.flags & ~gigl.NODE_IS_SAMPLE
+                else:
+                    flags = node.flags | gigl.NODE_IS_SAMPLE
+                node_map[i] = output_tables.nodes.add_row(
+                    time=node.time, flags=flags, individual=node.individual
+                )
         for ie in self.tables.iedges:
             try:
-                output_tables.iedges.add_row(
+                output_tables.add_iedge_row(
                     ie.child_left,
                     ie.child_right,
                     ie.parent_left,
@@ -230,7 +330,16 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         # No need to make a copy here, as we have started with a new tables object
         return output_tables.graph()
 
-    def run(self, num_diploids, seq_len, gens, *, random_seed=None):
+    def run(
+        self,
+        num_diploids,
+        seq_len,
+        gens,
+        *,
+        random_seed=None,
+        initial_node_flags=None,
+        further_node_flags=None
+    ):
         """
         The num_diploids param can be an array of length `gens + 1` giving the diploid
         population size in each generation. This allows quick growth of a population
@@ -240,21 +349,13 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         if isinstance(num_diploids, int):
             num_diploids = [num_diploids] * (gens + 1)
         self.pop = self.initialise_population(
-            gens, size=num_diploids[-gens - 1], L=seq_len
+            gens, size=num_diploids[-gens - 1], L=seq_len, node_flags=initial_node_flags
         )
         while gens > 0:
             gens -= 1
-            # Since we do this in generations, we can freeze the tables into a GIG
-            # each generation. This is an inefficient way to be able to run
-            # find_mrca_regions, but it will have to do until we solve
-            # https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/69
-
-            # Since we are not sorting, running .graph() here also helps us catch any
-            # bugs due to e.g. not adding edges in the expected order. Therefore
-            # if this call to .graph() fails, it identifies a case where an efficient
-            # implementation to allow find_mrca_regions on the tables could fail.
-            self.gig = self.tables.copy().graph()
-            self.new_population(gens, size=num_diploids[-gens - 1])
+            self.new_population(
+                gens, size=num_diploids[-gens - 1], node_flags=further_node_flags
+            )
         return self.tables_to_gig_without_grand_mrca()
 
     def run_more(self, num_diploids, gens, random_seed=None):
@@ -271,23 +372,21 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         self.tables.change_times(gens)
         while gens > 0:
             gens -= 1
-            # See comment above about why we currently need to run .graph() here
-            self.gig = self.tables.copy().graph()
             self.new_population(gens, size=num_diploids[-gens - 1])
         return self.tables_to_gig_without_grand_mrca()
 
-    def find_comparable_points(self, gig, parent_nodes):
+    def find_comparable_points(self, tables, parent_nodes):
         """
         Find comparable points in the parent nodes, and return the
         coordinates of the matching regions in the parent nodes.
         """
-        mrcas = gig.find_mrca_regions(*parent_nodes)
-        comparable_pts = gig.random_matching_positions(mrcas, self.random)
+        mrcas = tables.find_mrca_regions(*parent_nodes)
+        comparable_pts = tables.random_matching_positions(mrcas, self.random)
         # Pick a single breakpoint: if both breaks are inverted relative to the mrca
         # (i.e. negative) it's OK: both have the same orientation relative to each other
         tries = 0
         while comparable_pts[0] * comparable_pts[1] < 0:
-            comparable_pts = self.gig.random_matching_positions(mrcas, self.random)
+            comparable_pts = tables.random_matching_positions(mrcas, self.random)
             tries += 1
             if tries > self.num_tries_for_breakpoint:
                 raise ValueError(
@@ -296,7 +395,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         return comparable_pts
 
     def add_inheritance_paths(self, parent_nodes, child, seq_len, _):
-        comparable_pts = self.find_comparable_points(self.gig, parent_nodes)
+        comparable_pts = self.find_comparable_points(self.tables, parent_nodes)
 
         rnd = self.random.integers(4)
         break_to_right_of_position = rnd & 1
@@ -317,7 +416,15 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         brk = lft_parent_break
         if brk > 0:  # If break not placed just before position 0
             pL, pR = 0, brk  # parent left and right start at the same pos as child
-            self.tables.iedges.add_row(0, brk, pL, pR, child=child, parent=lft_parent)
+            self.tables.add_iedge_row(
+                0,
+                brk,
+                pL,
+                pR,
+                child=child,
+                parent=lft_parent,
+                **self.add_iedge_params(),
+            )
         if seq_len is None:
             # TODO - make this more efficient, as all the edges should be adjacent
             seq_len = np.max(
@@ -326,4 +433,12 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         if rgt_parent_break < seq_len:  # If break not just after the last pos
             pL, pR = rgt_parent_break, seq_len
             cR = brk + (pR - pL)  # child rgt must account for len of rgt parent region
-            self.tables.iedges.add_row(brk, cR, pL, pR, child=child, parent=rgt_parent)
+            self.tables.add_iedge_row(
+                brk,
+                cR,
+                pL,
+                pR,
+                child=child,
+                parent=rgt_parent,
+                **self.add_iedge_params(),
+            )

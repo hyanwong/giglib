@@ -2,6 +2,7 @@ import GeneticInheritanceGraphLibrary as gigl
 import msprime
 import numpy as np
 import pytest
+import tskit
 
 
 class TestCreation:
@@ -202,7 +203,198 @@ class TestIEdgeTable:
         tables.nodes.add_row(flags=gigl.NODE_IS_SAMPLE, time=0)
         tables.nodes.add_row(flags=gigl.NODE_IS_SAMPLE, time=0)
         with pytest.raises(TypeError, match="Could not convert"):
-            tables.iedges.add_row(0, 1, None, 1, child=0, parent=1)
+            tables.iedges.add_int_row(0, 1, None, 1, child=0, parent=1)
+
+    def test_novalidate_add_row(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(time=1)
+        tables.nodes.add_row(time=0)
+        assert tables.iedges.flags == gigl.VALID_GIG
+        tables.iedges.add_row(0, 1, 0, 1, child=0, parent=1)
+        assert tables.iedges.flags != gigl.VALID_GIG
+
+    def test_validate_add_row(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(time=1)
+        tables.nodes.add_row(time=0)
+        assert tables.iedges.flags == gigl.VALID_GIG
+        tables.add_iedge_row(
+            0,
+            1,
+            0,
+            1,
+            child=1,
+            parent=0,
+            validate_child_adjacency=True,
+            validate_intervals=True,
+            validate_node_times=True,
+        )
+        assert tables.iedges.flags == gigl.VALID_GIG
+        # Make a valid addition but simply assume that it's valid
+        tables.add_iedge_row(
+            1,
+            2,
+            1,
+            2,
+            child=1,
+            parent=0,
+            validate_child_adjacency=False,
+            validate_intervals=False,
+            validate_node_times=True,
+        )
+        assert tables.iedges.flags == gigl.VALID_GIG
+
+    def test_bad_add_iedge_row(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(time=1)
+        tables.nodes.add_row(time=0)
+        with pytest.raises(ValueError, match="not less than parent time"):
+            tables.add_iedge_row(
+                0, 1, 0, 1, child=0, parent=1, validate_node_times=True
+            )
+
+    def test_child_iterator(self, all_sv_types_re_gig):
+        tables = all_sv_types_re_gig.tables
+        assert tables.iedges.flags == gigl.VALID_GIG
+        seen = set()
+        for ie_row in tables.iedges:
+            if ie_row.child not in seen:
+                seen.add(ie_row.child)
+                ie_rows = list(tables.iedges.ids_for_child(ie_row.child))
+            assert tables.iedges[ie_rows.pop(0)] == ie_row
+
+    def test_bad_child_iterator(self, all_sv_types_re_gig):
+        tables = all_sv_types_re_gig.tables.copy()
+        # Add a valid edge but don't check it
+        tables.iedges.add_row(1000, 1001, 1000, 1001, child=1, parent=0)
+        with pytest.raises(ValueError, match="Cannot use this method"):
+            next(tables.iedges.ids_for_child(10))
+
+    def test_good_child_iterator(self, all_sv_types_re_gig):
+        tables = all_sv_types_re_gig.tables.copy()
+        # Add a valid edge and check it
+        last_child = tables.iedges[-1].child
+        tables.iedges.add_row(
+            1000,
+            1001,
+            1000,
+            1001,
+            child=last_child,
+            parent=0,
+            validate_child_adjacency=True,
+        )
+        _ = tables.iedges.ids_for_child(10)
+
+    def test_unverified_child_iterator(self, all_sv_types_re_gig):
+        tables = all_sv_types_re_gig.tables.copy()
+        # Add a valid edge but don't check it
+        last_child = tables.iedges[-1].child
+        tables.iedges.add_row(1000, 1001, 1000, 1001, child=last_child, parent=0)
+        with pytest.raises(ValueError, match="Cannot use this method"):
+            _ = tables.iedges.ids_for_child(10)
+
+    # TODO - add gigl.LEAFWARDS test
+    @pytest.mark.parametrize("direction", [gigl.ROOTWARDS])
+    def test_notransform_interval(self, direction):
+        iedges = gigl.tables.IEdgeTable()
+        iedges.add_row(
+            10,
+            20,
+            10,
+            20,
+            child=0,
+            parent=1,
+            validate_child_adjacency=True,
+            validate_intervals=True,
+        )
+        assert iedges.transform_interval(0, (12, 17), direction) == (12, 17)
+        assert iedges.transform_interval(0, (10, 20), direction) == (10, 20)
+        nd_type = "child" if direction == gigl.ROOTWARDS else "parent"
+        with pytest.raises(ValueError, match=f"not in {nd_type} interval"):
+            iedges.transform_interval(0, (9, 12), direction)
+        with pytest.raises(ValueError, match=f"not in {nd_type} interval"):
+            iedges.transform_interval(0, (17, 21), direction)
+
+    def test_transform_interval_linear(self):
+        iedges = gigl.tables.IEdgeTable()
+        iedges.add_row(
+            0,
+            10,
+            10,
+            20,
+            child=0,
+            parent=1,
+            validate_child_adjacency=True,
+            validate_intervals=True,
+        )
+        assert iedges.transform_interval(0, (0, 10), gigl.ROOTWARDS) == (10, 20)
+        assert iedges.transform_interval(0, (2, 7), gigl.ROOTWARDS) == (12, 17)
+        with pytest.raises(ValueError, match="not in child interval"):
+            iedges.transform_interval(0, (-1, 10), gigl.ROOTWARDS)
+        with pytest.raises(ValueError, match="not in child interval"):
+            iedges.transform_interval(0, (1, 11), gigl.ROOTWARDS)
+
+    def test_transform_interval_inversion(self):
+        iedges = gigl.tables.IEdgeTable()
+        iedges.add_row(
+            10,
+            20,
+            30,
+            20,
+            child=0,
+            parent=1,
+            validate_child_adjacency=True,
+            validate_intervals=True,
+        )
+        assert iedges.transform_interval(0, (10, 20), gigl.ROOTWARDS) == (30, 20)
+        assert iedges.transform_interval(0, (11, 19), gigl.ROOTWARDS) == (29, 21)
+        with pytest.raises(ValueError, match="not in child interval"):
+            iedges.transform_interval(0, (5, 21), gigl.ROOTWARDS)
+
+    def test_clear(self, trivial_gig):
+        tables = trivial_gig.tables.copy()
+        tables.iedges.add_row(10, 20, 10, 20, child=0, parent=4)
+        assert tables.iedges.flags != gigl.VALID_GIG
+        assert len(tables.iedges._id_range_for_child) > 0
+        tables.iedges.clear()
+        assert tables.iedges.flags == gigl.VALID_GIG
+        assert len(tables.iedges._id_range_for_child) == 0
+
+
+class TestNodeTable:
+    def test_times(self):
+        nodes = gigl.tables.NodeTable()
+        nodes.add_row(time=1)
+        nodes.add_row(time=2)
+        nodes.add_row(time=4)
+        assert len(nodes.time.shape) == 1
+        assert nodes.time.shape[0] == 3
+        assert nodes.time.dtype == np.float64
+        assert np.all(nodes.time == [1.0, 2.0, 4.0])
+        new_nodes = nodes.copy()
+        nodes.clear()
+        assert len(nodes.time.shape) == 1
+        assert nodes.time.shape[0] == 0
+        assert nodes.time.dtype == np.float64
+        assert len(new_nodes.time.shape) == 1
+        assert new_nodes.time.shape[0] == 3
+        assert new_nodes.time.dtype == np.float64
+        assert np.all(new_nodes.time == [1.0, 2.0, 4.0])
+
+    def test_add_rows(self):
+        # test if e.g. we can broadcast
+        nodes = gigl.tables.NodeTable()
+        nodes.add_row(time=123)
+        ret = nodes.add_rows(np.arange(10).reshape(2, 5), flags=0, individual=gigl.NULL)
+        assert len(nodes.time.shape) == 1
+        assert np.all(ret == np.arange(10).reshape(2, 5) + 1)
+        assert nodes.time.shape[0] == 11
+        assert np.all(nodes.time == np.insert(np.arange(10), 0, 123))
+        for i, n in enumerate(nodes):
+            if i == 0:
+                assert n.time == 123
+            else:
+                assert n.time == i - 1
 
 
 class TestStringRepresentations:
@@ -289,3 +481,217 @@ class TestNodeAttributes:
         tables = gig.tables
         ts_order = gig.iedge_map_sorted_by_parent
         assert np.all(tables.iedges.child[ts_order] == simple_ts.edges_child)
+
+
+class TestFindMrcas:
+    def test_find_mrca_single_tree(self):
+        span = 123
+        comb_ts = tskit.Tree.generate_comb(5, span=span).tree_sequence
+        # make a gig with many unary nodes above node 0
+        comb_ts = comb_ts.simplify([0, 4], keep_unary=True)
+        gig = gigl.from_tree_sequence(comb_ts)
+        full_span = (0, span)
+        shared_regions = gig.tables.find_mrca_regions(0, 1)
+        assert len(shared_regions) == 1
+        assert comb_ts.first().root in shared_regions
+        mrca_intervals = shared_regions[comb_ts.first().root]
+        assert len(mrca_intervals) == 1
+        mrca, uv_interval_lists = mrca_intervals.popitem()
+        assert mrca == full_span
+        assert len(uv_interval_lists) == 2
+        for interval_list in uv_interval_lists:
+            assert len(interval_list) == 1
+            assert full_span in interval_list
+
+    def test_find_mrca_2_trees(self, degree2_2_tip_ts):
+        num_trees = 2
+        assert degree2_2_tip_ts.num_trees == num_trees
+        gig = gigl.from_tree_sequence(degree2_2_tip_ts)
+        shared_regions = gig.tables.find_mrca_regions(0, 1)
+        internal_nodes = [node.id for node in degree2_2_tip_ts.nodes() if node.time > 0]
+        assert len(shared_regions) == num_trees
+        for mrca_id in internal_nodes:
+            assert mrca_id in shared_regions
+            val = shared_regions[mrca_id]
+            assert len(val) == 1
+            interval, (u, v) = val.popitem()
+            assert len(u) == 1
+            assert len(v) == 1
+            assert interval in u
+            assert interval in v
+
+    def test_time_cutoff(self, degree2_2_tip_ts):
+        # set a cutoff so that the mrca in one tree is never visited
+        assert degree2_2_tip_ts.num_trees == 2
+        assert degree2_2_tip_ts.num_samples == 2
+        T = degree2_2_tip_ts.nodes_time
+        tree0 = degree2_2_tip_ts.first()
+        tree1 = degree2_2_tip_ts.last()
+        assert T[tree0.root] != T[tree1.root]
+        gig = gigl.from_tree_sequence(degree2_2_tip_ts)
+        assert gig.sequence_length(0) == degree2_2_tip_ts.sequence_length
+        assert gig.sequence_length(1) == degree2_2_tip_ts.sequence_length
+        cutoff = (T[[tree0.root, tree1.root]]).mean()
+        shared_regions = gig.tables.find_mrca_regions(0, 1, cutoff)
+        assert len(shared_regions) == 1
+        used_tree = tree0 if T[tree0.root] < T[tree1.root] else tree1
+        unused_tree = tree1 if T[tree0.root] < T[tree1.root] else tree0
+        assert used_tree.root in shared_regions
+        assert unused_tree.root not in shared_regions
+
+    def test_simple_non_sv(self, simple_ts):
+        assert simple_ts.num_trees > 1
+        assert simple_ts.num_samples >= 2
+        max_trees = 0
+        gig = gigl.from_tree_sequence(simple_ts)
+        for u in range(len(gig.samples)):
+            for v in range(u + 1, len(gig.samples)):
+                mrcas = gig.tables.find_mrca_regions(u, v)
+                equiv_ts = simple_ts.simplify([u, v], filter_nodes=False)
+                max_trees = max(max_trees, equiv_ts.num_trees)
+                for tree in equiv_ts.trees():
+                    interval = (int(tree.interval.left), int(tree.interval.right))
+                    mrca = tree.get_mrca(u, v)
+                    assert interval in mrcas[mrca]
+                    u_equivalent, v_equivalent = mrcas[mrca][interval]
+                    assert len(u_equivalent) == 1  # No duplications
+                    assert len(v_equivalent) == 1  # No duplications
+                    assert interval in u_equivalent
+                    assert interval in v_equivalent
+        assert max_trees > 2  # at least some cases with 3 or more mrcas
+
+    def test_double_inversion(self, double_inversion_gig):
+        assert double_inversion_gig.num_samples == 2
+        iedges = list(double_inversion_gig.iedges_for_child(0))
+        assert len(iedges) == 1
+        assert iedges[0].is_inversion()
+        mrcas = double_inversion_gig.tables.find_mrca_regions(0, 1)
+        assert len(mrcas) == 1
+        assert 3 in mrcas
+        mrca = mrcas[3]
+        assert (0, 100) in mrca
+        u, v = mrca[(0, 100)]
+        assert u == [(0, 100)]
+        assert v == [(0, 100)]
+
+    @pytest.mark.parametrize("sample_resolve", [True, False])
+    def test_extended_inversion(self, extended_inversion_gig, sample_resolve):
+        gig = extended_inversion_gig
+        if sample_resolve:
+            gig = gig.sample_resolve()
+        assert gig.min_position(0) == 20
+        assert gig.max_position(0) == 155
+        assert gig.min_position(1) == 0
+        assert gig.max_position(1) == 100
+        mrcas = gig.tables.find_mrca_regions(0, 1)
+        assert len(mrcas) == 1
+        assert 3 in mrcas
+        mrca = mrcas[3]
+        assert (15, 100) in mrca  # the inverson only leaves 15..100 shared
+        u, v = mrca[(15, 100)]
+        assert len(v) == 1
+        assert (15, 100) in v
+        assert len(u) == 1
+        assert (155, 70) in u  # inverted region is span 85 from 155 leftward in sample
+
+    def test_inverted_duplicate(self, inverted_duplicate_gig):
+        assert inverted_duplicate_gig.num_samples == 2
+        mrcas = inverted_duplicate_gig.tables.find_mrca_regions(0, 1)
+        assert len(mrcas) == 1
+        assert 3 in mrcas
+        mrca = mrcas[3]
+        assert (10, 15) in mrca  # the duplicated+inverted section
+        u, v = mrca[(10, 15)]
+        assert set(u) == {(0, 5), (15, 10)}
+        assert v == [(0, 5)]
+
+        assert (15, 20) in mrca  # only the inverted section
+        u, v = mrca[(15, 20)]
+        assert u == [(10, 5)]
+        assert v == [(5, 10)]
+
+    def test_inverted_duplicate_with_missing(self, inverted_duplicate_with_missing_gig):
+        assert inverted_duplicate_with_missing_gig.num_samples == 2
+        mrcas = inverted_duplicate_with_missing_gig.tables.find_mrca_regions(0, 1)
+        assert len(mrcas) == 1
+        assert 3 in mrcas
+        mrca = mrcas[3]
+        assert (10, 15) in mrca  # the duplicated+inverted section
+        u, v = mrca[(10, 15)]
+        assert set(u) == {(0, 5), (35, 30)}
+        assert v == [(0, 5)]
+
+        assert (15, 20) in mrca  # only the inverted section
+        u, v = mrca[(15, 20)]
+        assert u == [(30, 25)]
+        assert v == [(5, 10)]
+
+    def test_no_recomb_sv_dup_del(self, all_sv_types_no_re_gig):
+        assert all_sv_types_no_re_gig.num_samples >= 2
+        sample_u = 8
+        sample_v = 10
+        mrcas = all_sv_types_no_re_gig.tables.find_mrca_regions(sample_u, sample_v)
+        assert len(mrcas) == 1
+        assert 1 in mrcas
+
+        # (0, 50) should be unchanged
+        assert (0, 50) in mrcas[1]
+        u, v = mrcas[1][(0, 50)]
+        assert len(u) == len(v) == 1
+        assert (0, 50) in u
+        assert (0, 50) in v
+
+        # (150, 50) should be duplicated
+        assert (150, 200) in mrcas[1]
+        u, v = mrcas[1][(150, 200)]
+        assert len(u) == 1
+        assert (50, 100) in u  # deletion
+        assert len(v) == 2  # duplication
+        assert (150, 200) in v  # duplication
+        assert (250, 300) in v  # duplication
+
+        # (50, 150) should be deleted, with no MRCA
+        assert (50, 150) not in mrcas[1]
+        assert len(mrcas[1]) == 2
+
+    def test_no_recomb_sv_dup_inv(self, all_sv_types_no_re_gig):
+        assert all_sv_types_no_re_gig.num_samples >= 2
+        sample_u = 10
+        sample_v = 12
+        mrcas = all_sv_types_no_re_gig.tables.find_mrca_regions(sample_u, sample_v)
+        assert len(mrcas) == 1
+        assert 0 in mrcas
+        mrca = mrcas[0]
+        # "normal" region
+        assert (0, 20) in mrca
+        assert mrca[(0, 20)] == ([(0, 20)], [(0, 20)])
+
+        # start of inverted region
+        assert (20, 100) in mrca
+        assert mrca[(20, 100)] == ([(20, 100)], [(120, 40)])
+
+        # duplicated inverted region
+        assert (100, 120) in mrca
+        assert set(mrca[(100, 120)][0]) == {(100, 120), (200, 220)}
+        assert mrca[(100, 120)][1] == [(40, 20)]
+
+        # duplicated non-inverted region
+        assert (120, 200) in mrca
+        assert set(mrca[(120, 200)][0]) == {(120, 200), (220, 300)}
+        assert mrca[(120, 200)][1] == [(120, 200)]
+
+    def test_random_matching_positions(self, simple_ts):
+        rng = np.random.default_rng(1)
+        ts = simple_ts.keep_intervals([(0, 2)]).trim()
+        gig = gigl.from_tree_sequence(ts)
+        assert gig.samples[0] == 0
+        assert gig.samples[1] == 1
+        mrcas = gig.tables.find_mrca_regions(0, 1)
+        all_breaks = set()
+        for _ in range(20):
+            # in 20 replicates we should definitely have both 0 and 1
+            breaks = gig.tables.random_matching_positions(mrcas, rng)
+            assert len(breaks) == 2
+            assert breaks[0] == breaks[1]
+            all_breaks.add(breaks[0])
+        assert all_breaks == {0, 1}
