@@ -361,6 +361,42 @@ class TestIEdgeTable:
         assert len(tables.iedges.edges_for_child) == 0
 
 
+class TestNodeTable:
+    def test_times(self):
+        nodes = gigl.tables.NodeTable()
+        nodes.add_row(time=1)
+        nodes.add_row(time=2)
+        nodes.add_row(time=4)
+        assert len(nodes.time.shape) == 1
+        assert nodes.time.shape[0] == 3
+        assert nodes.time.dtype == np.float64
+        assert np.all(nodes.time == [1.0, 2.0, 4.0])
+        new_nodes = nodes.copy()
+        nodes.clear()
+        assert len(nodes.time.shape) == 1
+        assert nodes.time.shape[0] == 0
+        assert nodes.time.dtype == np.float64
+        assert len(new_nodes.time.shape) == 1
+        assert new_nodes.time.shape[0] == 3
+        assert new_nodes.time.dtype == np.float64
+        assert np.all(new_nodes.time == [1.0, 2.0, 4.0])
+
+    def test_add_rows(self):
+        # test if e.g. we can broadcast
+        nodes = gigl.tables.NodeTable()
+        nodes.add_row(time=123)
+        ret = nodes.add_rows(np.arange(10).reshape(2, 5), flags=0, individual=gigl.NULL)
+        assert len(nodes.time.shape) == 1
+        assert np.all(ret == np.arange(10).reshape(2, 5) + 1)
+        assert nodes.time.shape[0] == 11
+        assert np.all(nodes.time == np.insert(np.arange(10), 0, 123))
+        for i, n in enumerate(nodes):
+            if i == 0:
+                assert n.time == 123
+            else:
+                assert n.time == i - 1
+
+
 class TestStringRepresentations:
     # Test string and html representations of tables
     def test_hardcoded_tskit_is_skipped(self, gig_from_degree2_ts):

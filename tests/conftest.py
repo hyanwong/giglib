@@ -59,7 +59,7 @@ def extended_inversion_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    tables.iedges.add_rows(
+    tables.iedges.add_rowlist(
         [
             iedge(20, 155, 20, 155, c=0, p=2),
             iedge(10, 160, 160, 10, c=2, p=3),
@@ -84,7 +84,7 @@ def double_inversion_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    tables.iedges.add_rows(
+    tables.iedges.add_rowlist(
         [
             iedge(0, 100, 300, 200, c=0, p=2),
             iedge(200, 300, 100, 0, c=2, p=3),
@@ -119,7 +119,7 @@ def all_sv_types_no_re_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    tables.iedges.add_rows(
+    tables.iedges.add_rowlist(
         [
             iedge(0, 200, 0, 200, c=1, p=0),
             iedge(0, 200, 0, 200, c=2, p=1),
@@ -164,7 +164,7 @@ def all_sv_types_re_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    tables.iedges.add_rows(
+    tables.iedges.add_rowlist(
         [
             iedge(0, 200, 0, 200, c=1, p=0),
             iedge(0, 200, 0, 200, c=2, p=1),
@@ -214,7 +214,7 @@ def trivial_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    tables.iedges.add_rows(
+    tables.iedges.add_rowlist(
         [
             iedge(0, 5, 0, 5, c=3, p=4),
             iedge(0, 3, 3, 0, c=0, p=3),
@@ -259,7 +259,7 @@ def inverted_duplicate_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    tables.iedges.add_rows(
+    tables.iedges.add_rowlist(
         [
             iedge(
                 0, 5, 100, 105, c=A, p=2
@@ -292,7 +292,7 @@ def inverted_duplicate_with_missing_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    tables.iedges.add_rows(
+    tables.iedges.add_rowlist(
         [
             iedge(
                 0, 5, 100, 105, c=A, p=2

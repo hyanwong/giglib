@@ -208,10 +208,12 @@ class BaseTable:
         self._data.append(self.RowClass(*args, **kwargs))
         return len(self._data) - 1
 
-    def add_rows(self, rowlist):
+    def add_rowlist(self, rowlist):
         """
-        Add a list of rows to a BaseTable. Each row must contain objects of the
-        required table row type. This is a convenience function
+        Add a list of rows to a BaseTable. Each item in the rowlist must contain
+        objects of the required table row type. This is a convenience function.
+        For a more flexible and performant method that uses numpy arrays
+        and broadcasting, some tables may also implement an ``add_rows`` method.
         """
         for row in rowlist:
             self.append(row)
@@ -544,14 +546,51 @@ class NodeTable(BaseTable):
             new_id = nodes.add_row(dataclass_field1="foo", dataclass_field2="bar")
         """
         node_id = super().add_row(*args, **kwargs)
-        # inefficient to append to a new numpy array but worth it because we
-        # often access the time array even as it is being dynamically created
+        # inefficient to use "append" to enlarge the numpy array but worth it because
+        # we often access the time array even as it is being dynamically created.
+        # A more efficient approach would be to pre-allocate an empty array
+        # and return a view onto an appropriately-sized slice of that array
         self.time = np.append(self.time, self[-1].time)
         return node_id
+
+    def add_rows(self, time, flags, individual):
+        """
+        Adds multiple individuals at a time, efficiently.
+        All parameters must be provided as numpy arrays which are broadcast to
+        the same shape as the largest array. To specify no individual,
+        provide ``NULL`` (-1) as the ``individual`` value.
+
+        Returns a numpy array of numpy IDs whose shape is
+        given by the shape of the largest input array.
+        """
+        # This is more efficient than repeated calls to add_row
+        # because it can allocate memory in one go
+        time, flags, individual = np.broadcast_arrays(time, flags, individual)
+        self.time = np.append(self.time, time.flatten())
+        result = np.empty_like(time)
+        for indexes in np.ndindex(result.shape):
+            result[indexes] = super().add_row(
+                time[indexes], flags[indexes], individual[indexes]
+            )
+        return result
 
 
 class IndividualTable(BaseTable):
     RowClass = IndividualTableRow
+
+    def add_rows(self, parents_array):
+        """
+        Adds multiple individuals at a time, efficiently.
+        Equivalent to iterating over the "parents_array"
+        and adding each in turn. For efficiency, parents_array
+        should be a numpy array of ints.
+
+        Returns a numpy array of individual IDs whose shape is
+        given by the shape of the input array minus the last
+        dimension (i.e. of shape ``parents_array.shape[:-1]``)
+        """
+        # NB: currently no more efficient than calling add_row repeatedly
+        return np.apply_along_axis(self.add_row, -1, parents_array)
 
 
 class Tables:
