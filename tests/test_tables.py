@@ -351,6 +351,15 @@ class TestIEdgeTable:
         with pytest.raises(ValueError, match="not in child interval"):
             iedges.transform_interval(0, (5, 21), gigl.ROOTWARDS)
 
+    def test_clear(self, trivial_gig):
+        tables = trivial_gig.tables.copy()
+        tables.iedges.add_row(10, 20, 10, 20, child=0, parent=4)
+        assert tables.iedges.flags != gigl.VALID_GIG
+        assert len(tables.iedges.edges_for_child) > 0
+        tables.iedges.clear()
+        assert tables.iedges.flags == gigl.VALID_GIG
+        assert len(tables.iedges.edges_for_child) == 0
+
 
 class TestStringRepresentations:
     # Test string and html representations of tables

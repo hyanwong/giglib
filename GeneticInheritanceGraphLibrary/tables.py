@@ -297,6 +297,15 @@ class IEdgeTable(BaseTable):
         copy.edges_for_child = self.edges_for_child.copy()
         return copy
 
+    def clear(self):
+        """
+        Deletes all rows in this table.
+        """
+        self.flags = VALID_GIG
+        # map each child ID to the index of the first edge with that child
+        self.edges_for_child = {}
+        super().clear()
+
     def __eq__(self, other):
         if self.flags != other.flags:
             return False
@@ -500,13 +509,45 @@ class IEdgeTable(BaseTable):
 class NodeTable(BaseTable):
     RowClass = NodeTableRow
 
+    def __init__(self):
+        # we use the time array repeatedly so cache it.
+        self.time = np.array([], dtype=np.float64)
+        super().__init__()
+
+    def copy(self):
+        """
+        Returns an unfrozen deep copy of this table
+        """
+        copy = super().copy()
+        copy.time = self.time.copy()
+        return copy
+
+    def clear(self):
+        """
+        Deletes all rows in this table.
+        """
+        self.time = np.array([], dtype=np.float64)
+        super().clear()
+
     @property
     def flags(self) -> npt.NDArray[np.uint32]:
         return np.array([row.flags for row in self.data], dtype=np.uint32)
 
-    @property
-    def time(self) -> npt.NDArray[np.float64]:
-        return np.array([row.time for row in self.data], dtype=np.float64)
+    def add_row(self, *args, **kwargs) -> int:
+        """
+        Add a row to a NodeTable: the arguments are passed to the RowClass constructor
+        (with the RowClass being dataclass).
+
+        :return: The row ID of the newly added row
+
+        Example:
+            new_id = nodes.add_row(dataclass_field1="foo", dataclass_field2="bar")
+        """
+        node_id = super().add_row(*args, **kwargs)
+        # inefficient to append to a new numpy array but worth it because we
+        # often access the time array even as it is being dynamically created
+        self.time = np.append(self.time, self[-1].time)
+        return node_id
 
 
 class IndividualTable(BaseTable):
@@ -659,8 +700,8 @@ class Tables:
         """
         Add a value to all times (nodes and mutations)
         """
-        # TODO: urrently node rows are frozen, so we can't change them in-place
-        # We should make them more easily editable.
+        # TODO: currently node rows are frozen, so we can't change them in-place
+        # We should make them more easily editable but also change the cached times
         node_table = NodeTable()
         for node in self.nodes:
             node_table.add_row(
@@ -797,9 +838,7 @@ class Tables:
         if time_cutoff is None:
             time_cutoff = np.inf
         # Use a dynamic stack as we hopefully will be visiting a minority of nodes
-        node_times = (
-            self.nodes.time
-        )  # need to make this efficient e.g. via memory access
+        node_times = self.nodes.time
         stack = sortedcontainers.SortedDict(lambda k: -node_times[k])
 
         # We need to track intervals separately if they have been transformed
