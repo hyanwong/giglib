@@ -762,12 +762,13 @@ class Tables:
     def decapitate(self, time):
         """
         Remove nodes that are older than a certain time, and edges that have those
-        as parents. Also remove individuals associated with those nodes
+        as parents. Also remove individuals associated with those nodes. Return a
+        mapping of old node ids to new node ids.
         """
         individuals = IndividualTable()
         individual_map = {NULL: NULL}
         nodes = NodeTable()
-        node_map = {}
+        node_map = np.full(len(self.nodes), NULL, dtype=np.int64)
         iedges = IEdgeTable()
         for u, nd in enumerate(self.nodes):
             if nd.time < time:
@@ -783,7 +784,7 @@ class Tables:
                     time=nd.time, flags=nd.flags, individual=individual_map[i]
                 )
         for ie in self.iedges:
-            if ie.parent in node_map:
+            if node_map[ie.parent] != NULL and node_map[ie.child] != NULL:
                 iedges.add_row(
                     ie.child_left,
                     ie.child_right,
@@ -796,6 +797,7 @@ class Tables:
         self.iedges = iedges
         self.individuals = individuals
         self.sort()
+        return node_map
 
     @classmethod
     def from_tree_sequence(cls, ts, *, chromosome=None, timedelta=0, **kwargs):
