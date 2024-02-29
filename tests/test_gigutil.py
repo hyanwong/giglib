@@ -45,9 +45,12 @@ class tskit_DTWF_simulator:
         # Cache the list of individual IDs in the previous population, for efficiency
         prev_individuals = np.array([i for i in prev_pop.keys()], dtype=np.int32)
 
-        for _ in range(len(prev_pop)):
-            # 1. Pick two individual parent IDs at random, `replace=True` allows selfing
-            mum_and_dad = self.random.choice(prev_individuals, 2, replace=True)
+        # 1. Pick individual parent ID pairs at random, `replace=True` allows selfing
+        mum_dad_arr = self.random.choice(
+            prev_individuals, (len(prev_pop), 2), replace=True
+        )
+
+        for mum_and_dad in mum_dad_arr:
             # 2. Get 1 new individual ID + 2 new node IDs
             child_id, child_genomes = self.make_diploid(time, mum_and_dad)
             pop[child_id] = child_genomes  # store the genome IDs
@@ -198,7 +201,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
 
     def test_inversion(self):
         simulator = sim.DTWF_one_break_no_rec_inversions_slow()
-        simulator.run(num_diploids=2, seq_len=1000, gens=1, random_seed=1)
+        simulator.run(num_diploids=2, seq_len=1000, gens=1, random_seed=123)
         # Insert an inversion by editing the tables
         times, inverses = np.unique(simulator.tables.nodes.time, return_inverse=True)
         assert len(times) == 3  # also includes the grand MRCA

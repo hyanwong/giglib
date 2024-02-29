@@ -45,20 +45,18 @@ class DTWF_simulator:
     # For visualising unsimplified tree sequences, it helps to flag all nodes as samples
     default_node_flags = gigl.NODE_IS_SAMPLE
 
-    def make_diploid(
-        self, time, parent_individuals=None
-    ) -> tuple[int, tuple[int, int]]:
+    def make_diploids(self, time, parent_individuals):
         """
-        Make an individual and its diploid genomes by adding to tables, returning IDs.
-        Specifying parent_individuals is optional but stores the pedigree stored.
+        Make a set of individuals with their diploid genomes by adding to tables,
+        returning two arrays of IDs: the individual IDs and the node IDs.
         """
-        individual_id = self.tables.individuals.add_row(parents=parent_individuals)
-        return individual_id, (
-            self.tables.nodes.add_row(
-                time=time, flags=self.default_node_flags, individual=individual_id
-            ),
-            self.tables.nodes.add_row(
-                time=time, flags=self.default_node_flags, individual=individual_id
+        individual_ids = self.tables.individuals.add_rows(parents=parent_individuals)
+        return (
+            individual_ids,
+            self.tables.nodes.add_rows(
+                time=time,
+                flags=self.default_node_flags,
+                individual=np.broadcast_to(individual_ids, (2, len(individual_ids))).T,
             ),
         )
 
@@ -78,12 +76,19 @@ class DTWF_simulator:
         # Cache the list of individual IDs in the previous population, for efficiency
         prev_individuals = np.array([i for i in prev_pop.keys()], dtype=np.int32)
 
-        for _ in range(len(prev_pop) if size is None else size):
-            # 1. Pick two individual parent IDs at random, `replace=True` allows selfing
-            mother_and_father = self.random.choice(prev_individuals, 2, replace=True)
+        if size is None:
+            size = len(prev_pop)
 
-            # 2. Get 1 new individual ID + 2 new node IDs
-            child_id, child_genomes = self.make_diploid(time, mother_and_father)
+        # 1. Pick individual parent ID pairs at random, `replace=True` allows selfing
+        mum_dad_arr = self.random.choice(prev_individuals, (size, 2), replace=True)
+        # 2. Get new individual IDs + twice as many new node IDs
+        child_id_arr, child_genomes_arr = self.make_diploids(time, mum_dad_arr)
+        assert len(mum_dad_arr) == len(child_id_arr) == len(child_genomes_arr)
+        for mother_and_father, child_id, child_genomes in zip(
+            mum_dad_arr, child_id_arr, child_genomes_arr
+        ):
+            # assert (self.tables.nodes[child_genomes[0]].individual ==
+            # self.tables.nodes[child_genomes[1]].individual)  # removed for speed
             self.pop[child_id] = child_genomes  # store the genome IDs
 
             # 3. Add inheritance paths to both child genomes
@@ -105,7 +110,14 @@ class DTWF_simulator:
     def initialise_population(self, time, size) -> dict[int, tuple[int, int]]:
         self.tables.clear()
         self.pop = None
-        return dict(self.make_diploid(time) for _ in range(size))
+        return dict(
+            zip(
+                *self.make_diploids(
+                    time,
+                    parent_individuals=np.array([], dtype=int).reshape(size, 0),
+                )
+            )
+        )
 
     def __init__(self, use_validation=True):
         """
@@ -196,7 +208,6 @@ class DTWF_no_recombination_sim(DTWF_simulator):
             rgt = np.max(
                 self.tables.iedges.child_right[self.tables.iedges.child == parent]
             )
-        print(self.tables.iedges.flags)
 
         self.tables.add_iedge_row(
             lft,
@@ -207,7 +218,6 @@ class DTWF_no_recombination_sim(DTWF_simulator):
             parent=parent,
             **self.add_iedge_params(),
         )
-        print(self.tables.iedges.flags)
 
 
 class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
@@ -225,9 +235,17 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
     def initialise_population(self, time, size, L) -> dict[int, tuple[int, int]]:
         # Make a "fake" MRCA node so we can use the find_mrca_regions method
         # to locate comparable regions for recombination in the parent genomes
+        self.tables.clear()
+        self.pop = None
         self.grand_mrca = self.tables.nodes.add_row(time=np.inf)
-
-        temp_pop = dict(self.make_diploid(time) for _ in range(size))
+        temp_pop = dict(
+            zip(
+                *self.make_diploids(
+                    time,
+                    parent_individuals=np.array([], dtype=int).reshape(size, 0),
+                )
+            )
+        )
         for nodes in temp_pop.values():
             for u in nodes:
                 self.tables.add_iedge_row(

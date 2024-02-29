@@ -251,9 +251,16 @@ class Graph:
             sequence_length = self.tables.iedges.child_right.max()
         tables = tskit.TableCollection(sequence_length)
         tables.time_units = self.time_units
+        int32_info = np.iinfo(np.int32)
+        int32_min = int32_info.min
+        int32_max = int32_info.max
         for node in self.nodes:
+            if node.individual < int32_min or node.individual > int32_max:
+                raise ValueError(f"Cannot store individual IDs > {int32_max} in tskit")
             tables.nodes.add_row(
-                time=node.time, flags=node.flags, individual=node.individual
+                time=node.time,
+                flags=node.flags,
+                individual=np.int32(node.individual),  # can safely cast
             )
         for ie in self.iedges:
             tables.edges.add_row(
@@ -263,7 +270,12 @@ class Graph:
                 parent=ie.parent,
             )
         for individual in self.individuals:
-            tables.individuals.add_row(parents=individual.parents)
+            for p in individual.parents:
+                if p < int32_min or p > int32_max:
+                    raise ValueError(
+                        f"Cannot store individual IDs > {int32_max} in tskit"
+                    )
+            tables.individuals.add_row(parents=np.int32(individual.parents))  # can cast
 
         tables.provenances.add_row(
             record=json.dumps({"parameters": {"command": "gig.to_tree_sequence"}})

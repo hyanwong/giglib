@@ -549,7 +549,8 @@ class NodeTable(BaseTable):
         # inefficient to use "append" to enlarge the numpy array but worth it because
         # we often access the time array even as it is being dynamically created.
         # A more efficient approach would be to pre-allocate an empty array
-        # and return a view onto an appropriately-sized slice of that array
+        # and return a view onto an appropriately-sized slice of that array.
+        # The problem can be aleviated a little by using add_rows instead.
         self.time = np.append(self.time, self[-1].time)
         return node_id
 
@@ -564,7 +565,9 @@ class NodeTable(BaseTable):
         given by the shape of the largest input array.
         """
         # This is more efficient than repeated calls to add_row
-        # because it can allocate memory in one go
+        # because it can allocate memory in one go. This is currently only
+        # used for the cached .time array but could also be used for
+        # the row data itself once that is efficiently stored.
         time, flags, individual = np.broadcast_arrays(time, flags, individual)
         self.time = np.append(self.time, time.flatten())
         result = np.empty_like(time)
@@ -578,19 +581,19 @@ class NodeTable(BaseTable):
 class IndividualTable(BaseTable):
     RowClass = IndividualTableRow
 
-    def add_rows(self, parents_array):
+    def add_rows(self, parents):
         """
         Adds multiple individuals at a time, efficiently.
-        Equivalent to iterating over the "parents_array"
-        and adding each in turn. For efficiency, parents_array
-        should be a numpy array of ints.
+        Equivalent to iterating over the "parents"
+        and adding each in turn. For efficiency, parents
+        should be a numpy array of ints of at least 2 dimensions.
 
         Returns a numpy array of individual IDs whose shape is
         given by the shape of the input array minus the last
         dimension (i.e. of shape ``parents_array.shape[:-1]``)
         """
         # NB: currently no more efficient than calling add_row repeatedly
-        return np.apply_along_axis(self.add_row, -1, parents_array)
+        return np.apply_along_axis(self.add_row, -1, parents)
 
 
 class Tables:
