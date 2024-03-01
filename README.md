@@ -95,7 +95,7 @@ this GitHub repository intentionally mirror that of _tskit_ (which makes it easy
 from an msprime-simulated tree sequence 🎉). Nevertheless, there are a number of terminological
 and implementation differences, an incomplete list of which are below:
 
-- **Iedges** The main difference is that intervals in the GeneticInheritanceGraphLibrary are stored
+- **Iedges** As described above, intervals in a GIG as defined in the GeneticInheritanceGraphLibrary are stored
   in the iedges table, which has a `parent_left` and `child_left` column rather than a simple `left`
   column as in _tskit_ (and similarly for `right`).
 - **Tables and Graphs** The GeneticInheritanceGraphLibrary has a `Tables` and `Graph` class, corresponding
