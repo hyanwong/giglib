@@ -141,9 +141,12 @@ assert gig.iedges[0].is_inversion()
 
 ### Simulations
 
-Examples of code that runs simulations are provided in the test suite and are a relatively simple extension
-of the boilerplate forward-simulation code in https://tskit.dev/tutorials/forward_sims.html. The
-[sim.py file](https://github.com/hyanwong/GeneticInheritanceGraphLibrary/blob/main/tests/sim.py)
+Examples of code that runs simulations are provided in the test suite. Currently they are based on a relatively simple extension
+of the boilerplate forward-simulation code in https://tskit.dev/tutorials/forward_sims.html. The important
+difference is that the [find_mrca_regions](https://github.com/hyanwong/GeneticInheritanceGraphLibrary/blob/3385f5149f7028cb2b5bfd8c236774b926f79de9/GeneticInheritanceGraphLibrary/tables.py#L841)
+method is used to locate breakpoints for recombination.
+
+For more details the [sim.py file](https://github.com/hyanwong/GeneticInheritanceGraphLibrary/blob/main/tests/sim.py)
 is a convenience wrapper that links out to other files containing simulation code.
 Currently only forward simulation code is provided. Nevertheless, it is conceptually
 general enough to form the basis of a pangenome simulator (this would however require
