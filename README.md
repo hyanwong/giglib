@@ -83,10 +83,10 @@ is something like this, elegantly drawn by [@duncanMR](https://github.com/duncan
 <img src="https://github.com/hyanwong/GeneticInheritanceGraph/assets/5416474/0fff67b3-71e7-4ed5-895a-140a06f49940" alt="GIG" width="500"/>
 
 ## Meaning of trees
-The interpretation of the trees may be rather different from that in tskit. In particular,
+The interpretation of local trees may be rather different from that in tskit. In particular,
 if there is a duplication, it could be interpreted as creating two tree tips within a single sample.
 This would mean that there is no longer a 1-to-1 mapping from samples to tree tips, which
-breaks one of the fundamental tskit ideas.
+breaks one of the fundamental principles behind ARGs in general and the _tskit_ representation in particular.
 
 ## API differences
 
