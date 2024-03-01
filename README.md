@@ -141,7 +141,8 @@ assert gig.iedges[0].is_inversion()
 
 ### Simulations
 
-Examples of code that runs simulations are provided in the test suite. The
+Examples of code that runs simulations are provided in the test suite and are a relatively simple extension
+of the boilerplate forward-simulation code in https://tskit.dev/tutorials/forward_sims.html. The
 [sim.py file](https://github.com/hyanwong/GeneticInheritanceGraphLibrary/blob/main/tests/sim.py)
 is a convenience wrapper that links out to other files containing simulation code.
 Currently only forward simulation code is provided. Nevertheless, it is conceptually
