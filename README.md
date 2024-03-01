@@ -8,7 +8,7 @@ to a GIG (although such a gig will not contain structural variations)
 
 ```python
 import msprime
-import GeneticInheritanceGraphLibrary as gigl
+import GeneticInheritanceGraphLibrary as gigl  # 😁
 
 ts = msprime.sim_ancestry(
     4, sequence_length=100, recombination_rate=0.01, random_seed=1
