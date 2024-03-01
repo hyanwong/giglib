@@ -89,8 +89,9 @@ breaks one of the fundamental tskit ideas.
 ## API differences
 
 The API provided by the GeneticInheritanceGraphLibrary defined in this GitHub repository
-intentionally mirrors that of _tskit_, apart from the
-incomplete list of differences below:
+intentionally mirrors that of _tskit_ (which means it is easy for instance to initialise a GIG
+from an msprime-simulated tree sequence 🎉). Nevertheless, there are a number of terminological
+and implementation differences, an incomplete list of which are below:
 
 - **Iedges** The main difference is that intervals in the GeneticInheritanceGraphLibrary are stored
   in the iedges table, which has a `parent_left` and `child_left` column rather than a simple `left`
@@ -108,6 +109,9 @@ incomplete list of differences below:
   edges for a given child are adjacent, child intervals for those edges cannot overlap. Edges for a
   given child are ordered by left coordinate, which helps algorithmic efficiency. The internal
   `gig.iedge_map_sorted_by_parent` array indexes into iedges in the order expected by tskit.
+- **No `.trees()` iterator** See above: the meaning of a "local tree" is unclear in a GIG, so
+  implementing the equivalent of the fundamental _tskit_ `.trees()` method is likely to require
+  substantial theoretical work.
 - **Other stuff** More differences should be noted here!
 
 ## Examples
@@ -138,4 +142,11 @@ assert gig.iedges[0].is_inversion()
 Examples of code that runs simulations are provided in the test suite. The
 [sim.py file](https://github.com/hyanwong/GeneticInheritanceGraphLibrary/blob/main/tests/sim.py)
 is a convenience wrapper that links out to other files containing simulation code.
-Currently only forward simulation code is provided.
+Currently only forward simulation code is provided. Nevertheless, it is conceptually
+general enough to form the basis of a pangenome simulator (this would however require
+substantial effort in fixing reasonable parameters before realistic-looking pangenomes
+could be created).
+
+For a hacky example of how to use the simulation code directly from the test suite, see
+https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/86#issuecomment-1970029273
+or https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/82#issuecomment-1972153550.
