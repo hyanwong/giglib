@@ -91,7 +91,7 @@ breaks one of the fundamental principles behind ARGs in general and the _tskit_ 
 ## API differences
 
 The fundamental data structures and API provided by the GeneticInheritanceGraphLibrary as defined in
-this GitHub repository intentionally mirror that of _tskit_ (which makes it easy to initialise a GIG
+this GitHub repository intentionally mirror that of _tskit_ (which makes it easy e.g. to initialise a GIG
 from an msprime-simulated tree sequence 🎉). Nevertheless, there are a number of terminological
 and implementation differences, an incomplete list of which are below:
 
