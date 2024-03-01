@@ -30,6 +30,8 @@ we switch to using the term interval-edge (`iedge`) to refer to what is normally
 Note that separating child from parent coordinates brings a host of extra complexities,
 and it’s unclear if the efficiency of the tskit approach,
 with its edge indexing etc, will port in any meaningful way to this new structure.
+Nevertheless, basic operations such as simplification and finding MRCA genomes
+have already been (inefficently) implemented.
 
 ### Inversions
 
