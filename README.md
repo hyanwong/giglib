@@ -88,8 +88,8 @@ breaks one of the fundamental tskit ideas.
 
 ## API differences
 
-The API provided by the GeneticInheritanceGraphLibrary defined in this GitHub repository
-intentionally mirrors that of _tskit_ (which means it is easy for instance to initialise a GIG
+The fundamental data structures and API provided by the GeneticInheritanceGraphLibrary as defined in
+this GitHub repository intentionally mirror that of _tskit_ (which makes it easy to initialise a GIG
 from an msprime-simulated tree sequence 🎉). Nevertheless, there are a number of terminological
 and implementation differences, an incomplete list of which are below:
 
