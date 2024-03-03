@@ -601,6 +601,15 @@ class IndividualTable(BaseTable):
         return np.apply_along_axis(self.add_row, -1, parents)
 
 
+# Return value for MRCA finder
+MRCAintervals = collections.namedtuple("MRCAintervals", "u, v")
+
+# Return value for random_matching_positions
+ComparablePositions = collections.namedtuple(
+    "ComparablePositions", "u, v, opposite_orientations"
+)
+
+
 class Tables:
     """
     A group of tables describing a Genetic Inheritance Graph (GIG),
@@ -942,7 +951,7 @@ class Tables:
                     # Work out the mapping of the mrca intervals into intervals in
                     # u and v, given keys into the uv_intervals dicts.
                     for mrca, uv_details in result[child].items():
-                        to_store = ([], [])
+                        to_store = MRCAintervals([], [])
                         for s, details in zip(to_store, uv_details):
                             # Odd that we don't use the interval dict here: not sure why
                             for key, _ in details:
@@ -998,25 +1007,25 @@ class Tables:
         }
 
     @staticmethod
-    def random_matching_positions(mrcas_structure, rng):
+    def random_match_pos(mrcas_structure, rng):
         """
         Given a structure returned by the find_mrca_regions method, choose
         a position uniformly at random from the mrca regions and return
         the equivalent position in u and v.
 
-        Returns an equivalent position in u and v (chosen at random
-        if there are multiple equivalent positions for u, or multiple equivalent
-        positions for v). If this is a negative number, it indicates a position
-        reading in the reverse direction from that in the mrca (i.e. there have been
-        an odd number of inversions between the mrca and the sample).
+        .. note::
+            It is hard to know from the MRCA structure whether intervals are
+            adjacent, so if this is used to locate a breakpoint, the choice of
+            whether a breakpoint is positioned to the left or right of the returned
+            position is left to the user.
 
-        It is hard to know from the MRCA structure whether intervals are
-        adjacent, so if this is used to locate a breakpoint, the choice of
-        whether a breakpoint is positioned to the left or right of the returned
-        position is left to the user.
-
-        The ``rng`` parameter is intended to be a numpy random number generator with a
-        method ``integers()`` that behaves like ``np.random.default_rng().integers``.
+        :param obj rng: A numpy random number generator with a method ``integers()``
+            that behaves like ``np.random.default_rng().integers``.
+        :returns: a named tuple of ``(u_position, v_position, opposite_orientations)``
+            Positions are chosen at random if there are multiple equivalent positions
+            for u, or multiple equivalent positions for v. If one of the sequences is
+            inverted relative to the other then ``.opposite_orientations`` is ``True``.
+        :rtype: ComparablePositions
         """
         tot_len = sum(x[1] - x[0] for v in mrcas_structure.values() for x in v.keys())
         # Pick a single breakpoint
@@ -1038,8 +1047,29 @@ class Tables:
                     # We should never choose the RH number in the interval,
                     # Because that position is not included in the interval
 
-                    # TODO: check this works if loc is maxed out at u[1]
-                    u = u[0] + loc if u[0] < u[1] else -(u[1] - loc - 1)
-                    v = v[0] + loc if v[0] < v[1] else -(v[1] - loc - 1)
-                    return u, v
+                    # TODO: check this works if there is an inversion at the
+                    # *start* of the coordinate space (e.g. iedge(0, 5, 5, 0, ...))
+                    # producing e.g. u=(0, 5), v=(5, 0) at this point. In this case
+                    # position loc=4 will calculate v=-(5 - 4 - 1) returning
+                    # (4, 0, True). Here's an example
+                    #
+                    # u = abcdefghi      v = DCBAEFGHI
+                    #
+                    #           abcdefghi  (u)
+                    #      IHGFEABCD       (v)
+                    #
+                    #  A recombinant after pos 4 should give abcd or IHGFEABCDefghi
+
+                    if u[0] < u[1]:
+                        if v[0] < v[1]:
+                            return ComparablePositions(u[0] + loc, v[0] + loc, False)
+                        else:
+                            return ComparablePositions(u[0] + loc, v[0] - loc - 1, True)
+                    else:
+                        if v[0] < v[1]:
+                            return ComparablePositions(u[0] - loc - 1, v[0] + loc, True)
+                        else:
+                            return ComparablePositions(
+                                u[0] - loc - 1, v[0] - loc - 1, False
+                            )
                 loc -= x[1] - x[0]
