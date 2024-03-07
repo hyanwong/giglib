@@ -240,13 +240,12 @@ class Graph:
         If sequence_length is not None, it will be used as the sequence length,
         otherwise the sequence length will be the maximum position of any edge.
         """
-        if np.any(
-            self.tables.iedges.child_left != self.tables.iedges.parent_left
-        ) or np.any(self.tables.iedges.child_right != self.tables.iedges.parent_right):
-            raise ValueError(
-                "Cannot convert to tree sequence: "
-                "child and parent intervals are not the same in all iedges"
-            )
+        for ie in self.iedges:
+            if ie.child_left != ie.parent_left or ie.child_right != ie.parent_right:
+                raise ValueError(
+                    f"Cannot convert to tree sequence: iedge {ie.id}: child "
+                    f"and parent intervals are not the same in all iedges ({ie})"
+                )
         if sequence_length is None:
             sequence_length = self.tables.iedges.child_right.max()
         tables = tskit.TableCollection(sequence_length)

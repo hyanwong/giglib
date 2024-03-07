@@ -680,7 +680,7 @@ class TestFindMrcas:
         assert set(mrca[(120, 200)][0]) == {(120, 200), (220, 300)}
         assert mrca[(120, 200)][1] == [(120, 200)]
 
-    def test_random_matching_positions(self, simple_ts):
+    def test_random_match_pos(self, simple_ts):
         rng = np.random.default_rng(1)
         ts = simple_ts.keep_intervals([(0, 2)]).trim()
         gig = gigl.from_tree_sequence(ts)
@@ -690,8 +690,9 @@ class TestFindMrcas:
         all_breaks = set()
         for _ in range(20):
             # in 20 replicates we should definitely have both 0 and 1
-            breaks = gig.tables.random_matching_positions(mrcas, rng)
-            assert len(breaks) == 2
-            assert breaks[0] == breaks[1]
-            all_breaks.add(breaks[0])
+            breaks = gig.tables.random_match_pos(mrcas, rng)
+            assert len(breaks) == 3
+            assert not breaks.opposite_orientations
+            assert breaks.u == breaks.v
+            all_breaks.add(breaks.u)
         assert all_breaks == {0, 1}

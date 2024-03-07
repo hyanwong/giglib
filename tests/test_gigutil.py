@@ -120,11 +120,12 @@ class DTWF_one_break_no_rec_inversions_test(sim.DTWF_one_break_no_rec_inversions
         for mrca_regions in mrcas.values():
             for region, equivalents in mrca_regions.items():
                 tmp.append((region, equivalents))
-        comparable_pts = gig.random_matching_positions(
+        comparable_pts = gig.random_match_pos(
             {k: {v[0]: v[1]} for k, v in enumerate(sorted(tmp, key=lambda x: x[0][0]))},
-            self.random,
+            self.rng,
         )
-        return comparable_pts  # Don't bother with inversions: testing doesn't use them
+        # Don't bother with inversions: testing doesn't use them
+        return np.array([comparable_pts.u, comparable_pts.v], dtype=np.int64)
 
 
 # MAIN TESTS BELOW
@@ -298,6 +299,10 @@ class TestDTWF_one_break_no_rec_inversions_slow:
                 num_inversions += 1
                 assert ie.child_left == self.inversion.left
                 assert ie.child_right == self.inversion.right
+                assert ie.child == inverted_child_id
+            else:
+                assert ie.child_left == ie.parent_left
+                assert ie.child_right == ie.parent_right
         assert num_inversions == 1
 
         # Can progress the simulation
@@ -307,27 +312,41 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         # should have deleted the grand MRCA (used for matching)
         assert len(gig.nodes) == len(self.simulator.tables.nodes) - 1
         assert gig.num_samples == 100 * 2
-        # check we still have an inversion in the ancestry: it's not been lost by drift
-        old_num_iedges = len(gig.iedges)
-        gig = gig.sample_resolve()
-        assert old_num_iedges != len(gig.iedges)  # sample resolve should have an effect
+        # check we still have a single inversion in the ancestry (not lost by drift)
+        # (the child ID will have changed by removing the grand MRCA)
         num_inversions = 0
-        for ie in gig.iedges:
+        for ie in self.simulator.tables.graph().iedges:
             if ie.is_inversion():
                 num_inversions += 1
+                assert ie.child == inverted_child_id
                 inverted_child_id = ie.child
+            else:
+                assert ie.child_left == ie.parent_left
+                assert ie.child_right == ie.parent_right
+
         assert num_inversions == 1
 
         # Check we can turn the decapitated gig tables into a tree sequence
-        # (because decapitation should remove the only SV)
+        # (as long as this isn't simplified, decapitation should remove the only SV)
         tables = gig.tables.copy()
-        # shouldn't be able to edit a row like this really (in case
-        # we change the time)
-        # tables.nodes[inverted_child_id] = tables.
         node_map = tables.decapitate(time=gig.max_time)
-        new_gig = tables.graph()
+        decapitated_gig = tables.graph()
+        # check that decapitation has removed the inversion
+        for ie in decapitated_gig.iedges:
+            assert ie.child != node_map[inverted_child_id]
+            assert not ie.is_inversion()
+            assert (
+                decapitated_gig.nodes[ie.child].time + 1
+                == decapitated_gig.nodes[ie.parent].time
+            )
+            assert ie.child_left == ie.parent_left
+            assert ie.child_right == ie.parent_right
+        new_gig = decapitated_gig.sample_resolve()
+        ts = new_gig.to_tree_sequence()
+        # check sample resolve has had an effect
+        assert len(new_gig.iedges) != len(decapitated_gig.iedges)
         assert new_gig.nodes[node_map[inverted_child_id]]
-        self.ts = ts = new_gig.to_tree_sequence()  # also store in the class
+        self.ts = ts  # also store in the class
         assert ts.max_time == new_gig.max_time
         assert ts.max_time < gig.max_time
         inversion_above_node = np.where(ts.nodes_flags == INVERTED_CHILD_FLAG)[0]

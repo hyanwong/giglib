@@ -84,7 +84,7 @@ class DTWF_simulator:
             size = len(prev_pop)
 
         # 1. Pick individual parent ID pairs at random, `replace=True` allows selfing
-        mum_dad_arr = self.random.choice(prev_individuals, (size, 2), replace=True)
+        mum_dad_arr = self.rng.choice(prev_individuals, (size, 2), replace=True)
         # 2. Get new individual IDs + twice as many new node IDs
         child_id_arr, child_genomes_arr = self.make_diploids(
             time, mum_dad_arr, node_flags
@@ -160,7 +160,7 @@ class DTWF_simulator:
         *,
         random_seed=None,
         initial_node_flags=None,
-        further_node_flags=None
+        further_node_flags=None,
     ):
         """
         Initialise and run a new population for a given number of generations. The last
@@ -175,7 +175,7 @@ class DTWF_simulator:
 
         Returns a gig represeting the ancestry of the population at time 0
         """
-        self.random = np.random.default_rng(random_seed)
+        self.rng = np.random.default_rng(random_seed)
         if isinstance(num_diploids, int):
             num_diploids = [num_diploids] * (gens + 1)
 
@@ -212,7 +212,7 @@ class DTWF_simulator:
         if self.pop is None:
             raise ValueError("Need to call run() first")
         if random_seed is not None:
-            self.random = np.random.default_rng(random_seed)
+            self.rng = np.random.default_rng(random_seed)
         if isinstance(num_diploids, int):
             num_diploids = [num_diploids] * (gens)
 
@@ -231,7 +231,7 @@ class DTWF_no_recombination_sim(DTWF_simulator):
         "Add inheritance paths from a randomly chosen parent genome to the child genome."
         if recombination_rate != 0:
             raise ValueError("Recombination rate must be zero for this simulation.")
-        rand_parent = self.random.integers(2)  # randomly choose 1st or 2nd parent node
+        rand_parent = self.rng.integers(2)  # randomly choose 1st or 2nd parent node
         parent = parent_nodes[rand_parent]
         lft = 0
         if seq_len is not None:
@@ -256,12 +256,15 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
     """
     A simple DTWF simulator with recombination, in which we do not allow recombination
     between regions which are in inverted orientation relative to each other (we simply
-    pick a different breakpoint)
+    pick a different breakpoint). The simulator is slow, partially because of the large
+    number of recombination breakpoints generated (which does not depend on seq len)
 
-    We pick one breakpoint per meiosis, but it would be possible to modify the code
-    easily enough to have any number of breakpoints. Interference between
+    We pick one breakpoint per meiosis, which essentially treats the genome as a whole
+    chromosome regardless of the sequence length. Note that this means we are likely to
+    have very large numbers of recombinations in the ancestry. It would easily be
+    possible to modify the code to have more or fewer breakpoints. Interference between
     breakpoints is more tricky (2 randomly chosen breakpoints could be arbitrarily
-    close together), but could be implemented by rejection sampling.:
+    close together), but could be implemented by rejection sampling.
     """
 
     def initialise_population(
@@ -338,13 +341,13 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         *,
         random_seed=None,
         initial_node_flags=None,
-        further_node_flags=None
+        further_node_flags=None,
     ):
         """
         The num_diploids param can be an array of length `gens + 1` giving the diploid
         population size in each generation. This allows quick growth of a population
         """
-        self.random = np.random.default_rng(random_seed)
+        self.rng = np.random.default_rng(random_seed)
         self.num_tries_for_breakpoint = 20  # number of tries to find a breakpoint
         if isinstance(num_diploids, int):
             num_diploids = [num_diploids] * (gens + 1)
@@ -366,7 +369,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         if self.pop is None:
             raise ValueError("Need to call run() first")
         if random_seed is not None:
-            self.random = np.random.default_rng(random_seed)
+            self.rng = np.random.default_rng(random_seed)
         if isinstance(num_diploids, int):
             num_diploids = [num_diploids] * (gens)
         self.tables.change_times(gens)
@@ -381,27 +384,35 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         coordinates of the matching regions in the parent nodes.
         """
         mrcas = tables.find_mrca_regions(*parent_nodes)
-        comparable_pts = tables.random_matching_positions(mrcas, self.random)
-        # Pick a single breakpoint: if both breaks are inverted relative to the mrca
-        # (i.e. negative) it's OK: both have the same orientation relative to each other
+        # Pick a single comparable location but ban recombination if one is
+        # inverted and the other is not inverted
         tries = 0
-        while comparable_pts[0] * comparable_pts[1] < 0:
-            comparable_pts = tables.random_matching_positions(mrcas, self.random)
+        while (pts := tables.random_match_pos(mrcas, self.rng)).opposite_orientations:
             tries += 1
             if tries > self.num_tries_for_breakpoint:
                 raise ValueError(
                     "Could not find a pair of matching regions in the same orientation"
+                    f"after {tries} tries"
                 )
-        return comparable_pts
+        return np.array([pts.u, pts.v], dtype=np.int64)
 
     def add_inheritance_paths(self, parent_nodes, child, seq_len, _):
-        comparable_pts = self.find_comparable_points(self.tables, parent_nodes)
+        breaks = self.find_comparable_points(self.tables, parent_nodes)
 
-        rnd = self.random.integers(4)
+        rnd = self.rng.integers(4)
+        # To avoid bias we choose a breakpoint either to the left or the right
+        # of the identified location. If one was inverted and the other not,
+        # we would need to be careful here, but this is banned in this sim.
+        # Here's an example:
+        #     0123456789
+        # u = abcgfedhij
+        # v = ABCGFEDHIJ
+        # We label the potential positions for breaks as 0..10 (inclusive)
+        # SEQUENCE       a   b   c   g   f   e   d   h   i   j
+        # BREAKPOINT   0   1   2   3   4   5   6   7   8   9   10
+        # So if we get a breakpoint at 0 or 10 we can ignore it
         break_to_right_of_position = rnd & 1
-        # Minor hack when both comparable_pts are negative, in which case
-        # the positions mark the right of the break, rather than the left
-        breaks = [abs(b + break_to_right_of_position) for b in comparable_pts]
+        breaks += break_to_right_of_position
 
         if rnd & 2:  # Use 2nd bit to randomly choose 1st or 2nd parent node
             # We need to randomise the order of parent nodes to avoid
