@@ -1,8 +1,10 @@
+import GeneticInheritanceGraphLibrary as gigl
 import numpy as np
 import pytest
 import tskit
 
 from . import sim
+
 
 INVERTED_CHILD_FLAG = 1 << 17
 
@@ -120,10 +122,10 @@ class DTWF_one_break_no_rec_inversions_test(sim.DTWF_one_break_no_rec_inversions
         for mrca_regions in mrcas.values():
             for region, equivalents in mrca_regions.items():
                 tmp.append((region, equivalents))
-        comparable_pts = gig.random_match_pos(
-            {k: {v[0]: v[1]} for k, v in enumerate(sorted(tmp, key=lambda x: x[0][0]))},
-            self.rng,
+        mrcas = gigl.tables.MRCAdict(
+            {k: {v[0]: v[1]} for k, v in enumerate(sorted(tmp, key=lambda x: x[0][0]))}
         )
+        comparable_pts = mrcas.random_match_pos(self.rng)
         # Don't bother with inversions: testing doesn't use them
         return np.array([comparable_pts.u, comparable_pts.v], dtype=np.int64)
 

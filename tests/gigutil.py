@@ -387,7 +387,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         # Pick a single comparable location but ban recombination if one is
         # inverted and the other is not inverted
         tries = 0
-        while (pts := tables.random_match_pos(mrcas, self.rng)).opposite_orientations:
+        while (pts := mrcas.random_match_pos(self.rng)).opposite_orientations:
             tries += 1
             if tries > self.num_tries_for_breakpoint:
                 raise ValueError(
