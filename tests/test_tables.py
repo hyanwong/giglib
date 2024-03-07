@@ -253,6 +253,17 @@ class TestIEdgeTable:
                 0, 1, 0, 1, child=0, parent=1, validate_node_times=True
             )
 
+    def test_parent_child_at_inf(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(time=np.inf)
+        tables.nodes.add_row(time=np.inf)
+        tables.nodes.add_row(time=0)
+        with pytest.raises(ValueError, match="not less than parent time"):
+            tables.add_iedge_row(
+                0, 1, 0, 1, child=0, parent=1, validate_node_times=True
+            )
+        tables.add_iedge_row(0, 1, 0, 1, child=2, parent=1, validate_node_times=True)
+
     def test_child_iterator(self, all_sv_types_re_gig):
         tables = all_sv_types_re_gig.tables
         assert tables.iedges.flags == gigl.VALID_GIG
