@@ -601,13 +601,78 @@ class IndividualTable(BaseTable):
         return np.apply_along_axis(self.add_row, -1, parents)
 
 
-# Return value for MRCA finder
-MRCAintervals = collections.namedtuple("MRCAintervals", "u, v")
+class MRCAdict(dict):
+    """
+    A dictionary to store the results of the MRCA finder
+    """
 
-# Return value for random_matching_positions
-ComparablePositions = collections.namedtuple(
-    "ComparablePositions", "u, v, opposite_orientations"
-)
+    # Convenience tuples
+    MRCAintervals = collections.namedtuple("MRCAintervals", "u, v")
+    MRCApos = collections.namedtuple("MRCApos", "u, v, opposite_orientations")
+
+    def random_match_pos(self, rng):
+        """
+        Choose a position uniformly at random from the mrca regions and return
+        an equivalent position in u and v.
+
+        .. note::
+            It is hard to know from the MRCA structure whether intervals are
+            adjacent, so if this is used to locate a breakpoint, the choice of
+            whether a breakpoint is positioned to the left or right of the returned
+            position is left to the user.
+
+        :param obj rng: A numpy random number generator with a method ``integers()``
+            that behaves like ``np.random.default_rng().integers``.
+        :returns: a named tuple of ``(u_position, v_position, opposite_orientations)``
+            Positions are chosen at random if there are multiple equivalent positions
+            for u, or multiple equivalent positions for v. If one of the sequences is
+            inverted relative to the other then ``.opposite_orientations`` is ``True``.
+        :rtype: ComparablePositions
+        """
+        tot_len = sum(x[1] - x[0] for v in self.values() for x in v.keys())
+        # Pick a single breakpoint
+        loc = rng.integers(tot_len)  # breakpoint is before this base
+        for mrca_intervals in self.values():
+            for x in mrca_intervals.keys():
+                if loc < x[1] - x[0]:
+                    u, v = mrca_intervals[x]
+                    assert len(u) != 0
+                    assert len(v) != 0
+                    u = u[0] if len(u) == 1 else rng.choice(u)
+                    v = v[0] if len(v) == 1 else rng.choice(v)
+                    # go the right number of positions into the interval
+                    # If inverted, we take the position minus 1, because an
+                    # inversion like (0, 10) -> (10, 0) maps pos 0 to pos 9
+                    # (not 10). If an inversion, we also negate the position
+                    # to indicate reading in the other direction
+
+                    # We should never choose the RH number in the interval,
+                    # Because that position is not included in the interval
+
+                    # TODO: check this works if there is an inversion at the
+                    # *start* of the coordinate space (e.g. iedge(0, 5, 5, 0, ...))
+                    # producing e.g. u=(0, 5), v=(5, 0) at this point. In this case
+                    # position loc=4 will calculate v=-(5 - 4 - 1) returning
+                    # (4, 0, True). Here's an example
+                    #
+                    # u = abcdefghi      v = DCBAEFGHI
+                    #
+                    #           abcdefghi  (u)
+                    #      IHGFEABCD       (v)
+                    #
+                    #  A recombinant after pos 4 should give abcd or IHGFEABCDefghi
+
+                    if u[0] < u[1]:
+                        if v[0] < v[1]:
+                            return self.MRCApos(u[0] + loc, v[0] + loc, False)
+                        else:
+                            return self.MRCApos(u[0] + loc, v[0] - loc - 1, True)
+                    else:
+                        if v[0] < v[1]:
+                            return self.MRCApos(u[0] - loc - 1, v[0] + loc, True)
+                        else:
+                            return self.MRCApos(u[0] - loc - 1, v[0] - loc - 1, False)
+                loc -= x[1] - x[0]
 
 
 class Tables:
@@ -951,7 +1016,7 @@ class Tables:
                     # Work out the mapping of the mrca intervals into intervals in
                     # u and v, given keys into the uv_intervals dicts.
                     for mrca, uv_details in result[child].items():
-                        to_store = MRCAintervals([], [])
+                        to_store = MRCAdict.MRCAintervals([], [])
                         for s, details in zip(to_store, uv_details):
                             # Odd that we don't use the interval dict here: not sure why
                             for key, _ in details:
@@ -1001,75 +1066,7 @@ class Tables:
                                     stack[parent][u_or_v][key] |= parent_ivl
                                 else:
                                     stack[parent][u_or_v][key] = parent_ivl
-        return {
-            k: {(k.lower, k.upper): v for k, v in pv.items()}
-            for k, pv in result.items()
-        }
-
-    @staticmethod
-    def random_match_pos(mrcas_structure, rng):
-        """
-        Given a structure returned by the find_mrca_regions method, choose
-        a position uniformly at random from the mrca regions and return
-        the equivalent position in u and v.
-
-        .. note::
-            It is hard to know from the MRCA structure whether intervals are
-            adjacent, so if this is used to locate a breakpoint, the choice of
-            whether a breakpoint is positioned to the left or right of the returned
-            position is left to the user.
-
-        :param obj rng: A numpy random number generator with a method ``integers()``
-            that behaves like ``np.random.default_rng().integers``.
-        :returns: a named tuple of ``(u_position, v_position, opposite_orientations)``
-            Positions are chosen at random if there are multiple equivalent positions
-            for u, or multiple equivalent positions for v. If one of the sequences is
-            inverted relative to the other then ``.opposite_orientations`` is ``True``.
-        :rtype: ComparablePositions
-        """
-        tot_len = sum(x[1] - x[0] for v in mrcas_structure.values() for x in v.keys())
-        # Pick a single breakpoint
-        loc = rng.integers(tot_len)  # breakpoint is before this base
-        for mrca_intervals in mrcas_structure.values():
-            for x in mrca_intervals.keys():
-                if loc < x[1] - x[0]:
-                    u, v = mrca_intervals[x]
-                    assert len(u) != 0
-                    assert len(v) != 0
-                    u = u[0] if len(u) == 1 else rng.choice(u)
-                    v = v[0] if len(v) == 1 else rng.choice(v)
-                    # go the right number of positions into the interval
-                    # If inverted, we take the position minus 1, because an
-                    # inversion like (0, 10) -> (10, 0) maps pos 0 to pos 9
-                    # (not 10). If an inversion, we also negate the position
-                    # to indicate reading in the other direction
-
-                    # We should never choose the RH number in the interval,
-                    # Because that position is not included in the interval
-
-                    # TODO: check this works if there is an inversion at the
-                    # *start* of the coordinate space (e.g. iedge(0, 5, 5, 0, ...))
-                    # producing e.g. u=(0, 5), v=(5, 0) at this point. In this case
-                    # position loc=4 will calculate v=-(5 - 4 - 1) returning
-                    # (4, 0, True). Here's an example
-                    #
-                    # u = abcdefghi      v = DCBAEFGHI
-                    #
-                    #           abcdefghi  (u)
-                    #      IHGFEABCD       (v)
-                    #
-                    #  A recombinant after pos 4 should give abcd or IHGFEABCDefghi
-
-                    if u[0] < u[1]:
-                        if v[0] < v[1]:
-                            return ComparablePositions(u[0] + loc, v[0] + loc, False)
-                        else:
-                            return ComparablePositions(u[0] + loc, v[0] - loc - 1, True)
-                    else:
-                        if v[0] < v[1]:
-                            return ComparablePositions(u[0] - loc - 1, v[0] + loc, True)
-                        else:
-                            return ComparablePositions(
-                                u[0] - loc - 1, v[0] - loc - 1, False
-                            )
-                loc -= x[1] - x[0]
+        ret = MRCAdict()
+        for mrca_node, interval_dict in result.items():
+            ret[mrca_node] = {(k.lower, k.upper): v for k, v in interval_dict.items()}
+        return ret

@@ -690,7 +690,7 @@ class TestFindMrcas:
         all_breaks = set()
         for _ in range(20):
             # in 20 replicates we should definitely have both 0 and 1
-            breaks = gig.tables.random_match_pos(mrcas, rng)
+            breaks = mrcas.random_match_pos(rng)
             assert len(breaks) == 3
             assert not breaks.opposite_orientations
             assert breaks.u == breaks.v
