@@ -2,6 +2,7 @@ portion
 pytest
 pytest-cov
 pytest-xdist
+tqdm
 tskit
 msprime
 numpy
