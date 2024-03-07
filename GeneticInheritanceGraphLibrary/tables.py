@@ -603,11 +603,30 @@ class IndividualTable(BaseTable):
 
 class MRCAdict(dict):
     """
-    A dictionary to store the results of the MRCA finder
+    A dictionary to store the results of the MRCA finder. This is a dict of dicts
+    of the following form
+            {
+                MRCA_node_ID1 : {(X, Y): (
+                    u = [(uA, uB), (uC, uD), ...],
+                    v = [(vA, vB), ...]
+                )},
+                MRCA_node_ID2 : ...,
+                ...
+            }
+    In each inner dict, the key (X, Y) gives an interval (with X < Y) in the MRCA node,
+    and the value is an ``MRCAintervals`` tuple which gives the corresponding intervals
+    in u and v. In the example above there is a list of two corresponding intervals in u:
+    (uA, uB) and (uC, uD) representing a duplication of the MRCA interval into u.
+    If uA > uB then that interval in u is inverted relative to that in the MRCA node.
+
+    Subclassing the default Python ``dict`` means that we can add some useful functions
+    such as the ability to locate a random point in the MRCA and return the equivalent
+    points in ``u`` and ``v`` as well as visualization routines.
     """
 
     # Convenience tuples
-    MRCAintervals = collections.namedtuple("MRCAintervals", "u, v")
+    MRCAintervals = collections.namedtuple("MRCAintervals", "u, v")  # store in the dict
+    # Store equivalent positions in u & v and if one is inverted relative to the other
     MRCApos = collections.namedtuple("MRCApos", "u, v, opposite_orientations")
 
     def random_match_pos(self, rng):
@@ -916,38 +935,31 @@ class Tables:
         """
         Find all regions between nodes u and v that share a most recent
         common ancestor in the GIG which is more recent than time_cutoff.
-        Returns a dict of dicts of the following form
-            {
-                MRCA_node_ID1 : {(X, Y): (
-                    [(uA, uB), (uC, uD), ...],
-                    [(vA, vB), ...]
-                )},
-                MRCA_node_ID2 : ...,
-                ...
-            }
-        Where in each inner dict, the key (X, Y) gives an interval (with X < Y)
-        in the MRCA node, and the value is a 2-tuple giving the corresponding
-        intervals in u and v. In the example above there is a list of two
-        corresponding intervals in u: (uA, uB) and (uC, uD) representing a
-        duplication of the MRCA interval into u. If uA > uB then that interval
-        in u is inverted relative to that in the MRCA node.
 
-        Implementation-wise, this is similar to the sample_resolve algorithm, but
-        1. Instead of following the ancestry of *all* samples upwards, we
-           follow just two of them. This means we are unlikely to visit all
-           nodes in the graph, and so we create a dynamic stack (using the
-           sortedcontainers.SortedDict class, which is kept ordered by node time.
-        2. We do not edit/change the edge intervals as we go. Instead we simply
-           return the intervals shared between the two samples.
-        3. The intervals "know" whether they were originally associated with u or v.
-           If we find an ancestor with both u and v-associated intervals
-           this indicates a potential common ancestor, in which coalescence could
-           have occurred.
-        4. We do not add older regions to the stack if they have coalesced.
-        5. We have a time cutoff, so that we don't have to go all the way
-           back to the "origin of life"
-        6. We have to keep track of the offset of the current interval into the
-           original genome, to allow mapping back to the original coordinates
+        :param int u: The first node ID
+        :param int v: The second node ID
+        :returns: A dictionary-like structure mapping intervals in the MRCA
+            nodes (keyed by MRCA node ID) to intervals in ``u`` and ``v``.
+            See ``MRCAdict`` for details.
+        :rval: MRCAdict
+
+        .. note::
+            Implementation-wise, this is similar to the sample_resolve algorithm, but
+            1. Instead of following the ancestry of *all* samples upwards, we
+            follow just two of them. This means we are unlikely to visit all
+            nodes in the graph, and so we create a dynamic stack (using the
+            sortedcontainers.SortedDict class, which is kept ordered by node time.
+            2. We do not edit/change the edge intervals as we go. Instead we simply
+            return the intervals shared between the two samples.
+            3. The intervals "know" whether they were originally associated with u or v.
+            If we find an ancestor with both u and v-associated intervals
+            this indicates a potential common ancestor, in which coalescence could
+            have occurred.
+            4. We do not add older regions to the stack if they have coalesced.
+            5. We have a time cutoff, so that we don't have to go all the way
+            back to the "origin of life"
+            6. We have to keep track of the offset of the current interval into the
+            original genome, to allow mapping back to the original coordinates
         """
         if not isinstance(u, (int, np.integer)) or not isinstance(v, (int, np.integer)):
             raise ValueError("u and v must be integers")
