@@ -2,6 +2,7 @@ import collections
 import dataclasses
 import logging
 
+import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -11,6 +12,9 @@ import tskit
 
 from .constants import Const
 from .constants import ValidFlags
+from .util import add_rectangle
+from .util import add_row_label
+from .util import add_triangle
 from .util import truncate_rows
 
 NULL = Const.NULL  # alias for tskit.NULL
@@ -840,6 +844,102 @@ class MRCAdict(dict):
                         else:
                             return self.MRCApos(u[0] - loc - 1, v[0] - loc - 1, False)
                 loc -= x[1] - x[0]
+
+    def plot(
+        self,
+        loc=None,
+        figsize=(10, 5),
+        fontsize=14,
+        u_pos=0.5,
+        v_pos=1.5,
+        y_offset=0.4,
+        x_offset=-1.5,
+    ):
+        """
+        Plot the MRCA dict structure, showing:
+        1. The MRCA node and corresponding MRCA intervals (rows 3 and up)
+        2. All of the U and V intervals corresponding to the MRCAs (rows 1 and 2)
+
+        If loc is specified, a corresponding position in an MRCA interval is determined,
+        and matching positions in U and V are highlighted.
+
+        There are a bunch of plotting parameters unfortunately; ideally we want them
+        to be calculated automatically.
+        """
+        fig, ax = plt.subplots(figsize=figsize)
+        x_max = 0
+        y_pos = 3
+        found_breakpoint = False
+        if loc is None:
+            # ensure that x is never highlighted
+            loc = np.inf
+        else:
+            tot_len = sum(X[1] - X[0] for v in self.values() for X in v.keys())
+            assert loc < tot_len
+
+        for mrca_node, mrca_intervals in self.items():
+            for X in mrca_intervals.keys():
+                x_max = max(x_max, X[1])
+                if loc < X[1] - X[0] and found_breakpoint is False:
+                    add_rectangle(ax, X, y_pos, "#a6cee3")
+                    add_triangle(
+                        ax, (X[0] + loc, X[0] + loc + 1), y_pos, "right", "#1f78b4"
+                    )
+                    add_row_label(
+                        ax,
+                        x_offset,
+                        y_pos + y_offset,
+                        f"MRCA: {mrca_node}",
+                        fontsize,
+                        color="#1f78b4",
+                    )
+                    U_list, V_list = mrca_intervals[X]
+                    for U in U_list:
+                        add_rectangle(ax, U, u_pos, "#b2df8a")
+                        if U[0] < U[1]:
+                            u_0 = U[0] + loc
+                            add_triangle(ax, (u_0, u_0 + 1), u_pos, "right", "#33a02c")
+                        else:
+                            u_0 = U[0] - loc - 1
+                            add_triangle(ax, (u_0, u_0 + 1), u_pos, "left", "#33a02c")
+                    for V in V_list:
+                        add_rectangle(ax, V, v_pos, "#fb9a99")
+                        if V[0] < V[1]:
+                            v_0 = V[0] + loc
+                            add_triangle(ax, (v_0, v_0 + 1), v_pos, "right", "#e31a1c")
+                        else:
+                            v_0 = V[0] - loc - 1
+                            add_triangle(ax, (v_0, v_0 + 1), v_pos, "left", "#e31a1c")
+
+                    found_breakpoint = True
+                else:
+                    loc -= X[1] - X[0]
+                    add_rectangle(ax, X, y_pos, "#b2b2b2")
+                    add_row_label(
+                        ax,
+                        x_offset,
+                        y_pos + y_offset,
+                        f"MRCA: {mrca_node}",
+                        fontsize,
+                        color="black",
+                    )
+                    U_list, V_list = mrca_intervals[X]
+                    for U in U_list:
+                        add_rectangle(ax, U, u_pos, "#838383")
+                    for V in V_list:
+                        add_rectangle(ax, V, v_pos, "#838383")
+            y_pos += 1
+
+        add_row_label(ax, x_offset, u_pos + y_offset, "U", fontsize, color="black")
+        add_row_label(ax, x_offset, v_pos + y_offset, "V", fontsize, color="black")
+        ax.set_ylim(0, y_pos)
+        ax.set_xlim(0, x_max)
+        plt.gca().tick_params(axis="x", labelsize=fontsize - 2)
+        ax.set_xlabel("Position", fontsize=fontsize)
+        ax.yaxis.set_visible(False)
+
+        plt.tight_layout()
+        plt.show()
 
 
 class Tables:

@@ -7,3 +7,4 @@ msprime
 numpy
 networkx
 pandas
+matplotlib
