@@ -134,11 +134,11 @@ class TestExtractColumn:
 
     def test_extracted_columns(self, trivial_gig):
         tables = trivial_gig.tables
-        assert np.array_equal(tables.nodes.time, [0, 0, 0, 1, 2])
-        assert np.array_equal(tables.nodes.flags, [1, 1, 1, 0, 0])
-        assert np.array_equal(tables.iedges.parent, [4, 3, 3, 4, 4])
-        assert np.array_equal(tables.iedges.child, [3, 0, 0, 1, 2])
-        assert np.array_equal(tables.iedges.child_left, [0, 0, 3, 0, 0])
+        assert np.array_equal(tables.nodes.time, [2, 1, 0, 0, 0])
+        assert np.array_equal(tables.nodes.flags, [0, 0, 1, 1, 1])
+        assert np.array_equal(tables.iedges.parent, [0, 0, 0, 1, 1])
+        assert np.array_equal(tables.iedges.child, [1, 2, 3, 4, 4])
+        assert np.array_equal(tables.iedges.child_left, [0, 0, 0, 0, 3])
         assert np.array_equal(tables.iedges.child_chromosome, [0, 0, 0, 0, 0])
         assert np.array_equal(tables.iedges.parent_chromosome, [0, 0, 0, 0, 0])
         assert np.array_equal(tables.iedges.edge, [Const.NULL] * 5)
@@ -223,14 +223,13 @@ class TestIEdgeTable:
         tables.nodes.add_row(time=1)
         tables.nodes.add_row(time=0)
         assert tables.iedges.flags == ValidFlags.GIG
+        params = {"child": 1, "parent": 0, "validate": ValidFlags.IEDGES_ALL}
         tables.add_iedge_row(
             0,
             1,
             0,
             1,
-            child=1,
-            parent=0,
-            validate=ValidFlags.IEDGES_ALL,
+            **params,
         )
         assert tables.iedges.flags == ValidFlags.GIG
         # Make a valid addition but simply assume that it's valid
@@ -239,9 +238,7 @@ class TestIEdgeTable:
             2,
             1,
             2,
-            child=1,
-            parent=0,
-            validate=ValidFlags.IEDGES_ALL,
+            **params,
             skip_validate=True,
         )
         assert tables.iedges.flags == ValidFlags.GIG
@@ -351,6 +348,21 @@ class TestIEdgeTable:
         tables.iedges.clear()
         assert tables.iedges.flags == ValidFlags.GIG
         assert len(tables.iedges._id_range_for_child) == 0
+
+    def test_max_child_pos(self, trivial_gig):
+        tables = trivial_gig.tables.copy()
+        youngest_child = len(tables.nodes) - 1
+        tables.add_iedge_row(
+            10, 20, 10, 20, child=youngest_child, parent=0, validate=ValidFlags.GIG
+        )
+        assert tables.iedges.max_child_pos(youngest_child, chromosome=0) == 20
+
+    def test_bad_max_child_pos(self, trivial_gig):
+        tables = trivial_gig.tables.copy()
+        # Don't validate
+        tables.iedges.add_row(10, 20, 10, 20, child=0, parent=4)
+        with pytest.raises(ValueError, match="Cannot use this method"):
+            tables.iedges.max_child_pos(0, chromosome=0)
 
 
 class TestIedgesValidation:

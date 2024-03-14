@@ -206,24 +206,23 @@ def all_sv_types_re_gig():
 def trivial_gig():
     # time | flags
     node_data = [
-        (0, gigl.NODE_IS_SAMPLE),
-        (0, gigl.NODE_IS_SAMPLE),
-        (0, gigl.NODE_IS_SAMPLE),
-        (1, 0),
         (2, 0),
+        (1, 0),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
     tables.iedges.add_rowlist(
         [
-            iedge(0, 5, 0, 5, c=3, p=4),
-            iedge(0, 3, 3, 0, c=0, p=3),
-            iedge(3, 5, 3, 5, c=0, p=3),
-            iedge(0, 5, 0, 5, c=1, p=4),
-            iedge(0, 5, 0, 5, c=2, p=4),
+            iedge(0, 5, 0, 5, c=1, p=0),
+            iedge(0, 5, 0, 5, c=2, p=0),
+            iedge(0, 5, 0, 5, c=3, p=0),
+            iedge(0, 3, 3, 0, c=4, p=1),
+            iedge(3, 5, 3, 5, c=4, p=1),
         ]
     )
-    tables.sort()
     return gigl.Graph(tables)
 
 

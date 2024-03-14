@@ -93,6 +93,20 @@ class ValidFlags(IntFlag):
     # These are the requirement that simply involve the iedge table and no linked tables
     IEDGES_COMBO_STANDALONE = IEDGES_ALL & ~IEDGES_COMBO_NODE_TABLE
 
+    # Some algorithms (e.g. iterating over edges for a child / chromosome
+    # only require sorting by child ID and within the child
+    IEDGES_WITHIN_CHILD_SORTED = (
+        IEDGES_FOR_CHILD_ADJACENT
+        | IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
+        | IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC
+    )
+    # The stricter canonical order of iedge sorting
+    IEDGES_SORTED = (
+        IEDGES_WITHIN_CHILD_SORTED
+        | IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC
+        | IEDGES_SECONDARY_ORDER_CHILD_ID_ASC
+    )
+
     NONE = 0
 
     @classmethod

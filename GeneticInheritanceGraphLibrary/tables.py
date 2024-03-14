@@ -548,31 +548,25 @@ class IEdgeTable(BaseTable):
         except KeyError:
             return np.arange(0)
 
-    def max_child_pos(self, u):
+    def max_child_pos(self, u, chromosome=0):
         """
         Return the maximum child position for a given child ID. If
         IEDGES_VALID_INTERVALS is set, this should be equivalent to
-        np.max(child_right[child == u]), but faster if
-        ValidFlags.IEDGES_FOR_CHILD_ADJACENT
-        and ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING
-        and ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
-        and ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC
-        are all true.
+        np.max(child_right[child == u]), but faster because it relies on
+        ValidFlags.IEDGES_WITHIN_CHILD_SORTED.
 
         Returns None if there are no edges for the given child.
         """
         if not self.has_bitflag(
-            ValidFlags.IEDGES_FOR_CHILD_ADJACENT
-            & ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING
-            & ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
-            & ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC
+            ValidFlags.IEDGES_WITHIN_CHILD_SORTED
+            | ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING
         ):
             raise ValueError(
-                "Cannot use this method unless iedges for a child are adjacent and "
-                "ordered by chromosome then position"
+                "Cannot use this method unless iedges for a child are adjacent, "
+                "nonoverlapping, and ordered by chromosome then position"
             )
         try:
-            return self[self._id_range_for_child[u][1]].child_max
+            return self[self._id_range_for_child[u][chromosome][1] - 1].child_max
         except KeyError:
             return None
 
@@ -997,11 +991,7 @@ class Tables:
         for i in edge_order:
             new_iedges.append(self.iedges[i])
         new_iedges.flags = self.iedges.flags  # should be the same only we can assure
-        new_iedges.set_bitflag(ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC)
-        new_iedges.set_bitflag(ValidFlags.IEDGES_SECONDARY_ORDER_CHILD_ID_ASC)
-        new_iedges.set_bitflag(ValidFlags.IEDGES_FOR_CHILD_ADJACENT)
-        new_iedges.set_bitflag(ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC)
-        new_iedges.set_bitflag(ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC)
+        new_iedges.set_bitflag(ValidFlags.IEDGES_SORTED)
         self.iedges = new_iedges
 
     def graph(self):
