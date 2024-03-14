@@ -3,6 +3,8 @@ import msprime
 import numpy as np
 import pytest
 import tskit
+from GeneticInheritanceGraphLibrary.constants import Const
+from GeneticInheritanceGraphLibrary.constants import ValidFlags
 
 
 class TestCreation:
@@ -137,6 +139,9 @@ class TestExtractColumn:
         assert np.array_equal(tables.iedges.parent, [4, 3, 3, 4, 4])
         assert np.array_equal(tables.iedges.child, [3, 0, 0, 1, 2])
         assert np.array_equal(tables.iedges.child_left, [0, 0, 3, 0, 0])
+        assert np.array_equal(tables.iedges.child_chromosome, [0, 0, 0, 0, 0])
+        assert np.array_equal(tables.iedges.parent_chromosome, [0, 0, 0, 0, 0])
+        assert np.array_equal(tables.iedges.edge, [Const.NULL] * 5)
 
 
 class TestMethods:
@@ -209,15 +214,15 @@ class TestIEdgeTable:
         tables = gigl.Tables()
         tables.nodes.add_row(time=1)
         tables.nodes.add_row(time=0)
-        assert tables.iedges.flags == gigl.VALID_GIG
+        assert tables.iedges.flags == ValidFlags.GIG
         tables.iedges.add_row(0, 1, 0, 1, child=0, parent=1)
-        assert tables.iedges.flags != gigl.VALID_GIG
+        assert tables.iedges.flags != ValidFlags.GIG
 
     def test_validate_add_row(self):
         tables = gigl.Tables()
         tables.nodes.add_row(time=1)
         tables.nodes.add_row(time=0)
-        assert tables.iedges.flags == gigl.VALID_GIG
+        assert tables.iedges.flags == ValidFlags.GIG
         tables.add_iedge_row(
             0,
             1,
@@ -225,11 +230,9 @@ class TestIEdgeTable:
             1,
             child=1,
             parent=0,
-            validate_child_adjacency=True,
-            validate_intervals=True,
-            validate_node_times=True,
+            validate=ValidFlags.IEDGES_ALL,
         )
-        assert tables.iedges.flags == gigl.VALID_GIG
+        assert tables.iedges.flags == ValidFlags.GIG
         # Make a valid addition but simply assume that it's valid
         tables.add_iedge_row(
             1,
@@ -238,35 +241,14 @@ class TestIEdgeTable:
             2,
             child=1,
             parent=0,
-            validate_child_adjacency=False,
-            validate_intervals=False,
-            validate_node_times=True,
+            validate=ValidFlags.IEDGES_ALL,
+            skip_validate=True,
         )
-        assert tables.iedges.flags == gigl.VALID_GIG
-
-    def test_bad_add_iedge_row(self):
-        tables = gigl.Tables()
-        tables.nodes.add_row(time=1)
-        tables.nodes.add_row(time=0)
-        with pytest.raises(ValueError, match="not less than parent time"):
-            tables.add_iedge_row(
-                0, 1, 0, 1, child=0, parent=1, validate_node_times=True
-            )
-
-    def test_parent_child_at_inf(self):
-        tables = gigl.Tables()
-        tables.nodes.add_row(time=np.inf)
-        tables.nodes.add_row(time=np.inf)
-        tables.nodes.add_row(time=0)
-        with pytest.raises(ValueError, match="not less than parent time"):
-            tables.add_iedge_row(
-                0, 1, 0, 1, child=0, parent=1, validate_node_times=True
-            )
-        tables.add_iedge_row(0, 1, 0, 1, child=2, parent=1, validate_node_times=True)
+        assert tables.iedges.flags == ValidFlags.GIG
 
     def test_child_iterator(self, all_sv_types_re_gig):
         tables = all_sv_types_re_gig.tables
-        assert tables.iedges.flags == gigl.VALID_GIG
+        assert tables.iedges.flags == ValidFlags.GIG
         seen = set()
         for ie_row in tables.iedges:
             if ie_row.child not in seen:
@@ -292,8 +274,10 @@ class TestIEdgeTable:
             1001,
             child=last_child,
             parent=0,
-            validate_child_adjacency=True,
+            validate=ValidFlags.IEDGES_FOR_CHILD_ADJACENT
+            | ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC,
         )
+        # Can iterate even if not guaranteed in order
         _ = tables.iedges.ids_for_child(10)
 
     def test_unverified_child_iterator(self, all_sv_types_re_gig):
@@ -305,7 +289,7 @@ class TestIEdgeTable:
             _ = tables.iedges.ids_for_child(10)
 
     # TODO - add gigl.LEAFWARDS test
-    @pytest.mark.parametrize("direction", [gigl.ROOTWARDS])
+    @pytest.mark.parametrize("direction", [Const.ROOTWARDS])
     def test_notransform_interval(self, direction):
         iedges = gigl.tables.IEdgeTable()
         iedges.add_row(
@@ -315,12 +299,11 @@ class TestIEdgeTable:
             20,
             child=0,
             parent=1,
-            validate_child_adjacency=True,
-            validate_intervals=True,
+            validate=ValidFlags.IEDGES_COMBO_STANDALONE,
         )
         assert iedges.transform_interval(0, (12, 17), direction) == (12, 17)
         assert iedges.transform_interval(0, (10, 20), direction) == (10, 20)
-        nd_type = "child" if direction == gigl.ROOTWARDS else "parent"
+        nd_type = "child" if direction == Const.ROOTWARDS else "parent"
         with pytest.raises(ValueError, match=f"not in {nd_type} interval"):
             iedges.transform_interval(0, (9, 12), direction)
         with pytest.raises(ValueError, match=f"not in {nd_type} interval"):
@@ -335,15 +318,14 @@ class TestIEdgeTable:
             20,
             child=0,
             parent=1,
-            validate_child_adjacency=True,
-            validate_intervals=True,
+            validate=ValidFlags.IEDGES_COMBO_STANDALONE,
         )
-        assert iedges.transform_interval(0, (0, 10), gigl.ROOTWARDS) == (10, 20)
-        assert iedges.transform_interval(0, (2, 7), gigl.ROOTWARDS) == (12, 17)
+        assert iedges.transform_interval(0, (0, 10), Const.ROOTWARDS) == (10, 20)
+        assert iedges.transform_interval(0, (2, 7), Const.ROOTWARDS) == (12, 17)
         with pytest.raises(ValueError, match="not in child interval"):
-            iedges.transform_interval(0, (-1, 10), gigl.ROOTWARDS)
+            iedges.transform_interval(0, (-1, 10), Const.ROOTWARDS)
         with pytest.raises(ValueError, match="not in child interval"):
-            iedges.transform_interval(0, (1, 11), gigl.ROOTWARDS)
+            iedges.transform_interval(0, (1, 11), Const.ROOTWARDS)
 
     def test_transform_interval_inversion(self):
         iedges = gigl.tables.IEdgeTable()
@@ -354,22 +336,87 @@ class TestIEdgeTable:
             20,
             child=0,
             parent=1,
-            validate_child_adjacency=True,
-            validate_intervals=True,
+            validate=ValidFlags.IEDGES_COMBO_STANDALONE,
         )
-        assert iedges.transform_interval(0, (10, 20), gigl.ROOTWARDS) == (30, 20)
-        assert iedges.transform_interval(0, (11, 19), gigl.ROOTWARDS) == (29, 21)
+        assert iedges.transform_interval(0, (10, 20), Const.ROOTWARDS) == (30, 20)
+        assert iedges.transform_interval(0, (11, 19), Const.ROOTWARDS) == (29, 21)
         with pytest.raises(ValueError, match="not in child interval"):
-            iedges.transform_interval(0, (5, 21), gigl.ROOTWARDS)
+            iedges.transform_interval(0, (5, 21), Const.ROOTWARDS)
 
     def test_clear(self, trivial_gig):
         tables = trivial_gig.tables.copy()
         tables.iedges.add_row(10, 20, 10, 20, child=0, parent=4)
-        assert tables.iedges.flags != gigl.VALID_GIG
+        assert tables.iedges.flags != ValidFlags.GIG
         assert len(tables.iedges._id_range_for_child) > 0
         tables.iedges.clear()
-        assert tables.iedges.flags == gigl.VALID_GIG
+        assert tables.iedges.flags == ValidFlags.GIG
         assert len(tables.iedges._id_range_for_child) == 0
+
+
+class TestIedgesValidation:
+    """
+    Tests for the validation of iedge tables during iedges.add_row()
+    """
+
+    def test_bad_flags(self):
+        flags = ValidFlags.IEDGES_COMBO_NODE_TABLE
+        tables = gigl.Tables()
+        for f in ValidFlags:
+            if f != ValidFlags.NONE and f in flags:
+                with pytest.raises(ValueError, match="involving the node table"):
+                    tables.iedges.add_row(0, 1, 0, 1, child=0, parent=1, validate=f)
+
+    def test_bad_add_iedge_row(self):
+        flags = ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD
+        tables = gigl.Tables()
+        tables.nodes.add_row(time=1)
+        tables.nodes.add_row(time=0)
+        with pytest.raises(ValueError, match="not less than parent time"):
+            tables.add_iedge_row(0, 1, 0, 1, child=0, parent=1, validate=flags)
+
+    def test_parent_child_at_inf(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(time=np.inf)
+        tables.nodes.add_row(time=np.inf)
+        tables.nodes.add_row(time=0)
+        with pytest.raises(ValueError, match="not less than parent time"):
+            tables.add_iedge_row(
+                0,
+                1,
+                0,
+                1,
+                child=0,
+                parent=1,
+                validate=ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD,
+            )
+        tables.add_iedge_row(
+            0,
+            1,
+            0,
+            1,
+            child=2,
+            parent=1,
+            validate=ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD,
+        )
+
+    @pytest.mark.parametrize(
+        "flag, skip",
+        [
+            (f, s)
+            for f in ValidFlags.iedges_combo_standalone_iter()
+            for s in (True, False)
+        ],
+    )
+    def test_flags(self, flag, skip):
+        tables = gigl.Tables()
+        tables.nodes.add_row(time=1)
+        tables.nodes.add_row(time=0)
+        assert flag in tables.iedges.flags
+        assert tables.iedges.flags != flag
+        tables.add_iedge_row(
+            0, 1, 0, 1, child=0, parent=1, validate=flag, skip_validate=skip
+        )
+        assert tables.iedges.flags == flag
 
 
 class TestNodeTable:

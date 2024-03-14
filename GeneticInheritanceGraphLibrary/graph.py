@@ -10,10 +10,8 @@ import numpy as np
 import portion as P
 import tskit
 
-from .constants import IEDGES_CHILD_IDS_ADJACENT
-from .constants import LEAFWARDS
-from .constants import ROOTWARDS
-from .constants import VALID_GIG
+from .constants import Const
+from .constants import ValidFlags
 from .tables import IEdgeTableRow
 from .tables import IndividualTableRow
 from .tables import NodeTableRow
@@ -107,7 +105,7 @@ class Graph:
         if np.any(node_id_diff[timediff == 0] < 0):
             raise ValueError("iedges are not sorted by child time (desc) then ID (asc)")
         # must be adjacent
-        self.tables.iedges.set_bitflag(IEDGES_CHILD_IDS_ADJACENT)
+        self.tables.iedges.set_bitflag(ValidFlags.IEDGES_FOR_CHILD_ADJACENT)
 
         # Check within a child, edges are sorted by left coord
         if np.any(np.diff(self.tables.iedges.child_left)[node_id_diff == 0] <= 0):
@@ -149,7 +147,7 @@ class Graph:
                         f" {ie.child_left}"
                     )
                 prev_right = ie.child_right
-        self.tables.iedges.flags = VALID_GIG
+        self.tables.iedges.flags = ValidFlags.GIG
 
     @property
     def time_units(self):
@@ -339,7 +337,7 @@ class Graph:
                 for interval in intervals:
                     if c := child_ivl & interval:  # intersect
                         p = self.tables.iedges.transform_interval(
-                            ie_id, (c.lower, c.upper), ROOTWARDS
+                            ie_id, (c.lower, c.upper), Const.ROOTWARDS
                         )
                         if is_inversion:
                             # For passing upwards, interval orientation doesn't matter
@@ -440,7 +438,7 @@ class IEdge(IEdgeTableRow):
         (transformed) position.
         """
 
-        if direction == ROOTWARDS:
+        if direction == Const.ROOTWARDS:
             if x < self.child_left or x >= self.child_right:
                 raise ValueError(f"Position {x} not in child interval for {self}")
             if self.is_inversion():
@@ -448,7 +446,7 @@ class IEdge(IEdgeTableRow):
             else:
                 return x - self.child_left + self.parent_left
 
-        elif direction == LEAFWARDS:
+        elif direction == Const.LEAFWARDS:
             if self.is_inversion():
                 if x < self.parent_right or x >= self.parent_left:
                     raise ValueError(f"Position {x} not in parent interval for {self}")
@@ -457,7 +455,9 @@ class IEdge(IEdgeTableRow):
                 if x < self.parent_left or x >= self.parent_right:
                     raise ValueError(f"Position {x} not in parent interval for {self}")
                 return x - self.parent_left + self.child_left
-        raise ValueError(f"Direction must be ROOTWARDS or LEAFWARDS, not {direction}")
+        raise ValueError(
+            f"Direction must be Const.ROOTWARDS or Const.LEAFWARDS, not {direction}"
+        )
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
