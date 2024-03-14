@@ -236,9 +236,7 @@ class DTWF_no_recombination_sim(DTWF_simulator):
         if seq_len is not None:
             rgt = seq_len
         else:
-            rgt = np.max(
-                self.tables.iedges.child_right[self.tables.iedges.child == parent]
-            )
+            rgt = self.tables.iedges.max_child_pos(parent)
 
         self.tables.add_iedge_row(
             lft,
@@ -436,10 +434,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
                 **self.add_iedge_params(),
             )
         if seq_len is None:
-            # TODO - make this more efficient, as all the edges should be adjacent
-            seq_len = np.max(
-                self.tables.iedges.child_right[self.tables.iedges.child == rgt_parent]
-            )
+            seq_len = self.tables.iedges.max_child_pos(rgt_parent)
         if rgt_parent_break < seq_len:  # If break not just after the last pos
             pL, pR = rgt_parent_break, seq_len
             cR = brk + (pR - pL)  # child rgt must account for len of rgt parent region
