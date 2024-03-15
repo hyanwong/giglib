@@ -101,6 +101,9 @@ and implementation differences, an incomplete list of which are below:
 - **Tables and Graphs** The GeneticInheritanceGraphLibrary has a `Tables` and `Graph` class, corresponding
   to `TableCollection` and `TreeSequence` classes in _tskit_. Thus to create a GIG from scratch,
   you do `gig = tables.graph()`
+- **Chromosomes** The API includes the possibility of having genetic material on different chromosomes.
+  This is implemented using two extra columns in the iedges table (see
+  https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/11 for the rationale)
 - **Object access** Information stored in GIG tables can be accessed using square brackets, and
   the `len()` function should work, so the canonical usage looks like `gig.nodes[0]`, `len(gig.nodes)`,
   and `[u.id for u in gig.nodes]` rather than the equivalents in _tskit_ (`ts.node(0)`, `ts.num_nodes`,
