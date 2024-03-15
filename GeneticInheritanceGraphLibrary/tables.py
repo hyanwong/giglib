@@ -1008,25 +1008,51 @@ class Tables:
     def graph(self):
         """
         Return a genetic inheritance graph (Graph) object based on these tables. This
-        requires the following conditions to be met:
+        requires the following iedge conditions to be met:
             * The child_left, child_right, parent_left, parent_right, parent, and child
                 values must all be provided and be non-negative integers. If
-                child_chromosome and parent_chromosome are provided, they also must be
-                non-negative integers (otherwise a default chromosome ID of 0 is
-                assumed). This corresponds to the flag :data:`IEDGES_DATA_ARE_INTEGERS`.
+                ``child_chromosome`` and ``parent_chromosome`` are provided, they also
+                must be non-negative integers (otherwise a default chromosome ID of 0 is
+                assumed). This corresponds to the flag
+                :data:`ValidFlags.IEDGES_INTEGERS`.
             * The intervals must be valid (i.e. ``abs(child_left - child_right)`` is
                 finite, nonzero, and equal to ``abs(parent_left - parent_right)``. This
-                corresponds to the :data:`IEDGES_VALID_INTERVALS` flag.
+                corresponds to the flag :data:`ValidFlags.IEDGES_INTERVALS`.
             * Each chromosomal position in a child is covered by only one interval (i.e.
                 for any particular chromosome, intervals for a given child do not
-                overlap). This corresponds to the :data:`IEDGES_FOR_CHILD_NONOVERLAPPING`
-                flag.
+                overlap). This corresponds to the flag
+                :data:`ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING`
+            * The ``child`` and ``parent`` IDs of an iedge must correspond to nodes in
+                in the node table in which the parent is older (has a strictly greater
+                time) than the child. This corresponds to the flag
+                :data:`ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD`
+            * If an ``edge`` ID is provided for an iedge, and it is not ``NULL`` (-1),
+                then other iedges with the same ``edge`` ID must have the same
+                ``child`` and ``parent`` IDs. This corresponds to the flag
+                :data:`ValidFlags.IEDGES_SAME_PARENT_CHILD_FOR_EDGE`
+            * For consistency and as an enforced convention, the ``child_left`` position
+                for an iedge must be strictly less than the ``child_right`` position.
+                This corresponds to the flag
+                :data:`ValidFlags.IEDGES_CHILD_INTERVAL_POSITIVE`
+
+        To create a valid GIG, the ideges must also be sorted into a canonical order
+        such that the following conditions are met (you can also accomplish this by
+        calling ``.sort()`` on the tables first):
+            * The iedges must be grouped by child ID. This corresponds to the flag
+                :data:`ValidFlags.IEDGES_FOR_CHILD_ADJACENT`
+            * Within each group of iedges with the same child ID, the iedges must be
+                ordered by chromosome ID and then by left position. This corresponds to
+                the flags :data:`ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC` and
+                :data:`ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC`
+            * The groups of iedges with the same child ID must be ordered
+                by time of child node and then (if nodes have identical times) by
+                child node ID. This corresponds to the flags
+                :data:`ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC` and
+                :data:`ValidFlags.IEDGES_SECONDARY_ORDER_CHILD_ID_ASC`.
 
         .. note::
-            An ``iedges`` table without the set of ``ValidFlags.GIG`` flags set will not
-            be able to be converted into a GIG. If the only unset flags involve the
-            sorting order of the iedges, then it may be possible to construct a valid
-            GIG by calling ``.sort()`` on these tables first.
+            The nodes are not required to be in any particular order (e.g. by time)
+
         """
         from .graph import (
             Graph as GIG,
