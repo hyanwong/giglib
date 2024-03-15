@@ -94,6 +94,8 @@ class TestFreeze:
             tables.tables.clear()
         with pytest.raises(AttributeError):
             tables.tables.sort()
+        with pytest.raises(AttributeError):
+            tables.iedges.flags = ValidFlags.NONE
         tables = tables.copy()
         # we can modify the copy
         tables.sort()
@@ -119,6 +121,21 @@ class TestCopy:
         tables_copy = tables.copy()
         tables_copy.time_units = "abcde"
         assert tables_copy != tables
+
+    def test_iedges_cache(self, trivial_gig):
+        tables = trivial_gig.tables
+        assert tables.iedges.flags == ValidFlags.GIG
+        sample = tables.samples()[0]
+        chrom = 0
+        tables_copy = tables.copy()
+        assert tables_copy.iedges == tables.iedges
+        # Warning: this is a hack to test the cache, and will invalidate it
+        tables_copy.iedges._id_range_for_child[sample][chrom][0] += 1
+        assert tables_copy.iedges != tables.iedges
+        tables_copy.iedges._id_range_for_child[sample][chrom][0] -= 1  # Restore
+        assert tables_copy.iedges == tables.iedges
+        tables_copy.iedges.flags = ValidFlags.NONE
+        assert tables_copy.iedges != tables.iedges
 
 
 class TestExtractColumn:
