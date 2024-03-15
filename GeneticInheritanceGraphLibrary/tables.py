@@ -248,17 +248,15 @@ class BaseTable:
         return headers, rows
 
     @staticmethod
-    def _check_int(i, k=None):
+    def _check_int(i, convert=False):
         if isinstance(i, (int, np.integer)):
             return i
         try:
-            if i.is_integer():
+            if convert and i.is_integer():
                 return int(i)
-            raise ValueError(f"Expected {k + ' to be ' if k else ''}an integer not {i}")
+            raise ValueError(f"Expected an integer not {i}")
         except AttributeError:
-            raise TypeError(
-                f"Could not convert {k + '=' if k else ''}{i} to an integer"
-            )
+            raise TypeError(f"Could not convert {i} to an integer")
 
     def _df(self):
         """
@@ -333,7 +331,7 @@ class IEdgeTable(BaseTable):
 
         :param int validate: A set of bitflags (attributes of the ``ValidFlags`` class)
             specifying which iedge table validation checks
-            will be performed when adding this data. If the existing data is valid, and
+            should be performed when adding this data. If the existing data is valid, and
             the new data is added in a way that preserves the existing validity, then
             calling ``iedges.has_bitflag`` for the flags in this set will return True.
             If any of the bits in ``iedges_validation`` are ``0``, that particular
@@ -342,7 +340,10 @@ class IEdgeTable(BaseTable):
             For instance, using the ``ids_for_child()`` method is only valid if
             ``IEDGES_FOR_CHILD_ADJACENT`` and ``IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC``
             are set, so if you wish to use that method you should add those flags to
-            ``validate``.
+            ``validate``. Defaults to ``None`` which is treated as ``0``, meaning that
+            all ``IEDGE_...`` validation flags will be zeroed, no validation checks will
+            be performed, and hence the table will be marked as containing potentially
+            invalid iedge information.
         :param bool skip_validate: If True, assume the user has checked that this
             operation will pass the validation tests implied by the ``validate``
             flags. This means that the validation routines will not be run, but the
@@ -357,128 +358,118 @@ class IEdgeTable(BaseTable):
             )
         """
         row = self.RowClass(*args, **kwargs)
-        c = row.child
-        chrom = row.child_chromosome
-        num_iedges = len(self)
 
         if validate is None:
-            validate = ValidFlags.NONE
-        if validate == ValidFlags.NONE:
-            # The most common special case: no validation => can't guarantee any validity
-            self.unset_bitflag(ValidFlags.IEDGES_ALL)
-        else:
-            # All iedge independent validations performed here. If validations
-            # pass, then we leave that bitflag as-is (e.g. if it was valid before,
-            # it is valid after this rows has been added). If any validate flags
-            # are 0, we simply mark that bitflag as potentially invalid.
+            validate = ~ValidFlags.IEDGES_ALL
 
-            def check(flag):
-                # in-line helper function for add_row
-                if validate & flag:
-                    return not skip_validate
-                else:
-                    self.unset_bitflag(flag)
-                return False
+        if (not skip_validate) and bool(validate & ValidFlags.IEDGES_ALL):
+            # only try validating if any IEDGES flags are set
+            self._validate_add_row(validate, row, args, kwargs)
 
-            if validate & ~ValidFlags.IEDGES_COMBO_STANDALONE:
-                raise ValueError(
-                    "Validation cannot be performed within edges.add_row() for flags "
-                    "involving the node table."
-                )
-            prev_iedge = None if num_iedges == 0 else self[-1]
-            same_child = prev_iedge is not None and prev_iedge.child == c
-
-            if check(ValidFlags.IEDGES_INTEGERS):
-                args, kwargs = self._check_ints(*args, **kwargs)
-
-            if check(ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING):
-                # This is easy to check if previous edges for a child+chromosome are
-                # adjacent and ordered by left position, but hard in the general case
-                if self.has_bitflag(
-                    ValidFlags.IEDGES_FOR_CHILD_ADJACENT
-                    | ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
-                    | ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC
-                ):
-                    if same_child and prev_iedge.child_chromosome == chrom:
-                        if prev_iedge.child_right > row.child_left:
-                            raise ValueError(
-                                f"Adding an edge with left position {row.child_left} "
-                                f"for child {c} would make edges overlap"
-                            )
-                else:
-                    raise ValueError(
-                        "Can't validate non-overlapping edges unless they are "
-                        "guaranteed to be sorted"
-                    )
-            if check(ValidFlags.IEDGES_FOR_CHILD_ADJACENT):
-                if (
-                    prev_iedge is not None
-                    and c != prev_iedge.child
-                    and c in self._id_range_for_child
-                ):
-                    raise ValueError(
-                        f"Adding an edge with child ID {c} would make IDs non-adjacent"
-                    )
-
-            if check(ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC):
-                if same_child:
-                    already_has_chrom = chrom in self._id_range_for_child.get(c, {})
-                    if prev_iedge.child_chromosome != chrom and (
-                        already_has_chrom or chrom < prev_iedge.child_chromosome
-                    ):
-                        raise ValueError(
-                            f"Adding an edge with chromosome ID {chrom} for child "
-                            f"{c} would make chromosome IDs out of order"
-                        )
-
-            if check(ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC):
-                if same_child and prev_iedge.child_chromosome == chrom:
-                    if prev_iedge.child_left >= row.child_left:
-                        raise ValueError(
-                            f"Adding an edge with left position {row.child_left} for "
-                            f"child {c} would break edge_left ordering"
-                        )
-
-            if check(ValidFlags.IEDGES_INTERVALS):
-                if abs(row.child_span) != abs(row.parent_span):
-                    raise ValueError(
-                        f"Bad intervals ({row}): child & parent absolute spans differ"
-                    )
-
-            if check(ValidFlags.IEDGES_CHILD_INTERVAL_POSITIVE):
-                if row.child_left >= row.child_right:
-                    raise ValueError(
-                        f"Bad intervals ({row}): child left must be < child right"
-                    )
-
-            if check(ValidFlags.IEDGES_SAME_PARENT_CHILD_FOR_EDGE):
-                if row.edge != NULL:
-                    # TODO: this is a very slow validation. Hopefully hardly every used
-                    same_edge = np.where(self.edge == row.edge)[0]
-                    for e in same_edge:
-                        if self[e].child != row.child or self[e].parent != row.parent:
-                            raise ValueError(
-                                f"Edge ID {row.edge} already exists in the table for a "
-                                "different parent/child combination"
-                            )
+        # Passed validation: keep those flags (unset others). Note that we can't validate
+        # the age of the parent and child here so we have to set those flags to invalid
+        # (they can be set to valid by using the table.add_iedge_row wrapper instead)
+        self.flags &= validate | ~ValidFlags.IEDGES_ALL
 
         # Update internal data structures
+        c = row.child
+        n_iedges = len(self)
         try:
-            self._id_range_for_child[c][row.child_chromosome][1] = num_iedges + 1
+            self._id_range_for_child[c][row.child_chromosome][1] = n_iedges + 1
         except KeyError:
             if c not in self._id_range_for_child:
                 self._id_range_for_child[c] = {}
-            self._id_range_for_child[c][row.child_chromosome] = [
-                num_iedges,
-                num_iedges + 1,
-            ]
+            self._id_range_for_child[c][row.child_chromosome] = [n_iedges, n_iedges + 1]
 
-        # we can't validate the age of the parent and child within this function.
-        # So we set it to invalid, then revalidate it if called via tables.add_iedge_row.
-        self.unset_bitflag(ValidFlags.IEDGES_COMBO_NODE_TABLE)
         # add the new row by hand directly
         self._data.append(row)
-        return num_iedges
+        return n_iedges
+
+    def _validate_add_row(self, vflags, row, args, kwargs):
+        # All iedge independent validations performed here. The self.flags
+        # bits are set after all these validations have passed.
+
+        if vflags & ~ValidFlags.IEDGES_COMBO_STANDALONE:
+            raise ValueError(
+                "Validation cannot be performed within edges.add_row() for flags "
+                "involving the node table."
+            )
+        prev_iedge = None if len(self) == 0 else self[-1]
+        same_child = prev_iedge is not None and prev_iedge.child == row.child
+        chrom = row.child_chromosome
+
+        if vflags & ValidFlags.IEDGES_INTEGERS:
+            # Don't convert, just check
+            self._check_ints(*args, **kwargs, convert=False)
+
+        if vflags & ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING:
+            # This is easy to check if previous edges for a child+chromosome are
+            # adjacent and ordered by left position, but hard in the general case
+            if self.has_bitflag(ValidFlags.IEDGES_WITHIN_CHILD_SORTED):
+                if same_child and prev_iedge.child_chromosome == chrom:
+                    if prev_iedge.child_right > row.child_left:
+                        raise ValueError(
+                            f"Adding an iedge with left position {row.child_left} "
+                            f"for child {row.child} would make iedges overlap"
+                        )
+            else:
+                raise ValueError(
+                    "Can't validate non-overlapping iedges unless they are "
+                    "guaranteed to be sorted"
+                )
+
+        if vflags & ValidFlags.IEDGES_FOR_CHILD_ADJACENT:
+            if (
+                prev_iedge is not None
+                and row.child != prev_iedge.child
+                and row.child in self._id_range_for_child
+            ):
+                raise ValueError(
+                    f"Adding an iedge with child ID {row.child} would make IDs "
+                    "non-adjacent"
+                )
+
+        if vflags & ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC:
+            if same_child:
+                has_chrom = chrom in self._id_range_for_child.get(row.child, {})
+                if prev_iedge.child_chromosome != chrom and (
+                    has_chrom or chrom < prev_iedge.child_chromosome
+                ):
+                    raise ValueError(
+                        f"Adding an iedge with chromosome ID {chrom} for child "
+                        f"{row.child} would make chromosome IDs out of order"
+                    )
+
+        if vflags & ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC:
+            if same_child and prev_iedge.child_chromosome == chrom:
+                if prev_iedge.child_left >= row.child_left:
+                    raise ValueError(
+                        f"Adding an iedge with left position {row.child_left} for "
+                        f"child {row.child} would break edge_left ordering"
+                    )
+
+        if vflags & ValidFlags.IEDGES_INTERVALS:
+            if abs(row.child_span) != abs(row.parent_span):
+                raise ValueError(
+                    f"Bad intervals ({row}): child & parent absolute spans differ"
+                )
+
+        if vflags & ValidFlags.IEDGES_CHILD_INTERVAL_POSITIVE:
+            if row.child_left >= row.child_right:
+                raise ValueError(
+                    f"Bad intervals ({row}): child left must be < child right"
+                )
+
+        if vflags & ValidFlags.IEDGES_SAME_PARENT_CHILD_FOR_EDGE:
+            if row.edge != NULL:
+                # TODO: this is a very slow validation. Hopefully hardly every used
+                same_edge = np.where(self.edge == row.edge)[0]
+                for e in same_edge:
+                    if self[e].child != row.child or self[e].parent != row.parent:
+                        raise ValueError(
+                            f"Edge ID {row.edge} already exists in the table for a "
+                            "different parent/child combination"
+                        )
 
     def _from_tskit(self, kwargs):
         new_kw = {}
@@ -505,7 +496,7 @@ class IEdgeTable(BaseTable):
             **{k: v for k, v in kwargs.items() if k in self.RowClass.__annotations__}
         )
 
-    def _check_ints(self, *args, **kwargs):
+    def _check_ints(self, *args, convert=False, **kwargs):
         pcols = (
             "child_left",
             "child_right",
@@ -515,8 +506,11 @@ class IEdgeTable(BaseTable):
             "parent",
         )
         return (
-            [self._check_int(v) if i < 4 else v for i, v in enumerate(args)],
-            {k: self._check_int(v) if k in pcols else v for k, v in kwargs.items()},
+            [self._check_int(v, convert) if i < 4 else v for i, v in enumerate(args)],
+            {
+                k: self._check_int(v, convert) if k in pcols else v
+                for k, v in kwargs.items()
+            },
         )
 
     def add_int_row(self, *args, **kwargs) -> int:
@@ -531,7 +525,7 @@ class IEdgeTable(BaseTable):
         # NB: here we override the default method to allow integer conversion and
         # left -> child_left, parent_left etc., to aid conversion from tskit
         # For simplicity, this only applies for named args, not positional ones
-        args, kwargs = self._check_ints(*args, **kwargs)
+        args, kwargs = self._check_ints(*args, **kwargs, convert=True)
         return self.add_row(*args, **kwargs)
 
     def ids_for_child(self, u, chromosome=0):
@@ -870,6 +864,33 @@ class Tables:
             return False
         return True
 
+    def _validate_add_iedge_row(self, vflags, child, parent):
+        try:
+            child_time = self.nodes[child].time
+            parent_time = self.nodes[parent].time
+        except IndexError:
+            raise ValueError(
+                "Child or parent ID does not correspond to a node in the node table"
+            )
+
+        if vflags & ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD:
+            if child_time >= parent_time:
+                raise ValueError("Child time is not less than parent time")
+        if len(self.iedges) > 0:
+            # All other validations can only fail if iedges exist already
+            prev_child_id = self.iedges[-1].child
+            prev_child_time = self.nodes[prev_child_id].time
+            if vflags & ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC:
+                if prev_child_time < child_time:
+                    raise ValueError(
+                        "Added iedge has older child time than the previous one"
+                    )
+            if vflags & ValidFlags.IEDGES_SECONDARY_ORDER_CHILD_ID_ASC:
+                if (prev_child_time == child_time) and (prev_child_id > child):
+                    raise ValueError(
+                        "Added iedge has lower child ID than the previous one"
+                    )
+
     def add_iedge_row(self, *args, validate=None, skip_validate=None, **kwargs):
         """
         Calls the edge.add_row function and also (optionally)
@@ -883,37 +904,11 @@ class Tables:
             table for those properties.
         """
         if validate is None:
-            validate = ValidFlags.NONE
+            validate = ~ValidFlags.IEDGES_ALL
         node_validate = validate & ValidFlags.IEDGES_COMBO_NODE_TABLE
         store_node_validation = self.iedges.flags & node_validate
-        if node_validate != ValidFlags.NONE and not skip_validate:
-            try:
-                c = kwargs["child"]
-                child_time = self.nodes[c].time
-                parent_time = self.nodes[kwargs["parent"]].time
-            except IndexError:
-                raise ValueError(
-                    "Child or parent ID does not correspond to a node in the node table"
-                )
-
-            if validate & ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD:
-                if child_time >= parent_time:
-                    raise ValueError("Child time is not less than parent time")
-            if len(self.iedges) > 0:
-                # All other validations can only fail if iedges exist already
-                prev_child_id = self.iedges[-1].child
-                prev_child_time = self.nodes[prev_child_id].time
-                if validate & ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC:
-                    if prev_child_time < child_time:
-                        raise ValueError(
-                            "Added iedge has older child time than the previous one"
-                        )
-                if validate & ValidFlags.IEDGES_SECONDARY_ORDER_CHILD_ID_ASC:
-                    if (prev_child_time == child_time) and (prev_child_id > c):
-                        raise ValueError(
-                            "Added iedge has lower child ID than the previous one"
-                        )
-
+        if (not skip_validate) and bool(node_validate):
+            self._validate_add_iedge_row(validate, kwargs["child"], kwargs["parent"])
         # Only pass the validation flags that can be checked to the lower level
         self.iedges.add_row(
             *args,
