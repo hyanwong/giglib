@@ -173,10 +173,11 @@ class TestDTWF_one_break_no_rec_inversions_slow:
     progress_monitor = False
     simulator = None
     ts = None  # only used to extract a tree sequence from subfunctions
+    iedge_validate = True
 
     def test_plain_sim(self):
         gens = self.default_gens
-        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow()
+        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow(self.iedge_validate)
         gig = self.simulator.run(
             num_diploids=10,
             seq_len=self.seq_len,
@@ -193,7 +194,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
 
     def test_run_more(self):
         gens = self.default_gens
-        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow()
+        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow(self.iedge_validate)
         gig = self.simulator.run(
             num_diploids=10,
             seq_len=self.seq_len,
@@ -221,7 +222,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
     def test_vs_tskit_implementation(self, seed):
         # The tskit_DTWF_simulator should produce identical results to the GIG simulator
         gens = self.default_gens
-        self.simulator = DTWF_one_break_no_rec_inversions_test()
+        self.simulator = DTWF_one_break_no_rec_inversions_test(self.iedge_validate)
         ts_simulator = tskit_DTWF_simulator(sequence_length=self.seq_len)
         gig = self.simulator.run(
             7,
@@ -252,6 +253,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         """
         final_pop_size = 100
         self.simulator = sim.DTWF_one_break_no_rec_inversions_slow(
+            self.iedge_validate,
             initial_sizes={
                 "nodes": 2 * final_pop_size * self.default_gens,
                 "edges": 2 * final_pop_size * self.default_gens * 2,
@@ -438,7 +440,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
             test.test_tandem_duplication()
             print(test.gig)
         """
-        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow()
+        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow(self.iedge_validate)
         self.simulator.run(
             num_diploids=2,
             seq_len=self.seq_len,
@@ -492,7 +494,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
                     pass
             else:
                 new_tables.add_iedge_row(
-                    **ie.asdict(), **self.simulator.add_iedge_params()
+                    **ie._asdict(), **self.simulator.add_iedge_params()
                 )
         new_tables.sort()
         self.simulator.tables = new_tables
@@ -510,5 +512,10 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         assert len(gig.nodes) == len(self.simulator.tables.nodes) - 1
 
         self.gig = gig
+        # Check that there are a number of duplicated regions:
 
-        # These should also form a tree that traces the dupes
+        lengths = [gig.max_position(u) for u in gig.samples]
+        unique_lengths = np.unique(lengths)
+        assert len(unique_lengths) > 2
+        assert np.all((np.diff(unique_lengths) % np.diff(self.duplication)) == 0)
+        # These should also form a tree that traces the duplicated regions
