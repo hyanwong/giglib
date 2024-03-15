@@ -863,6 +863,6 @@ class TestMRCAdict:
 
     def test_gig_plot_with_size(self, all_sv_types_no_re_gig):
         mrcas = all_sv_types_no_re_gig.tables.find_mrca_regions(11, 9)
-        fig, ax = plt.subplots(1, figsize=(10, 5))
-        mrcas._plot(highlight_position=40, ax=ax)
+        fig, ax = plt.subplots(1, figsize=(15, 5))
+        mrcas._plot(highlight_position=110, ax=ax)
         # plt.savefig("test_gig_plot.png")  # uncomment to save a plot for inspection

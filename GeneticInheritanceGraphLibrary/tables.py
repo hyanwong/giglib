@@ -849,6 +849,7 @@ class MRCAdict(dict):
         self,
         highlight_position=None,
         ax=None,
+        *,
         fontsize=14,
         u_pos=0.5,
         v_pos=1.5,
@@ -891,19 +892,16 @@ class MRCAdict(dict):
             for X in mrca_intervals.keys():
                 x_max = max(x_max, X[1])
                 if highlight_position < X[1] - X[0] and found_breakpoint is False:
+                    # TODO - use default colours rather than hard-coding
+                    triX = X[0] + highlight_position
+                    lab = f"MRCA: {mrca_node}"
                     add_rectangle(ax, X, y_pos, "#a6cee3")
-                    add_triangle(
-                        ax,
-                        (X[0] + highlight_position, X[0] + highlight_position + 1),
-                        y_pos,
-                        "right",
-                        "#1f78b4",
-                    )
+                    add_triangle(ax, (triX, triX + 1), y_pos, "right", "#1f78b4")
                     add_row_label(
                         ax,
                         x_offset,
                         y_pos + y_offset,
-                        f"MRCA: {mrca_node}",
+                        lab,
                         fontsize,
                         color="#1f78b4",
                     )
