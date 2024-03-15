@@ -845,10 +845,10 @@ class MRCAdict(dict):
                             return self.MRCApos(u[0] - loc - 1, v[0] - loc - 1, False)
                 loc -= x[1] - x[0]
 
-    def plot(
+    def _plot(
         self,
-        loc=None,
-        figsize=(10, 5),
+        highlight_position=None,
+        ax=None,
         fontsize=14,
         u_pos=0.5,
         v_pos=1.5,
@@ -860,30 +860,44 @@ class MRCAdict(dict):
         1. The MRCA node and corresponding MRCA intervals (rows 3 and up)
         2. All of the U and V intervals corresponding to the MRCAs (rows 1 and 2)
 
-        If loc is specified, a corresponding position in an MRCA interval is determined,
-        and matching positions in U and V are highlighted.
+        If ``highlight_position`` is given, a specific position in one of the
+        MRCA intervals is determined, and matching positions in U and V are
+        highlighted. The position is determined by concatenating the MRCA intervals
+        end-to-end and then choosing the position from this concatenation. Note that
+        this may not reflect genomic position in the original MRCA node(s).
 
-        There are a bunch of plotting parameters unfortunately; ideally we want them
-        to be calculated automatically.
+        If ``ax`` is not specified, a new figure is created. To change the size of
+        a figure, create your own axis and pass it in e.g.
+        ``fig, ax = plt.subplots(figsize=(10, 5)); mrca_dict._plot(ax=ax)``
+
+        .. note::
+            This is currently for testing only, and is subject to major API changes. E.g.
+            there are a bunch of plotting parameters and ideally we want them
+            to be calculated automatically instead.
         """
-        fig, ax = plt.subplots(figsize=figsize)
+        if ax is None:
+            _, ax = plt.subplots(1)
         x_max = 0
         y_pos = 3
         found_breakpoint = False
-        if loc is None:
+        if highlight_position is None:
             # ensure that x is never highlighted
-            loc = np.inf
+            highlight_position = np.inf
         else:
             tot_len = sum(X[1] - X[0] for v in self.values() for X in v.keys())
-            assert loc < tot_len
+            assert highlight_position < tot_len
 
         for mrca_node, mrca_intervals in self.items():
             for X in mrca_intervals.keys():
                 x_max = max(x_max, X[1])
-                if loc < X[1] - X[0] and found_breakpoint is False:
+                if highlight_position < X[1] - X[0] and found_breakpoint is False:
                     add_rectangle(ax, X, y_pos, "#a6cee3")
                     add_triangle(
-                        ax, (X[0] + loc, X[0] + loc + 1), y_pos, "right", "#1f78b4"
+                        ax,
+                        (X[0] + highlight_position, X[0] + highlight_position + 1),
+                        y_pos,
+                        "right",
+                        "#1f78b4",
                     )
                     add_row_label(
                         ax,
@@ -897,23 +911,23 @@ class MRCAdict(dict):
                     for U in U_list:
                         add_rectangle(ax, U, u_pos, "#b2df8a")
                         if U[0] < U[1]:
-                            u_0 = U[0] + loc
+                            u_0 = U[0] + highlight_position
                             add_triangle(ax, (u_0, u_0 + 1), u_pos, "right", "#33a02c")
                         else:
-                            u_0 = U[0] - loc - 1
+                            u_0 = U[0] - highlight_position - 1
                             add_triangle(ax, (u_0, u_0 + 1), u_pos, "left", "#33a02c")
                     for V in V_list:
                         add_rectangle(ax, V, v_pos, "#fb9a99")
                         if V[0] < V[1]:
-                            v_0 = V[0] + loc
+                            v_0 = V[0] + highlight_position
                             add_triangle(ax, (v_0, v_0 + 1), v_pos, "right", "#e31a1c")
                         else:
-                            v_0 = V[0] - loc - 1
+                            v_0 = V[0] - highlight_position - 1
                             add_triangle(ax, (v_0, v_0 + 1), v_pos, "left", "#e31a1c")
 
                     found_breakpoint = True
                 else:
-                    loc -= X[1] - X[0]
+                    highlight_position -= X[1] - X[0]
                     add_rectangle(ax, X, y_pos, "#b2b2b2")
                     add_row_label(
                         ax,
@@ -934,12 +948,9 @@ class MRCAdict(dict):
         add_row_label(ax, x_offset, v_pos + y_offset, "V", fontsize, color="black")
         ax.set_ylim(0, y_pos)
         ax.set_xlim(0, x_max)
-        plt.gca().tick_params(axis="x", labelsize=fontsize - 2)
+        ax.tick_params(axis="x", labelsize=fontsize - 2)
         ax.set_xlabel("Position", fontsize=fontsize)
         ax.yaxis.set_visible(False)
-
-        plt.tight_layout()
-        plt.show()
 
 
 class Tables:

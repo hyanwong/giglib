@@ -5,6 +5,7 @@ import pytest
 import tskit
 from GeneticInheritanceGraphLibrary.constants import Const
 from GeneticInheritanceGraphLibrary.constants import ValidFlags
+from matplotlib import pyplot as plt
 
 
 class TestCreation:
@@ -847,3 +848,21 @@ class TestFindMrcas:
             assert breaks.u == breaks.v
             all_breaks.add(breaks.u)
         assert all_breaks == {0, 1}
+
+
+class TestMRCAdict:
+    def test_plot(self):
+        MRCAintervals = gigl.tables.MRCAdict.MRCAintervals
+        mrcas = gigl.tables.MRCAdict()
+        mrcas[0] = {
+            (0, 10): MRCAintervals([(0, 10)], [(0, 10)]),
+            (20, 30): MRCAintervals([(20, 30)], [(20, 30)]),
+        }
+        mrcas[1] = {(10, 20): MRCAintervals([(10, 20)], [(10, 20)])}
+        mrcas._plot(highlight_position=5)
+
+    def test_gig_plot_with_size(self, all_sv_types_no_re_gig):
+        mrcas = all_sv_types_no_re_gig.tables.find_mrca_regions(11, 9)
+        fig, ax = plt.subplots(1, figsize=(10, 5))
+        mrcas._plot(highlight_position=40, ax=ax)
+        # plt.savefig("test_gig_plot.png")  # uncomment to save a plot for inspection
