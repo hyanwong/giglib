@@ -248,8 +248,8 @@ class TestIEdgeTable:
         tables.add_iedge_row(1, 2, 1, 2, **params, skip_validate=True)
         assert tables.iedges.flags == ValidFlags.GIG
 
-    def test_child_iterator(self, all_sv_types_re_gig):
-        tables = all_sv_types_re_gig.tables
+    def test_child_iterator(self, all_sv_types_2re_gig):
+        tables = all_sv_types_2re_gig.tables
         assert tables.iedges.flags == ValidFlags.GIG
         seen = set()
         for ie_row in tables.iedges:
@@ -258,19 +258,19 @@ class TestIEdgeTable:
                 ie_rows = list(tables.iedges.ids_for_child(ie_row.child))
             assert tables.iedges[ie_rows.pop(0)] == ie_row
 
-    def test_bad_child_iterator(self, all_sv_types_re_gig):
-        tables = all_sv_types_re_gig.tables.copy()
+    def test_bad_child_iterator(self, all_sv_types_2re_gig):
+        tables = all_sv_types_2re_gig.tables.copy()
         # Add a valid edge but don't check it
         tables.iedges.add_row(1000, 1001, 1000, 1001, child=1, parent=0)
         with pytest.raises(ValueError, match="Cannot use this method"):
             next(tables.iedges.ids_for_child(10))
 
-    def test_good_child_iterator(self, all_sv_types_re_gig):
+    def test_good_child_iterator(self, all_sv_types_2re_gig):
         flags = (
             ValidFlags.IEDGES_FOR_CHILD_ADJACENT
             | ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
         )
-        tables = all_sv_types_re_gig.tables.copy()
+        tables = all_sv_types_2re_gig.tables.copy()
         # Add a valid edge and check it
         last_child = tables.iedges[-1].child
         tables.iedges.add_row(
@@ -285,8 +285,8 @@ class TestIEdgeTable:
         # Can iterate even if not guaranteed in order
         _ = tables.iedges.ids_for_child(10)
 
-    def test_unverified_child_iterator(self, all_sv_types_re_gig):
-        tables = all_sv_types_re_gig.tables.copy()
+    def test_unverified_child_iterator(self, all_sv_types_2re_gig):
+        tables = all_sv_types_2re_gig.tables.copy()
         # Add a valid edge but don't check it
         last_child = tables.iedges[-1].child
         tables.iedges.add_row(1000, 1001, 1000, 1001, child=last_child, parent=0)
@@ -489,7 +489,9 @@ class TestIedgesValidation:
         tables.nodes.add_row(time=1)
         tables.nodes.add_row(time=0)
         tables.add_iedge_row(0, 1, 0, 1, child=2, parent=1, validate=flags)
-        with pytest.raises(ValueError, match="older child time than the previous"):
+        with pytest.raises(
+            ValueError, match="older than the previous iedge child time"
+        ):
             tables.add_iedge_row(0, 1, 0, 1, child=1, parent=0, validate=flags)
 
     def test_add_iedge_row_fail_secondary_order_child_id(self):

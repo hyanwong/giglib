@@ -537,7 +537,11 @@ class IEdgeTable(BaseTable):
         args, kwargs = self._check_ints(*args, **kwargs, convert=True)
         return self.add_row(*args, **kwargs)
 
-    def ids_for_child(self, u, chromosome=0):
+    def ids_for_child(self, u, chromosome=None):
+        """
+        Return all the iedge ids for this child. If chromosome is not None, return
+        only the iedge IDs for that chromosome.
+        """
         if not self.has_bitflag(
             ValidFlags.IEDGES_FOR_CHILD_ADJACENT
             | ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
@@ -547,7 +551,13 @@ class IEdgeTable(BaseTable):
                 " and are ordered by chromosome"
             )
         try:
-            return np.arange(*self._id_range_for_child[u][chromosome])
+            if chromosome is None:
+                chrom_ranges = self._id_range_for_child[u].values()
+                # most efficient way to get first and last values from a dict
+                for first, last in zip(chrom_ranges, reversed(chrom_ranges)):
+                    return np.arange(first[0], last[1])
+            else:
+                return np.arange(*self._id_range_for_child[u][chromosome])
         except KeyError:
             return np.arange(0)
 
@@ -572,6 +582,13 @@ class IEdgeTable(BaseTable):
             return self[self._id_range_for_child[u][chromosome][1] - 1].child_max
         except KeyError:
             return None
+
+    def chromosomes_for_child(self, u):
+        """
+        Iterate over the chromosome numbers for a given child ID
+        """
+
+        return self._id_range_for_child.get(u, {}).keys()
 
     def transform_interval(self, edge_id, interval, direction):
         """
@@ -998,7 +1015,8 @@ class Tables:
             if vflags & ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC:
                 if prev_child_time < child_time:
                     raise ValueError(
-                        "Added iedge has older child time than the previous one"
+                        f"Added iedge has child time of {child_time} which is older "
+                        f"than the previous iedge child time of {prev_child_time}"
                     )
             if vflags & ValidFlags.IEDGES_SECONDARY_ORDER_CHILD_ID_ASC:
                 if (prev_child_time == child_time) and (prev_child_id > child):
@@ -1279,14 +1297,14 @@ class Tables:
         common ancestor in the GIG which is more recent than time_cutoff.
         Returns a dict of dicts of the following form
             {
-                MRCA_node_ID1 : {(X, Y): (
-                    [(uA, uB), (uC, uD), ...],
-                    [(vA, vB), ...]
+                MRCA_node_ID1 : {(X, Y, CHR): (
+                    [(uA, uB, uCHRa), (uC, uD, uCHRb), ...],
+                    [(vA, vB, vCHR), ...]
                 )},
                 MRCA_node_ID2 : ...,
                 ...
             }
-        Where in each inner dict, the key (X, Y) gives an interval (with X < Y)
+        Where in each inner dict, the key (X, Y, CHR) gives an interval (with X < Y)
         in the MRCA node, and the value is a 2-tuple giving the corresponding
         intervals in u and v. In the example above there is a list of two
         corresponding intervals in u: (uA, uB) and (uC, uD) representing a
