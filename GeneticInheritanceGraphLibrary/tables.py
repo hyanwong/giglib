@@ -329,6 +329,11 @@ class IEdgeTable(BaseTable):
         Add a row to an IEdgeTable: the arguments are passed to the RowClass constructor
         (with the RowClass being dataclass).
 
+        .. warning::
+            The ``skip_validate`` parameter is only intended to speed up well-tested
+            code. It should only be set to ``True`` when you are sure that any calling
+            code has been tested with validation.
+
         :param int validate: A set of bitflags (attributes of the ``ValidFlags`` class)
             specifying which iedge table validation checks
             should be performed when adding this data. If the existing data is valid, and
@@ -897,11 +902,22 @@ class Tables:
         validate features of the nodes used (e.g. that the parent
         node time is older than the child node time).
 
+        .. warning::
+            The ``skip_validate`` parameter is only intended to speed up well-tested
+            code. It should only be set to ``True`` when you are sure that any calling
+            code has been tested with validation.
+
         :param int validate: A set of bitflags (attributes of the ``ValidFlags`` class)
             specifying which iedge table validation checks to perform. In particular,
             this can include the ``IEDGES_PARENT_OLDER_THAN_CHILD`` and
             ``IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC`` flags, which will check the node
-            table for those properties.
+            table for those properties. Other flags will be passed to ``iedges.add_row``.
+        :param bool skip_validate: If True, assume the user has checked that this
+            operation will pass the validation tests implied by the ``validate``
+            flags. This means that the validation routines will not be run, but the
+            tables may claim that they are valid when they are not. If False, and any of
+            the ``iedges_validation`` flags are set, perform the appropriate validations
+            (default: ``None`` treated as False)
         """
         if validate is None:
             validate = ~ValidFlags.IEDGES_ALL
