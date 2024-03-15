@@ -908,6 +908,7 @@ class MRCAdict(dict):
                     U_list, V_list = mrca_intervals[X]
                     for U in U_list:
                         add_rectangle(ax, U, u_pos, "#b2df8a")
+                        x_max = max(x_max, *U)
                         if U[0] < U[1]:
                             u_0 = U[0] + highlight_position
                             add_triangle(ax, (u_0, u_0 + 1), u_pos, "right", "#33a02c")
@@ -916,6 +917,7 @@ class MRCAdict(dict):
                             add_triangle(ax, (u_0, u_0 + 1), u_pos, "left", "#33a02c")
                     for V in V_list:
                         add_rectangle(ax, V, v_pos, "#fb9a99")
+                        x_max = max(x_max, *V)
                         if V[0] < V[1]:
                             v_0 = V[0] + highlight_position
                             add_triangle(ax, (v_0, v_0 + 1), v_pos, "right", "#e31a1c")
@@ -935,11 +937,10 @@ class MRCAdict(dict):
                         fontsize,
                         color="black",
                     )
-                    U_list, V_list = mrca_intervals[X]
-                    for U in U_list:
-                        add_rectangle(ax, U, u_pos, "#838383")
-                    for V in V_list:
-                        add_rectangle(ax, V, v_pos, "#838383")
+                    for lists, pos in zip(mrca_intervals[X], (u_pos, v_pos)):
+                        for interval in lists:
+                            add_rectangle(ax, interval, pos, "#838383")
+                            x_max = max(x_max, *interval)
             y_pos += 1
 
         add_row_label(ax, x_offset, u_pos + y_offset, "U", fontsize, color="black")
