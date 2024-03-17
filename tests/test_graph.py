@@ -217,66 +217,6 @@ class TestSampleResolving:
         new_gig = gig.sample_resolve()  # Shouldn't make any changes
         assert gig.tables == new_gig.tables
 
-    def test_all_svs_no_re_sample_resolve(self, all_sv_types_no_re_gig):
-        """
-        The all_sv_types_no_re_gig is not sample resolved, so we should see changes (in
-        particular, 1->2 should be split into two edges, either side of the deletion)
-        """
-        new_gig = all_sv_types_no_re_gig.sample_resolve()  # Should only split one iedge
-        assert len(new_gig.iedges) - len(all_sv_types_no_re_gig.iedges) == 1
-        new_edges = iter(new_gig.tables.iedges)
-        for iedge_row in all_sv_types_no_re_gig.tables.iedges:
-            if iedge_row.parent == 1 and iedge_row.child == 2:
-                assert iedge_row.parent_left == iedge_row.child_left == 0
-                assert iedge_row.parent_right == iedge_row.child_right == 200
-                new_iedge = next(new_edges)
-                assert new_iedge.parent_left == new_iedge.child_left == 0
-                assert new_iedge.parent_right == new_iedge.child_right == 50
-                new_iedge = next(new_edges)
-                assert new_iedge.parent_left == new_iedge.child_left == 150
-                assert new_iedge.parent_right == new_iedge.child_right == 200
-            else:
-                assert iedge_row == next(new_edges)
-
-    def test_all_svs_re_sample_resolve(self, all_sv_types_re_gig):
-        """
-        An even more complicated gig. In particular, recombination means that some of
-        the iedges leading into the RE nodes should be trimmed. We should still split
-        the 1->2 iedge but also we have an internal edge from 5->7 that contains
-        a missing section
-        """
-        new_gig = all_sv_types_re_gig.sample_resolve()
-        assert len(new_gig.iedges) - len(all_sv_types_re_gig.iedges) == 2
-        iedge_rows = list(all_sv_types_re_gig.iedges_for_child(2))
-        assert len(iedge_rows) == 1
-        assert iedge_rows[0].parent == 1
-        assert iedge_rows[0].parent_left == iedge_rows[0].child_left == 0
-        assert iedge_rows[0].parent_right == iedge_rows[0].child_right == 200
-
-        iedge_rows = list(new_gig.iedges_for_child(2))
-        assert len(iedge_rows) == 2
-        assert iedge_rows[0].parent == 1
-        assert iedge_rows[0].parent_left == iedge_rows[0].child_left == 0
-        assert iedge_rows[0].parent_right == iedge_rows[0].child_right == 50
-        assert iedge_rows[1].parent == 1
-        assert iedge_rows[1].parent_left == iedge_rows[1].child_left == 150
-        assert iedge_rows[1].parent_right == iedge_rows[1].child_right == 200
-
-        # One of the recombination nodes
-        iedge_rows = list(all_sv_types_re_gig.iedges_for_child(7))
-        assert len(iedge_rows) == 1
-        assert iedge_rows[0].parent == 5
-        assert iedge_rows[0].parent_left == iedge_rows[0].child_left == 0
-        assert iedge_rows[0].parent_right == iedge_rows[0].child_right == 300
-        iedge_rows = list(new_gig.iedges_for_child(7))
-        assert len(iedge_rows) == 2
-        assert iedge_rows[0].parent == 5
-        assert iedge_rows[0].parent_left == iedge_rows[0].child_left == 0
-        assert iedge_rows[0].parent_right == iedge_rows[0].child_right == 150
-        assert iedge_rows[1].parent == 5
-        assert iedge_rows[1].parent_left == iedge_rows[1].child_left == 170
-        assert iedge_rows[1].parent_right == iedge_rows[1].child_right == 300
-
     def test_sample_resolve_no_edges(self):
         tables = gigl.Tables()
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
@@ -352,6 +292,112 @@ class TestSampleResolving:
         assert ie.child_right == 155
         assert ie.parent_left == 150
         assert ie.parent_right == 15
+
+    def test_all_svs_no_re_sample_resolve(self, all_sv_types_no_re_gig):
+        """
+        The all_sv_types_no_re_gig is not sample resolved, so we should see changes (in
+        particular, 1->2 should be split into two edges, either side of the deletion)
+        """
+        new_gig = all_sv_types_no_re_gig.sample_resolve()  # Should only split one iedge
+        assert len(new_gig.iedges) - len(all_sv_types_no_re_gig.iedges) == 1
+        new_edges = iter(new_gig.tables.iedges)
+        for iedge_row in all_sv_types_no_re_gig.tables.iedges:
+            if iedge_row.parent == 1 and iedge_row.child == 2:
+                assert iedge_row.parent_left == iedge_row.child_left == 0
+                assert iedge_row.parent_right == iedge_row.child_right == 200
+                new_iedge = next(new_edges)
+                assert new_iedge.parent_left == new_iedge.child_left == 0
+                assert new_iedge.parent_right == new_iedge.child_right == 50
+                new_iedge = next(new_edges)
+                assert new_iedge.parent_left == new_iedge.child_left == 150
+                assert new_iedge.parent_right == new_iedge.child_right == 200
+            else:
+                assert iedge_row == next(new_edges)
+
+    def test_all_svs_1re_sample_resolve(self, all_sv_types_1re_gig):
+        """
+        A gig with one re node. Some of the edges will be trimmed
+        """
+        new_gig = all_sv_types_1re_gig.sample_resolve()
+        iedge_rows = list(all_sv_types_1re_gig.iedges_for_child(2))
+        assert len(iedge_rows) == 1
+        assert iedge_rows[0].parent == 1
+        assert iedge_rows[0].parent_left == iedge_rows[0].child_left == 0
+        assert iedge_rows[0].parent_right == iedge_rows[0].child_right == 200
+
+        iedge_rows = list(new_gig.iedges_for_child(2))
+        assert len(iedge_rows) == 2
+        assert iedge_rows[0].parent == 1
+        assert iedge_rows[0].parent_left == iedge_rows[0].child_left == 0
+        assert iedge_rows[0].parent_right == iedge_rows[0].child_right == 50
+        assert iedge_rows[1].parent == 1
+        assert iedge_rows[1].parent_left == iedge_rows[1].child_left == 150
+        assert iedge_rows[1].parent_right == iedge_rows[1].child_right == 200
+
+        re_nodes = np.where(new_gig.tables.nodes.flags & Const.NODE_IS_RE)[0]
+        assert len(re_nodes) == 1
+
+    def test_all_svs_2re_sample_resolve(self, all_sv_types_2re_gig):
+        """
+        An even more complicated gig. In particular, recombination means that some of
+        the iedges leading into the RE nodes should be trimmed. We should still split
+        the 1->2 iedge but also we have an internal edge from 5->7 that contains
+        a missing section
+        """
+        new_gig = all_sv_types_2re_gig.sample_resolve()
+        assert len(new_gig.iedges) - len(all_sv_types_2re_gig.iedges) == 2
+        iedge_rows = list(all_sv_types_2re_gig.iedges_for_child(2))
+        assert len(iedge_rows) == 1
+        assert iedge_rows[0].parent == 1
+        assert iedge_rows[0].parent_left == iedge_rows[0].child_left == 0
+        assert iedge_rows[0].parent_right == iedge_rows[0].child_right == 200
+
+        iedge_rows = list(new_gig.iedges_for_child(2))
+        assert len(iedge_rows) == 2
+        assert iedge_rows[0].parent == 1
+        assert iedge_rows[0].parent_left == iedge_rows[0].child_left == 0
+        assert iedge_rows[0].parent_right == iedge_rows[0].child_right == 50
+        assert iedge_rows[1].parent == 1
+        assert iedge_rows[1].parent_left == iedge_rows[1].child_left == 150
+        assert iedge_rows[1].parent_right == iedge_rows[1].child_right == 200
+
+        re_nodes = np.where(new_gig.tables.nodes.flags & Const.NODE_IS_RE)[0]
+        assert len(re_nodes) == 2
+
+        # One of the recombination nodes
+        iedge_rows = list(all_sv_types_2re_gig.iedges_for_child(7))
+        assert len(iedge_rows) == 1
+        assert iedge_rows[0].parent == 5
+        assert iedge_rows[0].parent_left == iedge_rows[0].child_left == 0
+        assert iedge_rows[0].parent_right == iedge_rows[0].child_right == 300
+        iedge_rows = list(new_gig.iedges_for_child(7))
+        assert len(iedge_rows) == 2
+        assert iedge_rows[0].parent == 5
+        assert iedge_rows[0].parent_left == iedge_rows[0].child_left == 0
+        assert iedge_rows[0].parent_right == iedge_rows[0].child_right == 150
+        assert iedge_rows[1].parent == 5
+        assert iedge_rows[1].parent_left == iedge_rows[1].child_left == 170
+        assert iedge_rows[1].parent_right == iedge_rows[1].child_right == 300
+
+    def test_sample_resolve_with_chromosomes(self, multi_chromosome_gig):
+        new_gig = multi_chromosome_gig.sample_resolve()
+        assert len(new_gig.iedges) == len(multi_chromosome_gig.iedges)
+        assert new_gig.iedges != multi_chromosome_gig.iedges
+        assert new_gig.iedges[0].child_chromosome == 1
+        assert new_gig.iedges[0].parent_chromosome == 0
+        assert new_gig.iedges[0].child_left == 0
+        assert new_gig.iedges[0].child_right == 5
+        assert new_gig.iedges[0].parent_left == 0
+        assert new_gig.iedges[0].parent_right == 5
+        # last sample is not attached to any other chromosomes
+        assert new_gig.iedges[-1] == multi_chromosome_gig.iedges[-1]
+
+        # check all iedges simply differ by lef/right
+        for ie1, ie2 in zip(new_gig.iedges, multi_chromosome_gig.iedges):
+            assert ie1.child == ie2.child
+            assert ie1.parent == ie2.parent
+            assert ie1.child_chromosome == ie2.child_chromosome
+            assert ie1.parent_chromosome == ie2.parent_chromosome
 
 
 class TestIEdge:

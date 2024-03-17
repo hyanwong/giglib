@@ -3,6 +3,8 @@ import msprime
 import numpy as np
 import pytest
 import tskit
+from GeneticInheritanceGraphLibrary.constants import Const
+from GeneticInheritanceGraphLibrary.constants import ValidFlags
 from tests.gigutil import iedge
 from tests.gigutil import make_nodes_table
 
@@ -42,6 +44,30 @@ def ts_with_multiple_pops():
         samples={"A": 1, "B": 1}, demography=demography, random_seed=1
     )
     return ts
+
+
+@pytest.fixture(scope="session")
+def trivial_gig():
+    # time | flags
+    node_data = [
+        (2, 0),
+        (1, 0),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+    ]
+    tables = gigl.Tables()
+    tables.nodes = make_nodes_table(node_data, tables)
+    tables.iedges.add_rowlist(
+        [
+            iedge(0, 5, 0, 5, c=1, p=0),
+            iedge(0, 5, 0, 5, c=2, p=0),
+            iedge(0, 5, 0, 5, c=3, p=0),
+            iedge(0, 3, 3, 0, c=4, p=1),  # inversion
+            iedge(3, 5, 3, 5, c=4, p=1),
+        ]
+    )
+    return gigl.Graph(tables)
 
 
 @pytest.fixture(scope="session")
@@ -96,6 +122,40 @@ def double_inversion_gig():
 
 
 @pytest.fixture(scope="session")
+def multi_chromosome_gig():
+    """
+    Switch into a separate numbered chromosome for one of the samples
+    and have 2 chrs in one of the ancestors
+    """
+    # time | flags
+    node_data = [
+        (2, 0),
+        (1, 0),  # will have material on chr 1 and 3
+        (0, gigl.NODE_IS_SAMPLE),  # will have material on chr 5
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),  # will have no related material
+    ]
+    tables = gigl.Tables()
+    tables.nodes = make_nodes_table(node_data, tables)
+    for ie in [
+        iedge(0, 10, 0, 10, c=1, p=0, child_chromosome=1, parent_chromosome=0),
+        # actually only 0..5 are passed to node 1 from the samples on chr 1
+        iedge(0, 3, 5, 8, c=1, p=0, child_chromosome=3, parent_chromosome=0),
+        iedge(3, 5, 10, 8, c=1, p=0, child_chromosome=3, parent_chromosome=0),
+        iedge(0, 10, 0, 10, c=2, p=0, child_chromosome=5, parent_chromosome=0),
+        iedge(0, 5, 0, 5, c=3, p=1, child_chromosome=0, parent_chromosome=1),
+        iedge(5, 10, 0, 5, c=3, p=1, child_chromosome=0, parent_chromosome=3),
+        iedge(0, 5, 0, 5, c=4, p=1, child_chromosome=0, parent_chromosome=1),
+        iedge(5, 10, 0, 5, c=4, p=1, child_chromosome=0, parent_chromosome=3),
+        # last one attaches to chr 1 of root, which no others do
+        iedge(0, 10, 0, 10, c=5, p=0, child_chromosome=0, parent_chromosome=1),
+    ]:
+        tables.add_iedge_row(**ie.asdict(), validate=ValidFlags.GIG)
+    return gigl.Graph(tables)
+
+
+@pytest.fixture(scope="session")
 def all_sv_types_no_re_gig():
     """
     Contains a single deletion, a single duplication, and a single inversion.
@@ -143,7 +203,58 @@ def all_sv_types_no_re_gig():
 
 
 @pytest.fixture(scope="session")
-def all_sv_types_re_gig():
+def all_sv_types_1re_gig():
+    """
+    A gig with 3 SV types and 1 recombination event: useful for viz
+    """
+    # time | flags
+    node_data = [
+        (6, 0),
+        (5, 0),
+        (4, 0),
+        (4, 0),
+        (3, 0),
+        (3, 0),
+        (2, Const.NODE_IS_RE),  # new "RE" node
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+        (0, gigl.NODE_IS_SAMPLE),
+    ]
+    tables = gigl.Tables()
+    tables.nodes = make_nodes_table(node_data, tables)
+    tables.iedges.add_rowlist(
+        [
+            iedge(0, 200, 0, 200, c=1, p=0),
+            iedge(0, 200, 0, 200, c=2, p=1),
+            iedge(0, 200, 0, 200, c=3, p=1),
+            # deletion
+            iedge(0, 50, 0, 50, c=4, p=2),
+            iedge(50, 100, 150, 200, c=4, p=2),
+            # duplication
+            iedge(0, 200, 0, 200, c=5, p=3),
+            iedge(200, 300, 100, 200, c=5, p=3),
+            # recombination combines two SVs
+            iedge(0, 70, 0, 70, c=6, p=4),
+            iedge(70, 200, 170, 300, c=6, p=5),
+            #
+            iedge(0, 100, 0, 100, c=7, p=4),  # unrecombined
+            iedge(0, 200, 0, 200, c=8, p=6),
+            iedge(0, 300, 0, 300, c=9, p=5),  # unrecombined
+            # inversion
+            iedge(0, 20, 0, 20, c=10, p=0),
+            iedge(20, 120, 120, 20, c=10, p=0),
+            iedge(120, 200, 120, 200, c=10, p=0),
+        ]
+    )
+    return gigl.Graph(tables)
+
+
+@pytest.fixture(scope="session")
+def all_sv_types_2re_gig():
+    """
+    A gig with 3 SV types and 2 recombination events
+    """
     # time | flags
     node_data = [
         (6, 0),
@@ -154,8 +265,8 @@ def all_sv_types_re_gig():
         (3, 0),
         (3, 0),
         (2, 0),
-        (1, 0),  # new "RE" node
-        (1, 0),  # new "RE" node
+        (1, Const.NODE_IS_RE),  # new "RE" node
+        (1, Const.NODE_IS_RE),  # new "RE" node
         (0, gigl.NODE_IS_SAMPLE),
         (0, gigl.NODE_IS_SAMPLE),
         (0, gigl.NODE_IS_SAMPLE),
@@ -199,30 +310,6 @@ def all_sv_types_re_gig():
         ]
     )
     tables.sort()
-    return gigl.Graph(tables)
-
-
-@pytest.fixture(scope="session")
-def trivial_gig():
-    # time | flags
-    node_data = [
-        (2, 0),
-        (1, 0),
-        (0, gigl.NODE_IS_SAMPLE),
-        (0, gigl.NODE_IS_SAMPLE),
-        (0, gigl.NODE_IS_SAMPLE),
-    ]
-    tables = gigl.Tables()
-    tables.nodes = make_nodes_table(node_data, tables)
-    tables.iedges.add_rowlist(
-        [
-            iedge(0, 5, 0, 5, c=1, p=0),
-            iedge(0, 5, 0, 5, c=2, p=0),
-            iedge(0, 5, 0, 5, c=3, p=0),
-            iedge(0, 3, 3, 0, c=4, p=1),
-            iedge(3, 5, 3, 5, c=4, p=1),
-        ]
-    )
     return gigl.Graph(tables)
 
 

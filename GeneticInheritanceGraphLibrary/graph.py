@@ -5,6 +5,7 @@ efficient access.
 """
 import dataclasses
 import json
+from collections import defaultdict
 
 import numpy as np
 import portion as P
@@ -97,6 +98,7 @@ class Graph:
         # Check iedges are sorted so that nodes are in decreasing order
         # of child time, with ties broken by child ID, increasing
         timediff = np.diff(self.tables.nodes.time[iedges_child])
+        chromodiff = np.diff(self.tables.iedges.child_chromosome)
         node_id_diff = np.diff(iedges_child)
 
         if np.any(timediff > 0):
@@ -107,9 +109,26 @@ class Graph:
         # must be adjacent
         self.tables.iedges.set_bitflag(ValidFlags.IEDGES_FOR_CHILD_ADJACENT)
 
-        # Check within a child, edges are sorted by left coord
-        if np.any(np.diff(self.tables.iedges.child_left)[node_id_diff == 0] <= 0):
-            raise ValueError("iedges for a given child are not sorted by left coord")
+        # Check within a child, edges are sorted by chromosome ascending
+        if np.any(np.diff(self.tables.iedges.child_chromosome)[node_id_diff == 0] < 0):
+            raise ValueError("iedges for a given child are not sorted by chromosome")
+        self.tables.iedges.set_bitflag(
+            ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
+        )
+
+        # Check within a child & chromosome, edges are sorted by left coord ascending
+        if np.any(
+            np.diff(self.tables.iedges.child_left)[
+                np.logical_and(node_id_diff == 0, chromodiff == 0)
+            ]
+            <= 0
+        ):
+            # print(np.diff(self.tables.iedges.child_left))
+            # print(np.logical_and(node_id_diff == 0, chromodiff==0))
+            raise ValueError("iedges for a given child/chr are not sorted by left pos")
+        self.tables.iedges.set_bitflag(
+            ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC
+        )
 
         # CREATE CACHED VARIABLES
 
@@ -137,16 +156,17 @@ class Graph:
         if last_parent != -1:
             self.child_range[last_parent, 1] = len(self.iedges)
 
-        # Check every location has only one parent
+        # Check every location has only one parent for each chromosome
         for u in range(len(self.nodes)):
-            prev_right = -np.inf
-            for ie in self.iedges_for_child(u):
-                if ie.child_left < prev_right:
-                    raise ValueError(
-                        f"Node {u} has multiple or duplicate parents at position"
-                        f" {ie.child_left}"
-                    )
-                prev_right = ie.child_right
+            for chromosome in self.tables.iedges.chromosomes_for_child(u):
+                prev_right = -np.inf
+                for ie in self.iedges_for_child(u, chromosome):
+                    if ie.child_left < prev_right:
+                        raise ValueError(
+                            f"Node {u} has multiple or duplicate parents at position"
+                            f" {ie.child_left}"
+                        )
+                    prev_right = ie.child_right
         self.tables.iedges.flags = ValidFlags.GIG
 
     @property
@@ -192,11 +212,11 @@ class Graph:
         for i in range(*self.child_range[u, :]):
             yield self.iedges[self.iedge_map_sorted_by_parent[i]]
 
-    def iedges_for_child(self, u):
+    def iedges_for_child(self, u, chromosome=None):
         """
         Iterate over all iedges with parent u
         """
-        for i in self.tables.iedges.ids_for_child(u):
+        for i in self.tables.iedges.ids_for_child(u, chromosome):
             yield self.iedges[i]
 
     def max_position(self, u):
@@ -319,36 +339,60 @@ class Graph:
         #    `.simplify(filter_nodes=False, keep_unary=True)`, because it does not
         #    squash adjacent edges together. It should therefore preserve
         #    "recombination diamonds". This could be useful for some applications,
-        stack = {c: P.empty() for c in np.argsort(-self.tables.nodes.time)}
+        stack = {
+            c: defaultdict(P.interval.Interval)
+            for c in reversed(np.argsort(self.tables.nodes.time))
+        }
         new_tables = self.tables.copy(omit_iedges=True)
-        while len(stack) > 0:
-            child, intervals = stack.popitem()
+        while len(stack):
+            child, chromosomes = stack.popitem()
+            # An internal sample might have some material passed-up from its children
+            # here, but we can replace that with everything passed up to parents
             if self.nodes[child].is_sample():
-                intervals = P.closedopen(0, np.inf)
-            for ie_id in self.tables.iedges.ids_for_child(child):
-                ie = self.tables.iedges[ie_id]
-                parent = ie.parent
-                child_ivl = P.closedopen(ie.child_left, ie.child_right)
-                is_inversion = ie.is_inversion()
-                # JEROME'S NOTE (from previous algorithm): if we had an index here
-                # sorted by left coord we could binary search to first match, and
-                # could break once c_right > left (I think?), rather than having
-                # to intersect all the intervals with the current c_rgt/c_lft
-                for interval in intervals:
-                    if c := child_ivl & interval:  # intersect
-                        p = self.tables.iedges.transform_interval(
-                            ie_id, (c.lower, c.upper), Const.ROOTWARDS
-                        )
-                        if is_inversion:
-                            # For passing upwards, interval orientation doesn't matter
-                            # so put the lowest position first, as `portion` requires
-                            stack[parent] |= P.closedopen(p[1], p[0])
-                        else:
-                            stack[parent] |= P.closedopen(*p)
-                        # Add the trimmed interval to the new edge table
-                        new_tables.iedges.add_row(
-                            c.lower, c.upper, *p, child=child, parent=parent
-                        )
+                chromosomes = {
+                    chrom: P.closedopen(0, np.inf)
+                    for chrom in self.tables.iedges.chromosomes_for_child(child)
+                }
+            # We can't add in the edges in the correct order because we are adding
+            # the youngest edges first, so we don't need to keep chromosomes in the
+            # right order as we will have to sort anyway. If we *did* want to keep
+            # chromosome order for edges, we could use sorted(chromosomes.keys())
+            # here instead.
+            for child_chrom in chromosomes.keys():
+                for ie_id in self.tables.iedges.ids_for_child(child, child_chrom):
+                    ie = self.tables.iedges[ie_id]
+                    parent = ie.parent
+                    parent_chrom = ie.parent_chromosome
+                    child_ivl = P.closedopen(ie.child_left, ie.child_right)
+                    is_inversion = ie.is_inversion()
+                    # JEROME'S NOTE (from previous algorithm): if we had an index here
+                    # sorted by left coord we could binary search to first match, and
+                    # could break once c_right > left (I think?), rather than having
+                    # to intersect all the intervals with the current c_rgt/c_lft
+                    for intervals in chromosomes[child_chrom]:
+                        for interval in intervals:
+                            if c := child_ivl & interval:  # intersect
+                                p = self.tables.iedges.transform_interval(
+                                    ie_id, (c.lower, c.upper), Const.ROOTWARDS
+                                )
+                                if is_inversion:
+                                    # For passing up, interval orientation doesn't matter
+                                    # so put lowest position first, as `portion` requires
+                                    stack[parent][parent_chrom] |= P.closedopen(
+                                        p[1], p[0]
+                                    )
+                                else:
+                                    stack[parent][parent_chrom] |= P.closedopen(*p)
+                                # Add the trimmed interval to the new edge table
+                                new_tables.add_iedge_row(
+                                    c.lower,
+                                    c.upper,
+                                    *p,
+                                    child=child,
+                                    parent=parent,
+                                    child_chromosome=child_chrom,
+                                    parent_chromosome=parent_chrom,
+                                )
         new_tables.sort()
         return self.__class__(new_tables)
 

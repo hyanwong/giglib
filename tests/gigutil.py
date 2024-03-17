@@ -20,11 +20,11 @@ def make_iedges_table(arr, tables):
     return tables.iedges
 
 
-def iedge(cl, cr, pl, pr, *, c, p):
+def iedge(cl, cr, pl, pr, *, c, p, **kwargs):
     """
     A helper function to quickly make an IEdgeTableRow.
     """
-    return gigl.tables.IEdgeTableRow(cl, cr, pl, pr, child=c, parent=p)
+    return gigl.tables.IEdgeTableRow(cl, cr, pl, pr, child=c, parent=p, **kwargs)
 
 
 def make_nodes_table(arr, tables):

@@ -5,8 +5,9 @@ import tskit
 
 
 class Const(IntFlag):
-    NODE_IS_SAMPLE = tskit.NODE_IS_SAMPLE  # noqa: F401
-    NULL = tskit.NULL  # noqa: F401
+    NODE_IS_SAMPLE = tskit.NODE_IS_SAMPLE
+    NODE_IS_RE = 1 << 19  # mainly for testing
+    NULL = tskit.NULL
     ROOTWARDS = 0
     LEAFWARDS = 1
 
