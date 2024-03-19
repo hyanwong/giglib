@@ -71,12 +71,12 @@ class TestFreeze:
         table = getattr(gigl.tables, TableClass)()
         table.add_row(**params)
         table.freeze()
-        with pytest.raises(AttributeError):
+        with pytest.raises((AttributeError, ValueError)):
             table.add_row(**params)
         # Try replacing the data directly
-        with pytest.raises(AttributeError, match="frozen"):
+        with pytest.raises((AttributeError, ValueError)):
             table._data = []
-        with pytest.raises(AttributeError, match="frozen"):
+        with pytest.raises((AttributeError, ValueError)):
             table.clear()
         unfrozen = table.copy()
         unfrozen.add_row(**params)
@@ -389,8 +389,16 @@ class TestIedgesValidation:
         tables = gigl.Tables()
         tables.nodes.add_row(time=1)
         tables.nodes.add_row(time=0)
-        with pytest.raises(ValueError, match="Expected an integer"):
+        with pytest.raises(ValueError, match="integers"):
             tables.add_iedge_row(0, 1, 0, 1.2, child=1, parent=0, validate=flags)
+
+    def test_add_iedge_row_fail_negative(self):
+        flags = ValidFlags.IEDGES_INTEGERS
+        tables = gigl.Tables()
+        tables.nodes.add_row(time=1)
+        tables.nodes.add_row(time=0)
+        with pytest.raises(ValueError, match="non-negative"):
+            tables.add_iedge_row(0, 1, -1, 0, child=1, parent=0, validate=flags)
 
     def test_add_iedge_row_fail_child_nonoverlapping(self):
         flags = ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING

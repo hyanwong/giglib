@@ -35,19 +35,24 @@ class TableRow:
                 )
 
 
-@dataclasses.dataclass(frozen=True)
-class IEdgeTableRow(TableRow):
-    child_left: int
-    child_right: int
-    parent_left: int
-    parent_right: int
-    _: dataclasses.KW_ONLY
-    child: int
-    parent: int
-    edge: int = NULL
-    child_chromosome: int = 0
-    parent_chromosome: int = 0
-
+class IEdgeTableRow(
+    collections.namedtuple(
+        "IEdgeTableRow",
+        ", ".join(
+            [
+                "child_left",
+                "child_right",
+                "parent_left",
+                "parent_right",
+                "child",
+                "parent",
+                "child_chromosome",
+                "parent_chromosome",
+                "edge",
+            ]
+        ),
+    )
+):
     @property
     def parent_span(self):
         return self.parent_right - self.parent_left
@@ -270,7 +275,119 @@ class BaseTable:
         return pd.DataFrame([dataclasses.asdict(row) for row in self._data])
 
 
-class IEdgeTable(BaseTable):
+class NewBaseTable:
+    _RowClass = None
+    _frozen = False
+    initial_size = 64  # default
+    max_resize = 2**18  # maximum number of rows by which we expand internal storage
+
+    def _create_datastore(self):
+        self._datastore = np.empty(
+            (self.initial_size),
+            dtype=[(name, np.int64) for name in self._RowClass._fields],
+        )
+
+    def __init__(self, initial_size=None):
+        if initial_size is not None:
+            self.initial_size = initial_size
+        self._create_datastore()
+        # Create a view into the datastore: can be resized without allocating new memory
+        self._data = self._datastore[0:0]
+
+    def freeze(self):
+        """
+        Freeze the table so that it cannot be modified
+        """
+        # turn the data into a tuple so that it is immutable. This doesn't
+        # make a copy, but just passes the data by reference
+        self._datastore.setflags(write=False)
+        self._frozen = True
+
+    def copy(self):
+        copy = self.__class__()
+        copy._datastore = self._datastore.copy()
+        copy._datastore.setflags(write=True)
+        copy._data = copy._datastore[0 : len(self._data)]
+        copy._frozen = False
+        return copy
+
+    def __setattr__(self, attr, value):
+        if self._frozen:
+            raise AttributeError(
+                "Trying to set attribute on a frozen (read-only) instance"
+            )
+        return super().__setattr__(attr, value)
+
+    def __eq__(self, other):
+        return np.all(self._data == other._data)
+
+    def __getitem__(self, index):
+        return self._RowClass(*self._data[index])
+
+    def clear(self):
+        """
+        Deletes all rows in this table.
+        """
+        self._create_datastore()
+        self._data = self._datastore[0:0]
+
+    def _expand_datastore(self):
+        old = self._datastore
+        try:
+            self._datastore = np.empty_like(
+                self._datastore,
+                shape=min(
+                    2 * len(self._datastore), len(self._datastore) + self.max_resize
+                ),
+            )
+        except MemoryError:
+            # should try dumping the table to disk here, I suppose?
+            raise
+        self._datastore[0 : len(old)] = old
+        logging.debug(
+            f"preallocated space for {len(self._datastore) - len(old)} new rows"
+        )
+        # Hopefully force garbage collection of old array: won't work not if the user
+        # has a variable accessing the old array
+        del old
+
+    def __len__(self):
+        return len(self._data)
+
+    @property
+    def _num_preallocated_rows(self):
+        return len(self._datastore)
+
+    def __str__(self):
+        headers, rows = self._text_header_and_rows(limit=20)
+        unicode = tskit.util.unicode_table(rows, header=headers, row_separator=False)
+        # hack to change hardcoded package name
+        newstr = []
+        linelen_unicode = unicode.find("\n")
+        assert linelen_unicode != -1
+        for line in unicode.split("\n"):
+            if "skipped (tskit" in line:
+                line = line.replace("skipped (tskit", f"skipped ({__package__}")
+                if len(line) > linelen_unicode:
+                    line = line[: linelen_unicode - 1] + line[-1]
+            newstr.append(line)
+        return "\n".join(newstr)
+
+    def _text_header_and_rows(self, limit=None):
+        headers = ("id",)
+        headers += tuple(k for k in self._RowClass._fields if k != "_")
+        rows = []
+        row_indexes = truncate_rows(len(self), limit)
+        for j in row_indexes:
+            if j == -1:
+                rows.append(f"__skipped__{len(self) - limit}")
+            else:
+                row = self[j]
+                rows.append([str(j)] + [f"{x}" for x in row])
+        return headers, rows
+
+
+class IEdgeTable(NewBaseTable):
     """
     A table containing the iedges. This contains more complex logic than other
     GIG tables as we want to store and check various forms of
@@ -281,6 +398,43 @@ class IEdgeTable(BaseTable):
     """
 
     _RowClass = IEdgeTableRow
+
+    # define each property by hand, for speed
+    @property
+    def child_left(self):
+        return self._data["child_left"]
+
+    @property
+    def child_right(self):
+        return self._data["child_right"]
+
+    @property
+    def parent_left(self):
+        return self._data["parent_left"]
+
+    @property
+    def parent_right(self):
+        return self._data["parent_right"]
+
+    @property
+    def child(self):
+        return self._data["child"]
+
+    @property
+    def parent(self):
+        return self._data["parent"]
+
+    @property
+    def child_chromosome(self):
+        return self._data["child_chromosome"]
+
+    @property
+    def parent_chromosome(self):
+        return self._data["parent_chromosome"]
+
+    @property
+    def edge(self):
+        return self._data["edge"]
 
     def __init__(self):
         super().__init__()
@@ -327,7 +481,21 @@ class IEdgeTable(BaseTable):
     def has_bitflag(self, flag):
         return bool(self.flags & flag)
 
-    def add_row(self, *args, validate=None, skip_validate=None, **kwargs) -> int:
+    def add_row(
+        self,
+        child_left,
+        child_right,
+        parent_left,
+        parent_right,
+        *,
+        child,
+        parent,
+        child_chromosome=0,
+        parent_chromosome=0,
+        edge=NULL,
+        validate=None,
+        skip_validate=None,
+    ) -> int:
         """
         Add a row to an IEdgeTable: the arguments are passed to the RowClass constructor
         (with the RowClass being a dataclass).
@@ -376,14 +544,48 @@ class IEdgeTable(BaseTable):
                 cl, cr, pl, pr, child=c, parent=p, validate=ValidFlags.IEDGES_INTERVALS
             )
         """
-        row = self._RowClass(*args, **kwargs)
+        # Stick into the datastore but don't allow it to be accessed via ._data yet
+        num_rows = len(self._data)
+        if len(self._datastore) == num_rows:
+            self._expand_datastore()
+        self._datastore[num_rows] = (
+            child_left,
+            child_right,
+            parent_left,
+            parent_right,
+            child,
+            parent,
+            child_chromosome,
+            parent_chromosome,
+            edge,
+        )
 
         if validate is None:
             validate = ~ValidFlags.IEDGES_ALL
 
         if (not skip_validate) and bool(validate & ValidFlags.IEDGES_ALL):
             # only try validating if any IEDGES flags are set
-            self._validate_add_row(validate, row, args, kwargs)
+            if validate & ValidFlags.IEDGES_INTEGERS:
+                for is_edge, i in enumerate(
+                    (
+                        edge,
+                        child_left,
+                        child_right,
+                        parent_left,
+                        parent_right,
+                        child,
+                        parent,
+                        child_chromosome,
+                        parent_chromosome,
+                    )
+                ):
+                    if int(i) != i:
+                        raise ValueError("Iedge data must be integers")
+                    if is_edge != 0 and i < 0:
+                        raise ValueError(
+                            "Iedge data must be non-negative (except edge ID)"
+                        )
+            self._validate_add_row(validate, self._RowClass(*self._datastore[num_rows]))
 
         # Passed validation: keep those flags (unset others). Note that we can't validate
         # the age of the parent and child here so we have to set those flags to invalid
@@ -391,20 +593,19 @@ class IEdgeTable(BaseTable):
         self.flags &= validate | ~ValidFlags.IEDGES_ALL
 
         # Update internal data structures
-        c = row.child
-        n_iedges = len(self)
         try:
-            self._id_range_for_child[c][row.child_chromosome][1] = n_iedges + 1
+            self._id_range_for_child[child][child_chromosome][1] = num_rows + 1
         except KeyError:
-            if c not in self._id_range_for_child:
-                self._id_range_for_child[c] = {}
-            self._id_range_for_child[c][row.child_chromosome] = [n_iedges, n_iedges + 1]
+            if child not in self._id_range_for_child:
+                self._id_range_for_child[child] = {}
+            self._id_range_for_child[child][child_chromosome] = [num_rows, num_rows + 1]
 
         # add the new row by hand directly
-        self._data.append(row)
-        return n_iedges
+        self._data = self._datastore[0 : len(self._data) + 1]
 
-    def _validate_add_row(self, vflags, row, args, kwargs):
+        return num_rows
+
+    def _validate_add_row(self, vflags, row):
         # All iedge independent validations performed here. The self.flags
         # bits are set after all these validations have passed.
 
@@ -416,10 +617,6 @@ class IEdgeTable(BaseTable):
         prev_iedge = None if len(self) == 0 else self[-1]
         same_child = prev_iedge is not None and prev_iedge.child == row.child
         chrom = row.child_chromosome
-
-        if vflags & ValidFlags.IEDGES_INTEGERS:
-            # Don't convert, just check
-            self._check_ints(*args, **kwargs, convert=False)
 
         if vflags & ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING:
             # This is easy to check if previous edges for a child+chromosome are
@@ -512,8 +709,19 @@ class IEdgeTable(BaseTable):
         """
         kwargs = self._from_tskit(self.to_dict(obj))
         return self.add_int_row(
-            **{k: v for k, v in kwargs.items() if k in self._RowClass.__annotations__}
+            **{k: v for k, v in kwargs.items() if k in self._RowClass._fields}
         )
+
+    @staticmethod
+    def _check_int(i, convert=False):
+        if isinstance(i, (int, np.integer)):
+            return i
+        try:
+            if convert and i.is_integer():
+                return int(i)
+            raise ValueError(f"Expected an integer not {i}")
+        except AttributeError:
+            raise TypeError(f"Could not convert {i} to an integer")
 
     def _check_ints(self, *args, convert=False, **kwargs):
         pcols = (
@@ -546,6 +754,27 @@ class IEdgeTable(BaseTable):
         # For simplicity, this only applies for named args, not positional ones
         args, kwargs = self._check_ints(*args, **kwargs, convert=True)
         return self.add_row(*args, **kwargs)
+
+    @staticmethod
+    def to_dict(obj):
+        try:
+            return obj._asdict()
+        except AttributeError:
+            try:
+                return dataclasses.asdict(obj)
+            except TypeError:
+                pass
+        return obj
+
+    def add_rowlist(self, rowlist):
+        """
+        Add a list of rows to a BaseTable. Each item in the rowlist must contain
+        objects of the required table row type. This is a convenience function.
+        For a more flexible and performant method that uses numpy arrays
+        and broadcasting, some tables may also implement an ``add_rows`` method.
+        """
+        for row in rowlist:
+            self.append(row)
 
     def ids_for_child(self, u, chromosome=None):
         """
@@ -635,69 +864,6 @@ class IEdgeTable(BaseTable):
             else:
                 return tuple(x - e.child_left + e.parent_left for x in interval)
         raise ValueError(f"Direction must be Const.ROOTWARDS, not {direction}")
-
-    @property
-    def parent(self) -> npt.NDArray[np.int64]:
-        """
-        Return a numpy array of parent node IDs
-        """
-        return np.array([row.parent for row in self.data], dtype=np.int64)
-
-    @property
-    def child(self) -> npt.NDArray[np.int64]:
-        """
-        Return a numpy array of child node IDs
-        """
-        return np.array([row.child for row in self.data], dtype=np.int64)
-
-    @property
-    def child_left(self) -> npt.NDArray[np.int64]:
-        """
-        Return a numpy array of child left-positions
-        """
-        return np.array([row.child_left for row in self.data], dtype=np.int64)
-
-    @property
-    def child_right(self) -> npt.NDArray[np.int64]:
-        """
-        Return a numpy array of child right-positions
-        """
-        return np.array([row.child_right for row in self.data], dtype=np.int64)
-
-    @property
-    def child_chromosome(self) -> npt.NDArray[np.int64]:
-        """
-        Return a numpy array of child chromosome IDs
-        """
-        return np.array([row.child_chromosome for row in self.data], dtype=np.int64)
-
-    @property
-    def parent_left(self) -> npt.NDArray[np.int64]:
-        """
-        Return a numpy array of parent left-positions
-        """
-        return np.array([row.parent_left for row in self.data], dtype=np.int64)
-
-    @property
-    def parent_right(self) -> npt.NDArray[np.int64]:
-        """
-        Return a numpy array of parent right-positions
-        """
-        return np.array([row.parent_right for row in self.data], dtype=np.int64)
-
-    @property
-    def parent_chromosome(self) -> npt.NDArray[np.int64]:
-        """
-        Return a numpy array of parent chromosome IDs
-        """
-        return np.array([row.parent_chromosome for row in self.data], dtype=np.int64)
-
-    @property
-    def edge(self) -> npt.NDArray[np.int64]:
-        """
-        Return a numpy array of edge IDs
-        """
-        return np.array([row.edge for row in self.data], dtype=np.int64)
 
 
 class NodeTable(BaseTable):
@@ -1102,7 +1268,9 @@ class Tables:
 
     def __setattr__(self, attr, value):
         if self._frozen:
-            raise AttributeError("Trying to set attribute on a frozen instance")
+            raise AttributeError(
+                "Trying to set attribute on a frozen (read-only) instance"
+            )
         return super().__setattr__(attr, value)
 
     def clear(self):

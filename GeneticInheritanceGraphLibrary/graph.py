@@ -6,6 +6,7 @@ efficient access.
 import dataclasses
 import json
 from collections import defaultdict
+from collections import namedtuple
 
 import numpy as np
 import portion as P
@@ -213,7 +214,7 @@ class Graph:
 
     @property
     def iedges(self):
-        return Items(self.tables.iedges, IEdge)
+        return NewItems(self.tables.iedges, IEdge)
 
     def iedges_for_parent(self, u):
         """
@@ -429,19 +430,25 @@ class Items:
             yield self.cls(**self.table[i].asdict(), id=i)
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class IEdge(IEdgeTableRow):
+class NewItems(Items):
+    def __getitem__(self, index):
+        return self.cls(**self.table[index]._asdict(), id=index)
+
+    def __iter__(self):
+        for i in range(len(self.table)):
+            yield self.cls(**self.table[i]._asdict(), id=i)
+
+
+class IEdge(namedtuple("IEdge", IEdgeTableRow._fields + ("id",))):
     """
     A single interval edge in a Graph. Similar to an edge table row
     but with an ID and various other useful methods that rely on
     the graph being a consistent GIG (e.g. that abs(parent_span) == abs(child_span))
     """
 
-    id: int  # NOQA: A003
-
     @property
     def span(self):
-        return self.child_span if self.child_span >= 0 else self.parent_span
+        return self.child_right - self.child_left
 
     @property
     def parent_max(self):
@@ -472,7 +479,7 @@ class IEdge(IEdgeTableRow):
         return self.child_left
 
     def is_inversion(self):
-        return self.parent_span < 0
+        return self.parent_right < self.parent_left
 
     def is_simple_inversion(self):
         """
