@@ -1,0 +1,12 @@
+matplotlib
+six
+tskit
+jupyter-book
+sphinx-issues
+sphinx-argparse
+sphinxcontrib-bibtex
+humanize
+tqdm
+msprime
+ipywidgets
+sphinx-book-theme #Unpinned to allow easy updating.
