@@ -1,0 +1,14 @@
+format: jb-book
+root: index
+chapters:
+- file: concepts
+- file: installation
+- file: usage
+#  sections:
+#  - file: basic_use
+#  - file: simulators
+#  - file: tskit_comparisons
+- file: api
+  sections:
+  - file: python-api
+#- file: CHANGELOG

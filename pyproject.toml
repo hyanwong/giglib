@@ -1,0 +1,74 @@
+[build-system]
+requires = [
+    "setuptools>=61.2",
+    "setuptools_scm",
+    "wheel",
+    "oldest-supported-numpy"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "GeneticInheritanceGraphLibrary"
+authors = [
+    { name = "Yan Wong and Duncan Mbuli-Robertson", email = "yan.wong@bdi.ox.ac.uk" },
+]
+description = "A library to implement the concept of a Genetic Inheritance Graph."
+classifiers = [
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3 :: Only",
+    "License :: OSI Approved :: MIT License",
+    "Development Status :: 3 - Alpha",
+    "Environment :: Other Environment",
+    "Intended Audience :: Science/Research",
+    "Operating System :: POSIX",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+keywords = [
+    "population genetics",
+    "tree sequence",
+    "ancestral recombination graph",
+    "evolutionary tree",
+    "genetic inheritance graph",
+]
+requires-python = ">=3.8"
+dependencies = [
+    "numpy",
+    "tskit>=0.5.6",
+]
+dynamic = [
+    "version",
+]
+
+[project.license]
+text = "MIT"
+
+[project.readme]
+file = "README.md"
+content-type = "text/markdown"
+
+[tool.setuptools]
+packages = [
+    "GeneticInheritanceGraphLibrary",
+]
+include-package-data = true
+platforms = [
+    "POSIX",
+    "Windows",
+    "MacOS X",
+]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "tests",
+]
+
+[tool.setuptools_scm]
+write_to = "GeneticInheritanceGraphLibrary/_version.py"
