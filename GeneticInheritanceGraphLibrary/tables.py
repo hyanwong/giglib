@@ -105,12 +105,12 @@ class IndividualTableRow(TableRow):
 
 
 class BaseTable:
-    RowClass = None
+    _RowClass = None
     _frozen = False
 
     def __getattr__(self, name):
         # Extract column by name. This is a bit of a hack: can be replaced later
-        if name not in self.RowClass.__annotations__:
+        if name not in self._RowClass.__annotations__:
             raise AttributeError
         return np.array([getattr(d, name) for d in self._data])
 
@@ -200,14 +200,14 @@ class BaseTable:
     def add_row(self, *args, **kwargs) -> int:
         """
         Add a row to a BaseTable: the arguments are passed to the RowClass constructor
-        (with the RowClass being dataclass).
+        (with the RowClass being a dataclass).
 
         :return: The row ID of the newly added row
 
         Example:
             new_id = table.add_row(dataclass_field1="foo", dataclass_field2="bar")
         """
-        self._data.append(self.RowClass(*args, **kwargs))
+        self._data.append(self._RowClass(*args, **kwargs))
         return len(self._data) - 1
 
     def add_rowlist(self, rowlist):
@@ -233,12 +233,12 @@ class BaseTable:
 
         kwargs = self.to_dict(obj)
         return self.add_row(
-            **{k: v for k, v in kwargs.items() if k in self.RowClass.__annotations__}
+            **{k: v for k, v in kwargs.items() if k in self._RowClass.__annotations__}
         )
 
     def _text_header_and_rows(self, limit=None):
         headers = ("id",)
-        headers += tuple(k for k in self.RowClass.__annotations__.keys() if k != "_")
+        headers += tuple(k for k in self._RowClass.__annotations__.keys() if k != "_")
         rows = []
         row_indexes = truncate_rows(len(self), limit)
         for j in row_indexes:
@@ -273,15 +273,14 @@ class BaseTable:
 class IEdgeTable(BaseTable):
     """
     A table containing the iedges. This contains more complex logic than other
-    GIG tables as we want to be able to run algorithms on an IEdgeTable without
-    freezing it into a valid GIG.
-
-    For example:
-    * we define an iedges_by_child() method which is only valid if the iedges
-      for a given child are all adjacent
+    GIG tables as we want to store and check various forms of
+    :ref:`validity<sec_python_api_tables_validity>`, so that we can run algorithms
+    directly on the tables rather than on a frozen GIG. For example, the
+    :meth:`ids_for_child` method requires
+    :data:`~ValidFlags.IEDGES_FOR_CHILD_ADJACENT` to be true.
     """
 
-    RowClass = IEdgeTableRow
+    _RowClass = IEdgeTableRow
 
     def __init__(self):
         super().__init__()
@@ -331,26 +330,27 @@ class IEdgeTable(BaseTable):
     def add_row(self, *args, validate=None, skip_validate=None, **kwargs) -> int:
         """
         Add a row to an IEdgeTable: the arguments are passed to the RowClass constructor
-        (with the RowClass being dataclass).
+        (with the RowClass being a dataclass).
 
-        .. warning::
-            The ``skip_validate`` parameter is only intended to speed up well-tested
-            code. It should only be set to ``True`` when you are sure that any calling
-            code has been tested with validation.
+        .. seealso::
 
-        :param int validate: A set of bitflags (attributes of the ``ValidFlags`` class)
+            :meth:`tables.Tables.add_iedge_row` which is a wrapper around this method
+            that also allows validation of parent and child node times
+
+        :param int validate: A set of bitflags (as listed in :class:`ValidFlags`)
             specifying which iedge table validation checks
             should be performed when adding this data. If the existing data is valid, and
             the new data is added in a way that preserves the existing validity, then
-            calling ``iedges.has_bitflag`` for the flags in this set will return True.
-            If any of the bits in ``iedges_validation`` are ``0``, that particular
+            calling :meth:`~IEdgeTable.has_bitflag` for the flags in this set will return
+            True. If any of the bits in ``iedges_validation`` are ``0``, that particular
             validation will not be performed: in this case the ``has_bitflag`` method
             will return False for certain flags, and some table algorithms will not run.
-            For instance, using the ``ids_for_child()`` method is only valid if
-            ``IEDGES_FOR_CHILD_ADJACENT`` and ``IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC``
+            For instance, using the :meth:`ids_for_child()` method is only valid if
+            :data:`~ValidFlags.IEDGES_FOR_CHILD_ADJACENT` and
+            :data:`~ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC`
             are set, so if you wish to use that method you should add those flags to
             ``validate``. Defaults to ``None`` which is treated as ``0``, meaning that
-            all ``IEDGE_...`` validation flags will be zeroed, no validation checks will
+            all ``IEDGE`_`` validation flags will be zeroed, no validation checks will
             be performed, and hence the table will be marked as containing potentially
             invalid iedge information.
         :param bool skip_validate: If True, assume the user has checked that this
@@ -359,14 +359,24 @@ class IEdgeTable(BaseTable):
             tables may claim that they are valid when they are not. If False, and any of
             the ``iedges_validation`` flags are set, perform the appropriate validations
             (default: ``None`` treated as False)
+
+            .. warning::
+
+                    This parameter is only intended to speed up well-tested
+                    code. It should only be set to ``True`` when you are sure that any
+                    calling code has been tested with validation.
+
         :return: The row ID of the newly added row
 
-        Example:
+        For example:
+
+        .. code-block::
+
             new_id = iedges.add_row(
                 cl, cr, pl, pr, child=c, parent=p, validate=ValidFlags.IEDGES_INTERVALS
             )
         """
-        row = self.RowClass(*args, **kwargs)
+        row = self._RowClass(*args, **kwargs)
 
         if validate is None:
             validate = ~ValidFlags.IEDGES_ALL
@@ -502,7 +512,7 @@ class IEdgeTable(BaseTable):
         """
         kwargs = self._from_tskit(self.to_dict(obj))
         return self.add_int_row(
-            **{k: v for k, v in kwargs.items() if k in self.RowClass.__annotations__}
+            **{k: v for k, v in kwargs.items() if k in self._RowClass.__annotations__}
         )
 
     def _check_ints(self, *args, convert=False, **kwargs):
@@ -539,8 +549,20 @@ class IEdgeTable(BaseTable):
 
     def ids_for_child(self, u, chromosome=None):
         """
-        Return all the iedge ids for this child. If chromosome is not None, return
+        Return all the iedge ids for a child. If chromosome is not None, return
         only the iedge IDs for that chromosome.
+
+        .. note::
+            The returned IDs are only guaranteed to be ordered by left position if
+            :data:`ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC` is set.
+
+        :param int u: The child ID
+        :param int chromosome: The chromosome number. If ``None`` (default), ruturn
+            all the iedge IDs for the child, sorted by chromosome.
+
+        :return: A numpy array of iedge IDs
+        :raises ValueError: If the iedges for a child are not adjacent in the table,
+            or not ordered by chromosome
         """
         if not self.has_bitflag(
             ValidFlags.IEDGES_FOR_CHILD_ADJACENT
@@ -631,14 +653,14 @@ class IEdgeTable(BaseTable):
     @property
     def child_left(self) -> npt.NDArray[np.int64]:
         """
-        Return a numpy array of child node IDs
+        Return a numpy array of child left-positions
         """
         return np.array([row.child_left for row in self.data], dtype=np.int64)
 
     @property
     def child_right(self) -> npt.NDArray[np.int64]:
         """
-        Return a numpy array of child node IDs
+        Return a numpy array of child right-positions
         """
         return np.array([row.child_right for row in self.data], dtype=np.int64)
 
@@ -652,14 +674,14 @@ class IEdgeTable(BaseTable):
     @property
     def parent_left(self) -> npt.NDArray[np.int64]:
         """
-        Return a numpy array of child node IDs
+        Return a numpy array of parent left-positions
         """
         return np.array([row.parent_left for row in self.data], dtype=np.int64)
 
     @property
     def parent_right(self) -> npt.NDArray[np.int64]:
         """
-        Return a numpy array of child node IDs
+        Return a numpy array of parent right-positions
         """
         return np.array([row.parent_right for row in self.data], dtype=np.int64)
 
@@ -679,7 +701,11 @@ class IEdgeTable(BaseTable):
 
 
 class NodeTable(BaseTable):
-    RowClass = NodeTableRow
+    """
+    A table containing the nodes with their times
+    """
+
+    _RowClass = NodeTableRow
 
     def __init__(self):
         # we use the time array repeatedly so cache it.
@@ -726,10 +752,10 @@ class NodeTable(BaseTable):
 
     def add_rows(self, time, flags, individual):
         """
-        Adds multiple individuals at a time, efficiently.
+        Adds multiple nodes at a time, efficiently.
         All parameters must be provided as numpy arrays which are broadcast to
         the same shape as the largest array. To specify no individual,
-        provide ``Const.NULL`` (-1) as the ``individual`` value.
+        provide :data:`NULL` (-1) as the ``individual`` value.
 
         Returns a numpy array of numpy IDs whose shape is
         given by the shape of the largest input array.
@@ -749,7 +775,7 @@ class NodeTable(BaseTable):
 
 
 class IndividualTable(BaseTable):
-    RowClass = IndividualTableRow
+    _RowClass = IndividualTableRow
 
     def add_rows(self, parents):
         """
@@ -971,8 +997,8 @@ class MRCAdict(dict):
 
 class Tables:
     """
-    A group of tables describing a Genetic Inheritance Graph (GIG),
-    similar to a tskit TableCollection.
+    A group of tables which can describe a Genetic Inheritance Graph (GIG). This
+    class is intentionally similar to a *tskit* :class:`~tskit:tskit.TableCollection`.
     """
 
     _frozen = False
@@ -1026,26 +1052,28 @@ class Tables:
 
     def add_iedge_row(self, *args, validate=None, skip_validate=None, **kwargs):
         """
-        Calls the edge.add_row function and also (optionally)
-        validate features of the nodes used (e.g. that the parent
+        Similar to the :meth:`~tables.IEdgeTable.add_row` method of the
+        :class:`~tables.IEdgeTable` stored in this set of tables, but also (optionally)
+        can be used to validate features of the nodes used (e.g. that the parent
         node time is older than the child node time).
 
-        .. warning::
-            The ``skip_validate`` parameter is only intended to speed up well-tested
-            code. It should only be set to ``True`` when you are sure that any calling
-            code has been tested with validation.
-
-        :param int validate: A set of bitflags (attributes of the ``ValidFlags`` class)
+        :param int validate: A set of bitflags (as listed in :class:`ValidFlags`)
             specifying which iedge table validation checks to perform. In particular,
-            this can include the ``IEDGES_PARENT_OLDER_THAN_CHILD`` and
-            ``IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC`` flags, which will check the node
-            table for those properties. Other flags will be passed to ``iedges.add_row``.
+            this can include the :data:`~ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD` and
+            :data:`~ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC` flags, which will
+            check the node table for those properties. Other flags will be passed to
+            :meth:`tables.IEdgeTable.add_row`.
         :param bool skip_validate: If True, assume the user has checked that this
-            operation will pass the validation tests implied by the ``validate``
-            flags. This means that the validation routines will not be run, but the
-            tables may claim that they are valid when they are not. If False, and any of
-            the ``iedges_validation`` flags are set, perform the appropriate validations
-            (default: ``None`` treated as False)
+            operation will pass the validation tests implied by the ``validate`` flags.
+            This means that the validation routines will not be run, but the tables
+            may claim that they are valid when they are not. If False, and any of the
+            ``IEDGES_...`` :ref:`validation flags<sec_python_api_tables_validity>` are
+            set, perform the appropriate validations. Default: ``None`` treated as False.
+
+            .. warning::
+                The ``skip_validate`` parameter is only intended to speed up well-tested
+                code. It should only be set to ``True`` when you are sure that any
+                calling code has been tested with validation.
         """
         if validate is None:
             validate = ~ValidFlags.IEDGES_ALL
@@ -1137,46 +1165,48 @@ class Tables:
         """
         Return a genetic inheritance graph (Graph) object based on these tables. This
         requires the following iedge conditions to be met:
-            * The child_left, child_right, parent_left, parent_right, parent, and child
-                values must all be provided and be non-negative integers. If
-                ``child_chromosome`` and ``parent_chromosome`` are provided, they also
-                must be non-negative integers (otherwise a default chromosome ID of 0 is
-                assumed). This corresponds to the flag
-                :data:`ValidFlags.IEDGES_INTEGERS`.
-            * The intervals must be valid (i.e. ``abs(child_left - child_right)`` is
-                finite, nonzero, and equal to ``abs(parent_left - parent_right)``. This
-                corresponds to the flag :data:`ValidFlags.IEDGES_INTERVALS`.
-            * Each chromosomal position in a child is covered by only one interval (i.e.
-                for any particular chromosome, intervals for a given child do not
-                overlap). This corresponds to the flag
-                :data:`ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING`
-            * The ``child`` and ``parent`` IDs of an iedge must correspond to nodes in
-                in the node table in which the parent is older (has a strictly greater
-                time) than the child. This corresponds to the flag
-                :data:`ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD`
-            * If an ``edge`` ID is provided for an iedge, and it is not ``NULL`` (-1),
-                then other iedges with the same ``edge`` ID must have the same
-                ``child`` and ``parent`` IDs. This corresponds to the flag
-                :data:`ValidFlags.IEDGES_SAME_PARENT_CHILD_FOR_EDGE`
-            * For consistency and as an enforced convention, the ``child_left`` position
-                for an iedge must be strictly less than the ``child_right`` position.
-                This corresponds to the flag
-                :data:`ValidFlags.IEDGES_CHILD_INTERVAL_POSITIVE`
 
-        To create a valid GIG, the ideges must also be sorted into a canonical order
+            * The child_left, child_right, parent_left, parent_right, parent, and child
+              values must all be provided and be non-negative integers. If
+              ``child_chromosome`` and ``parent_chromosome`` are provided, they also
+              must be non-negative integers (otherwise a default chromosome ID of 0 is
+              assumed). This corresponds to the flag
+              :data:`~ValidFlags.IEDGES_INTEGERS`.
+            * The intervals must be valid (i.e. ``abs(child_left - child_right)`` is
+              finite, nonzero, and equal to ``abs(parent_left - parent_right)``. This
+              corresponds to the flag :data:`~ValidFlags.IEDGES_INTERVALS`.
+            * Each chromosomal position in a child is covered by only one interval (i.e.
+              for any particular chromosome, intervals for a given child do not
+              overlap). This corresponds to the flag
+              :data:`~ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING`
+            * The ``child`` and ``parent`` IDs of an iedge must correspond to nodes in
+              in the node table in which the parent is older (has a strictly greater
+              time) than the child. This corresponds to the flag
+              :data:`~ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD`
+            * If an ``edge`` ID is provided for an iedge, and it is not ``NULL`` (-1),
+              then other iedges with the same ``edge`` ID must have the same
+              ``child`` and ``parent`` IDs. This corresponds to the flag
+              :data:`~ValidFlags.IEDGES_SAME_PARENT_CHILD_FOR_EDGE`
+            * For consistency and as an enforced convention, the ``child_left`` position
+              for an iedge must be strictly less than the ``child_right`` position.
+              This corresponds to the flag
+              :data:`~ValidFlags.IEDGES_CHILD_INTERVAL_POSITIVE`
+
+        To create a valid GIG, the iedges must also be sorted into a canonical order
         such that the following conditions are met (you can also accomplish this by
-        calling ``.sort()`` on the tables first):
+        calling :meth:`Tables.sort` on the tables first):
+
             * The iedges must be grouped by child ID. This corresponds to the flag
-                :data:`ValidFlags.IEDGES_FOR_CHILD_ADJACENT`
+              :data:`~ValidFlags.IEDGES_FOR_CHILD_ADJACENT`
             * Within each group of iedges with the same child ID, the iedges must be
-                ordered by chromosome ID and then by left position. This corresponds to
-                the flags :data:`ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC` and
-                :data:`ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC`
+              ordered by chromosome ID and then by left position. This corresponds to
+              the flags :data:`~ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC` and
+              :data:`~ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC`
             * The groups of iedges with the same child ID must be ordered
-                by time of child node and then (if nodes have identical times) by
-                child node ID. This corresponds to the flags
-                :data:`ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC` and
-                :data:`ValidFlags.IEDGES_SECONDARY_ORDER_CHILD_ID_ASC`.
+              by time of child node and then (if nodes have identical times) by
+              child node ID. This corresponds to the flags
+              :data:`~ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC` and
+              :data:`~ValidFlags.IEDGES_SECONDARY_ORDER_CHILD_ID_ASC`.
 
         .. note::
             The nodes are not required to be in any particular order (e.g. by time)
@@ -1255,8 +1285,8 @@ class Tables:
     @classmethod
     def from_tree_sequence(cls, ts, *, chromosome=None, timedelta=0, **kwargs):
         """
-        Create a GIG Tables object from a tree sequence. To create a GIG
-        directly, use GIG.from_tree_sequence() which simply wraps this method.
+        Create a Tables object from a :class:`tskit:tskit.TreeSequence`. To create a GIG
+        directly, use :func:`Graph.from_tree_sequence` which simply wraps this method.
 
         :param tskit.TreeSequence ts: The tree sequence on which to base the Tables
             object
@@ -1264,6 +1294,8 @@ class Tables:
         :param float timedelta: A value to add to all node times (this is a hack until
             we can set entire columns like in tskit, see #issues/19)
         :param kwargs: Other parameters passed to the Tables constructor
+        :return: A Tables object representing the tree sequence
+        :rtype: Tables
         """
         ts_tables = ts.tables
         tables = cls(time_units=ts.time_units)
@@ -1296,6 +1328,10 @@ class Tables:
         Find all regions between nodes u and v that share a most recent
         common ancestor in the GIG which is more recent than time_cutoff.
         Returns a dict of dicts of the following form
+
+        .. code-block:: JSON
+
+
             {
                 MRCA_node_ID1 : {(X, Y, CHR): (
                     [(uA, uB, uCHRa), (uC, uD, uCHRb), ...],
@@ -1304,6 +1340,7 @@ class Tables:
                 MRCA_node_ID2 : ...,
                 ...
             }
+
         Where in each inner dict, the key (X, Y, CHR) gives an interval (with X < Y)
         in the MRCA node, and the value is a 2-tuple giving the corresponding
         intervals in u and v. In the example above there is a list of two
@@ -1312,22 +1349,25 @@ class Tables:
         in u is inverted relative to that in the MRCA node.
 
         Implementation-wise, this is similar to the sample_resolve algorithm, but
-        1. Instead of following the ancestry of *all* samples upwards, we
+
+        #. Instead of following the ancestry of *all* samples upwards, we
            follow just two of them. This means we are unlikely to visit all
            nodes in the graph, and so we create a dynamic stack (using the
            sortedcontainers.SortedDict class, which is kept ordered by node time.
-        2. We do not edit/change the edge intervals as we go. Instead we simply
+        #. We do not edit/change the edge intervals as we go. Instead we simply
            return the intervals shared between the two samples.
-        3. The intervals "know" whether they were originally associated with u or v.
+        #. The intervals "know" whether they were originally associated with u or v.
            If we find an ancestor with both u and v-associated intervals
            this indicates a potential common ancestor, in which coalescence could
            have occurred.
-        4. We do not add older regions to the stack if they have coalesced.
-        5. We have a time cutoff, so that we don't have to go all the way
+        #. We do not add older regions to the stack if they have coalesced.
+        #. We have a time cutoff, so that we don't have to go all the way
            back to the "origin of life"
-        6. We have to keep track of the offset of the current interval into the
+        #. We have to keep track of the offset of the current interval into the
            original genome, to allow mapping back to the original coordinates
+
         """
+
         if not isinstance(u, (int, np.integer)) or not isinstance(v, (int, np.integer)):
             raise ValueError("u and v must be integers")
 

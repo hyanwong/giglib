@@ -605,7 +605,7 @@ class TestIEdgeAttributes:
         ["parent", "child", "parent_left", "parent_right", "child_left", "child_right"],
     )
     def test_ts_attributes(self, simple_ts, name):
-        gig = gigl.from_tree_sequence(simple_ts)
+        gig = gigl.Graph.from_tree_sequence(simple_ts)
         tables = gig.tables
         assert getattr(tables.iedges, name).dtype == np.int64
         suffix = name.split("_")[-1]
@@ -631,7 +631,7 @@ class TestNodeAttributes:
         assert np.all(tables.nodes.flags == simple_ts.nodes_flags)
 
     def test_child(self, simple_ts):
-        gig = gigl.from_tree_sequence(simple_ts)
+        gig = gigl.Graph.from_tree_sequence(simple_ts)
         tables = gig.tables
         ts_order = gig.iedge_map_sorted_by_parent
         assert np.all(tables.iedges.child[ts_order] == simple_ts.edges_child)
@@ -643,7 +643,7 @@ class TestFindMrcas:
         comb_ts = tskit.Tree.generate_comb(5, span=span).tree_sequence
         # make a gig with many unary nodes above node 0
         comb_ts = comb_ts.simplify([0, 4], keep_unary=True)
-        gig = gigl.from_tree_sequence(comb_ts)
+        gig = gigl.Graph.from_tree_sequence(comb_ts)
         full_span = (0, span)
         shared_regions = gig.tables.find_mrca_regions(0, 1)
         assert len(shared_regions) == 1
@@ -660,7 +660,7 @@ class TestFindMrcas:
     def test_find_mrca_2_trees(self, degree2_2_tip_ts):
         num_trees = 2
         assert degree2_2_tip_ts.num_trees == num_trees
-        gig = gigl.from_tree_sequence(degree2_2_tip_ts)
+        gig = gigl.Graph.from_tree_sequence(degree2_2_tip_ts)
         shared_regions = gig.tables.find_mrca_regions(0, 1)
         internal_nodes = [node.id for node in degree2_2_tip_ts.nodes() if node.time > 0]
         assert len(shared_regions) == num_trees
@@ -682,7 +682,7 @@ class TestFindMrcas:
         tree0 = degree2_2_tip_ts.first()
         tree1 = degree2_2_tip_ts.last()
         assert T[tree0.root] != T[tree1.root]
-        gig = gigl.from_tree_sequence(degree2_2_tip_ts)
+        gig = gigl.Graph.from_tree_sequence(degree2_2_tip_ts)
         assert gig.sequence_length(0) == degree2_2_tip_ts.sequence_length
         assert gig.sequence_length(1) == degree2_2_tip_ts.sequence_length
         cutoff = (T[[tree0.root, tree1.root]]).mean()
@@ -697,7 +697,7 @@ class TestFindMrcas:
         assert simple_ts.num_trees > 1
         assert simple_ts.num_samples >= 2
         max_trees = 0
-        gig = gigl.from_tree_sequence(simple_ts)
+        gig = gigl.Graph.from_tree_sequence(simple_ts)
         for u in range(len(gig.samples)):
             for v in range(u + 1, len(gig.samples)):
                 mrcas = gig.tables.find_mrca_regions(u, v)
@@ -837,7 +837,7 @@ class TestFindMrcas:
     def test_random_match_pos(self, simple_ts):
         rng = np.random.default_rng(1)
         ts = simple_ts.keep_intervals([(0, 2)]).trim()
-        gig = gigl.from_tree_sequence(ts)
+        gig = gigl.Graph.from_tree_sequence(ts)
         assert gig.samples[0] == 0
         assert gig.samples[1] == 1
         mrcas = gig.tables.find_mrca_regions(0, 1)

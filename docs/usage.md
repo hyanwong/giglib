@@ -16,5 +16,5 @@ kernelspec:
 # Usage
 
 :::{todo}
-Fill out details from README.md
+Fill out details from the [README.md](https://github.com/hyanwong/GeneticInheritanceGraphLibrary/blob/main/README.md)
 :::

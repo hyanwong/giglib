@@ -11,9 +11,10 @@ except PackageNotFoundError:
     __version__ = "unknown version"  # noqa: F401
 
 from .tables import Tables  # noqa: F401
-from .graph import from_tree_sequence, Graph  # noqa: F401
+from .graph import Graph  # noqa: F401
 from .util import set_print_options  # noqa: F401
 from .constants import Const
+from .constants import ValidFlags  # noqa: F401
 
 NULL = Const.NULL
 NODE_IS_SAMPLE = Const.NODE_IS_SAMPLE

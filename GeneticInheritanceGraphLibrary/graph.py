@@ -19,18 +19,17 @@ from .tables import NodeTableRow
 from .tables import Tables
 
 
-def from_tree_sequence(ts):
-    """
-    Construct a GIG from a tree sequence
-    """
-    return Graph(Tables.from_tree_sequence(ts))
-
-
 class Graph:
+    """
+    This is similar to a _tskit_ :class:`~tskit:tskit.TreeSequence`.
+    An instance can be created from a :class:`Tables` object by calling
+    :meth:`Tables.graph`, which freezes the tables into a GIG.
+    """
+
     def __init__(self, tables):
         """
-        Create a gig.Graph from a set of Tables. This is for internal use only:
-        the canonical way to do this is to use tables.graph()
+        Create a :class:`Graph` from a set of Tables. This is for internal use only:
+        the canonical way to do this is to use  {meth}`Tables.graph`
         """
         if not isinstance(tables, Tables):
             raise ValueError(
@@ -39,6 +38,17 @@ class Graph:
         self.tables = tables
         self._validate()
         self.tables.freeze()
+
+    @classmethod
+    def from_tree_sequence(cls, ts):
+        """
+        Construct a GIG from a tree sequence.
+
+        :param tskit.TreeSequence ts: A tree sequence object
+        :return: A new GIG object
+        :rtype: Graph
+        """
+        return cls(Tables.from_tree_sequence(ts))
 
     def _validate(self):
         assert hasattr(self, "tables")
@@ -207,14 +217,14 @@ class Graph:
 
     def iedges_for_parent(self, u):
         """
-        Iterate over all iedges with child u
+        Iterate over all iedges with parent u
         """
         for i in range(*self.child_range[u, :]):
             yield self.iedges[self.iedge_map_sorted_by_parent[i]]
 
     def iedges_for_child(self, u, chromosome=None):
         """
-        Iterate over all iedges with parent u
+        Iterate over all iedges with child u
         """
         for i in self.tables.iedges.ids_for_child(u, chromosome):
             yield self.iedges[i]
@@ -251,7 +261,7 @@ class Graph:
 
     def to_tree_sequence(self, sequence_length=None):
         """
-        convert this GIG to a tree sequence. This can only be done if
+        Convert this GIG to a tree sequence. This can only be done if
         each iedge has the same child_left as parent_left and the same
         child_right as parent_right.
 

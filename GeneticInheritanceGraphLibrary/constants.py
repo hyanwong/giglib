@@ -4,63 +4,70 @@ from enum import IntFlag
 import tskit
 
 
-class Const(IntFlag):
+class Const:
     NODE_IS_SAMPLE = tskit.NODE_IS_SAMPLE
     NODE_IS_RE = 1 << 19  # mainly for testing
+
+    #: The default NULL integer value, identical to :data:`tskit:tskit.NULL`
     NULL = tskit.NULL
     ROOTWARDS = 0
     LEAFWARDS = 1
 
 
+# There are quite a lot of validity flags, so these
+# are kept separate from the other constants.
 class ValidFlags(IntFlag):
-    """
-    Flags involving validity of the GIG. There are quite a lot of these, so they are
-    kept separate from the other constants.
+    r"""
+    Flags involving validity of the GIG. Those starting with ``IEDGES\_`` are
+    specific to the iedges table.
     """
 
     # GIG DEFINITIONAL REQUIREMENTS
 
+    #: If set, iedge data is guaranteed to be integers
     IEDGES_INTEGERS = auto()
 
-    # Most important: valid finite nonzero intervals with parent span == child span
+    #: If set, intervals are guaranteed finite and have parent span == child span
     IEDGES_INTERVALS = auto()
 
-    # Second most important: each chrom position in a child has only one interval above
+    #: IF set, each genomic position in a child's chromosome is guaranteed to have
+    #: only one interval above
     IEDGES_FOR_CHILD_NONOVERLAPPING = auto()
 
-    # Ensure the graph is acyclic (requires knowledge of the times in the nodes table)
-    # Also useful for guaranteeing that there are nodes with the parent and child IDs
+    #: If set, all parents are older than their children, guaranteeing the GIG is acyclic
+    #: (note this requires knowledge of the times in the nodes table). This flag also
+    #: guarantees that nodes with those parent and child IDs exist in the nodes table.
     IEDGES_PARENT_OLDER_THAN_CHILD = auto()
 
-    # Iedges with the same edge_ID must have the same combination of parentID / childID
-    # (note the inverse may not be true: iedges with the same parentID / childID can have
-    # different edge_IDs)
+    #: If set, iedges with the same edge_ID are guaranteed to have the same combination
+    #: of parentID / childID. Note the inverse may not be true: iedges with the same
+    #: parentID / childID can have different edge_IDs.
     IEDGES_SAME_PARENT_CHILD_FOR_EDGE = auto()
 
     # IEDGE EFFICIENCY REQUIREMENTS (e.g. to define a canonical iedge order)
 
-    # keep child_left < child_right (but inversions will have parent_left > parent_right)
+    #: Set if ``child_left`` < ``child_right`` (inversions can have
+    #: ``parent_left`` > ``parent_right``)
     IEDGES_CHILD_INTERVAL_POSITIVE = auto()
 
-    # all iedges with the same child ID are adjacent in the table
+    #: Set if all iedges with the same child ID are adjacent in the table
     IEDGES_FOR_CHILD_ADJACENT = auto()
 
-    # within a set of iedges for the same child, iedges are ordered first
-    # by chromosome number
+    #: Set if within a set of iedges for the same child, iedges are ordered first
+    #: by chromosome number
     IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC = auto()
 
-    # within a set of iedges for the same child & chromosome, iedges are ordered by left
-    # position (if IEDGES_FOR_CHILD_NONOVERLAPPING and IEDGES_CHILD_INTERVAL_POSITIVE are
-    # set, then this means that iedges must also be ordered by right position)
+    #: Set if, within a set of iedges for the same child & chromosome, iedges are ordered
+    #: by left position
     IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC = auto()
 
-    # the adjacent rows for a child are ordered in descending order of child node time
-    # (requires knowledge of the times in the nodes table)
+    #: Set if the adjacent rows for a child are ordered in descending order of child
+    #: node time. Note that this requires knowledge of the times in the nodes table.
     IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC = auto()
 
-    # ties (child nodes at the same time) are broken by putting the lowest child ID first
-    # (note: probably not very important, but creates a canonical ordering; it also
-    # implies IEDGES_FOR_CHILD_ADJACENT must be set)
+    #: Set if iedges are ordered such that where iedge children are tied at the same
+    #: time, iedges with the lowest child ID come first. Note that although this is often
+    #: not algorithmically necessary, it helps to creates a canonical iedge ordering.
     IEDGES_SECONDARY_ORDER_CHILD_ID_ASC = auto()
 
     IEDGES_ALL = (
