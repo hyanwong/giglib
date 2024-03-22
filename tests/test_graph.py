@@ -133,7 +133,7 @@ class TestConstructor:
 
 class TestMethods:
     def test_edge_iterator(self, simple_ts):
-        gig = gigl.from_tree_sequence(simple_ts)
+        gig = gigl.Graph.from_tree_sequence(simple_ts)
         assert len(gig.iedges) == simple_ts.num_edges
         assert len(gig.iedges) == simple_ts.num_edges  # __len__ should work
         i = 0
@@ -144,7 +144,7 @@ class TestMethods:
         assert i == simple_ts.num_edges
 
     def test_iedges_for_child(self, simple_ts):
-        gig = gigl.from_tree_sequence(simple_ts)
+        gig = gigl.Graph.from_tree_sequence(simple_ts)
         edges = set()
         for u in range(len(gig.nodes)):
             for iedge in gig.iedges_for_child(u):
@@ -154,7 +154,7 @@ class TestMethods:
         assert len(edges) == simple_ts.num_edges
 
     def test_sequence_length(self, simple_ts):
-        gig = gigl.from_tree_sequence(simple_ts)
+        gig = gigl.Graph.from_tree_sequence(simple_ts)
         for u in gig.samples:
             assert gig.sequence_length(u) == simple_ts.sequence_length
 
@@ -179,11 +179,11 @@ class TestTskit:
     # Test high level functions
     def test_simple_from_tree_sequence(self, simple_ts):
         assert simple_ts.num_trees > 1
-        gig = gigl.from_tree_sequence(simple_ts)
+        gig = gigl.Graph.from_tree_sequence(simple_ts)
         assert np.all(gig.samples == gig.tables.samples())
 
     def test_to_tree_sequence(self, degree2_2_tip_ts):
-        gig = gigl.from_tree_sequence(degree2_2_tip_ts)
+        gig = gigl.Graph.from_tree_sequence(degree2_2_tip_ts)
         L = degree2_2_tip_ts.sequence_length + 100
         ts = gig.to_tree_sequence(sequence_length=L)
         assert ts.num_samples == 2
@@ -192,13 +192,13 @@ class TestTskit:
         assert ts.sequence_length == L
 
     def test_to_tree_sequence_bad_length(self, degree2_2_tip_ts):
-        gig = gigl.from_tree_sequence(degree2_2_tip_ts)
+        gig = gigl.Graph.from_tree_sequence(degree2_2_tip_ts)
         L = degree2_2_tip_ts.sequence_length - 1
         with pytest.raises(tskit.LibraryError):
             gig.to_tree_sequence(sequence_length=L)
 
     def test_roundtrip(self, simple_ts):
-        gig = gigl.from_tree_sequence(simple_ts)
+        gig = gigl.Graph.from_tree_sequence(simple_ts)
         ts = gig.to_tree_sequence()
         ts.tables.assert_equals(simple_ts.tables, ignore_provenance=True)
 
@@ -213,7 +213,7 @@ class TestSampleResolving:
     """
 
     def test_simple_sample_resolve(self, simple_ts):
-        gig = gigl.from_tree_sequence(simple_ts.simplify())
+        gig = gigl.Graph.from_tree_sequence(simple_ts.simplify())
         new_gig = gig.sample_resolve()  # Shouldn't make any changes
         assert gig.tables == new_gig.tables
 
@@ -410,7 +410,7 @@ class TestIEdge:
         ["parent", "child", "parent_left", "parent_right", "child_left", "child_right"],
     )
     def test_edge_accessors(self, simple_ts, name):
-        gig = gigl.from_tree_sequence(simple_ts)
+        gig = gigl.Graph.from_tree_sequence(simple_ts)
         suffix = name.split("_")[-1]
 
         ie = gig.iedges[gig.iedge_map_sorted_by_parent[0]]  # tskit order

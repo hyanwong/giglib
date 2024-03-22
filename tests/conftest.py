@@ -319,7 +319,7 @@ def gig_from_degree2_ts():
         5, sequence_length=10, recombination_rate=0.02, random_seed=1
     )
     assert ts.num_trees == 2
-    return gigl.from_tree_sequence(ts)
+    return gigl.Graph.from_tree_sequence(ts)
 
 
 @pytest.fixture(scope="session")
