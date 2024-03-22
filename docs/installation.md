@@ -37,3 +37,7 @@ ts = msprime.sim_ancestry(
 gig = gigl.Graph.from_tree_sequence(ts)
 print(len(gig.nodes), "nodes in this GIG")
 ```
+
+As this GIG was created from a standard
+[tree sequence](https://tskit.dev/tutorials/what_is.html),
+it will not contain any structural variation.
