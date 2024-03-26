@@ -45,7 +45,7 @@ class TestCreation:
 
     def test_noninteger_positions(self):
         bad_ts = msprime.simulate(10, recombination_rate=10, random_seed=1)
-        with pytest.raises(ValueError, match="an integer"):
+        with pytest.raises(ValueError, match="integers"):
             gigl.Tables.from_tree_sequence(bad_ts)
 
 
@@ -220,13 +220,6 @@ class TestIEdgeTable:
         assert tables.iedges.child_left[0] == 0
         assert tables.iedges[0].child_span == 1
         assert tables.iedges[0].parent_span == -1
-
-    def test_append_bad_coord_type(self):
-        tables = gigl.Tables()
-        tables.nodes.add_row(flags=gigl.NODE_IS_SAMPLE, time=0)
-        tables.nodes.add_row(flags=gigl.NODE_IS_SAMPLE, time=0)
-        with pytest.raises(TypeError, match="Could not convert"):
-            tables.iedges.add_int_row(0, 1, None, 1, child=0, parent=1)
 
     def test_novalidate_add_row(self):
         tables = gigl.Tables()

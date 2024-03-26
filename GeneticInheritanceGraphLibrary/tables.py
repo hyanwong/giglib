@@ -563,8 +563,10 @@ class IEdgeTable(NewBaseTable):
         if validate is None:
             validate = ~ValidFlags.IEDGES_ALL
 
+        # only try validating if any IEDGES flags are set
         if (not skip_validate) and bool(validate & ValidFlags.IEDGES_ALL):
-            # only try validating if any IEDGES flags are set
+            # need to check the values before they were put into the data array,
+            # as numpy silently converts floats to integers on assignment
             if validate & ValidFlags.IEDGES_INTEGERS:
                 for is_edge, i in enumerate(
                     (
@@ -695,7 +697,7 @@ class IEdgeTable(NewBaseTable):
         new_kw.update(kwargs)
         return new_kw
 
-    def append(self, obj) -> int:
+    def append(self, obj, validate=None, skip_validate=None) -> int:
         """
         Append a row to an IEdgeTable taking the named attributes of the passed-in
         object to populate the row. If a `left` field is present in the object,
@@ -708,52 +710,11 @@ class IEdgeTable(NewBaseTable):
         the intervals and node IDs are integers before you pass them in.
         """
         kwargs = self._from_tskit(self.to_dict(obj))
-        return self.add_int_row(
-            **{k: v for k, v in kwargs.items() if k in self._RowClass._fields}
+        return self.add_row(
+            **{k: v for k, v in kwargs.items() if k in self._RowClass._fields},
+            validate=validate,
+            skip_validate=skip_validate,
         )
-
-    @staticmethod
-    def _check_int(i, convert=False):
-        if isinstance(i, (int, np.integer)):
-            return i
-        try:
-            if convert and i.is_integer():
-                return int(i)
-            raise ValueError(f"Expected an integer not {i}")
-        except AttributeError:
-            raise TypeError(f"Could not convert {i} to an integer")
-
-    def _check_ints(self, *args, convert=False, **kwargs):
-        pcols = (
-            "child_left",
-            "child_right",
-            "parent_left",
-            "parent_right",
-            "child",
-            "parent",
-        )
-        return (
-            [self._check_int(v, convert) if i < 4 else v for i, v in enumerate(args)],
-            {
-                k: self._check_int(v, convert) if k in pcols else v
-                for k, v in kwargs.items()
-            },
-        )
-
-    def add_int_row(self, *args, **kwargs) -> int:
-        """
-        Add a row to an IEdgeTable, checking that the first 4 positional arguments
-        (genome intervals) and six named keyword args can be converted to integers
-        (and converting them if required). This allows edges from e.g. tskit
-        (which allows floating-point positions) to be passed in.
-
-        :return: The row ID of the newly added row
-        """
-        # NB: here we override the default method to allow integer conversion and
-        # left -> child_left, parent_left etc., to aid conversion from tskit
-        # For simplicity, this only applies for named args, not positional ones
-        args, kwargs = self._check_ints(*args, **kwargs, convert=True)
-        return self.add_row(*args, **kwargs)
 
     @staticmethod
     def to_dict(obj):
@@ -1484,7 +1445,7 @@ class Tables:
             obj = dataclasses.asdict(row)
             if chromosome is not None:
                 obj["parent_chromosome"] = obj["child_chromosome"] = chromosome
-            tables.iedges.append(obj)
+            tables.iedges.append(obj, validate=ValidFlags.IEDGES_INTEGERS)
         for row in ts_tables.individuals:
             obj = dataclasses.asdict(row)
             tables.individuals.append(obj)
