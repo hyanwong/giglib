@@ -21,20 +21,6 @@ NULL = Const.NULL  # alias for tskit.NULL
 NODE_IS_SAMPLE = Const.NODE_IS_SAMPLE  # alias for tskit.NODE_IS_SAMPLE
 
 
-@dataclasses.dataclass(frozen=True)
-class TableRow:
-    def asdict(self):
-        return dataclasses.asdict(self)
-
-    def _validate(self):
-        for field in dataclasses.fields(self):
-            value = getattr(self, field.name)
-            if not isinstance(value, field.type):
-                raise ValueError(
-                    f"Expected {field.name} to be {field.type}, " f"got {repr(value)}"
-                )
-
-
 class IEdgeTableRow(
     collections.namedtuple(
         "IEdgeTableRow",
@@ -93,206 +79,47 @@ class IEdgeTableRow(
         return min(self.child_right, self.child_left)
 
 
-@dataclasses.dataclass(frozen=True)
-class NodeTableRow(TableRow):
-    time: float
-    flags: int = 0
-    individual: int = Const.NULL
-    # TODO: add metadata
-
+class NodeTableRow(
+    collections.namedtuple(
+        "NodeTableRow",
+        ", ".join(["time", "flags", "individual", "metadata"]),
+    )
+):
     def is_sample(self):
-        return (self.flags & NODE_IS_SAMPLE) > 0
+        return (self.flags & NODE_IS_SAMPLE) == NODE_IS_SAMPLE
 
 
-@dataclasses.dataclass(frozen=True)
-class IndividualTableRow(TableRow):
-    parents: tuple = ()
+class IndividualTableRow(
+    collections.namedtuple("IndividualTableRow", "flags, location, parents, metadata")
+):
+    pass
 
 
 class BaseTable:
     _RowClass = None
-    _frozen = False
-
-    def __getattr__(self, name):
-        # Extract column by name. This is a bit of a hack: can be replaced later
-        if name not in self._RowClass.__annotations__:
-            raise AttributeError
-        return np.array([getattr(d, name) for d in self._data])
-
-    def __init__(self):
-        # TODO - at the moment we store each row as a separate dataclass object,
-        # in the self._data list. This is not very efficient, but it is simple. We
-        # will probably want to follow the tskit paradigm of storing such that
-        # each column can be accessed as a numpy array too. I'm not sure how to
-        # do this without diving into C implementations.
-        self._data = []
-
-    def freeze(self):
-        """
-        Freeze the table so that it cannot be modified
-        """
-        # turn the data into a tuple so that it is immutable. This doesn't
-        # make a copy, but just passes the data by reference
-        self._data = tuple(self._data)
-        self._frozen = True
-
-    def __setattr__(self, attr, value):
-        if self._frozen:
-            raise AttributeError("Trying to set attribute on a frozen instance")
-        return super().__setattr__(attr, value)
-
-    def copy(self):
-        """
-        Returns an unfrozen deep copy of this table
-        """
-        copy = self.__class__()
-        copy._data = list(self._data).copy()
-        return copy
-
-    def __eq__(self, other):
-        return tuple(self._data) == tuple(other._data)
-
-    def clear(self):
-        """
-        Deletes all rows in this table.
-        """
-        self._data = []
-
-    def __len__(self):
-        return len(self._data)
-
-    def __str__(self):
-        headers, rows = self._text_header_and_rows(limit=20)
-        unicode = tskit.util.unicode_table(rows, header=headers, row_separator=False)
-        # hack to change hardcoded package name
-        newstr = []
-        linelen_unicode = unicode.find("\n")
-        assert linelen_unicode != -1
-        for line in unicode.split("\n"):
-            if "skipped (tskit" in line:
-                line = line.replace("skipped (tskit", f"skipped ({__package__}")
-                if len(line) > linelen_unicode:
-                    line = line[: linelen_unicode - 1] + line[-1]
-            newstr.append(line)
-        return "\n".join(newstr)
-
-    def _repr_html_(self):
-        """
-        Called e.g. by jupyter notebooks to render tables
-        """
-        from . import _print_options  # pylint: disable=import-outside-toplevel
-
-        headers, rows = self._text_header_and_rows(limit=_print_options["max_lines"])
-        html = tskit.util.html_table(rows, header=headers)
-        return html.replace(
-            "tskit.set_print_options", f"{__package__}.set_print_options"
-        )
-
-    def __getitem__(self, index):
-        return self._data[index]
-
-    @staticmethod
-    def to_dict(obj):
-        try:
-            return obj.asdict()
-        except AttributeError:
-            try:
-                return dataclasses.asdict(obj)
-            except TypeError:
-                pass
-        return obj
-
-    def add_row(self, *args, **kwargs) -> int:
-        """
-        Add a row to a BaseTable: the arguments are passed to the RowClass constructor
-        (with the RowClass being a dataclass).
-
-        :return: The row ID of the newly added row
-
-        Example:
-            new_id = table.add_row(dataclass_field1="foo", dataclass_field2="bar")
-        """
-        self._data.append(self._RowClass(*args, **kwargs))
-        return len(self._data) - 1
-
-    def add_rowlist(self, rowlist):
-        """
-        Add a list of rows to a BaseTable. Each item in the rowlist must contain
-        objects of the required table row type. This is a convenience function.
-        For a more flexible and performant method that uses numpy arrays
-        and broadcasting, some tables may also implement an ``add_rows`` method.
-        """
-        for row in rowlist:
-            self.append(row)
-
-    def append(self, obj) -> int:
-        """
-        Append a row to a BaseTable by picking required fields from a passed-in object.
-        The object can be a dict, a dataclass, or an object with an .asdict() method.
-
-        :return: The row ID of the newly added row
-
-        Example:
-            new_id = table.append({"field1": "foo", "field2": "bar"})
-        """
-
-        kwargs = self.to_dict(obj)
-        return self.add_row(
-            **{k: v for k, v in kwargs.items() if k in self._RowClass.__annotations__}
-        )
-
-    def _text_header_and_rows(self, limit=None):
-        headers = ("id",)
-        headers += tuple(k for k in self._RowClass.__annotations__.keys() if k != "_")
-        rows = []
-        row_indexes = truncate_rows(len(self), limit)
-        for j in row_indexes:
-            if j == -1:
-                rows.append(f"__skipped__{len(self) - limit}")
-            else:
-                row = self[j]
-                rows.append(
-                    [str(j)] + [f"{x}" for x in dataclasses.asdict(row).values()]
-                )
-        return headers, rows
-
-    @staticmethod
-    def _check_int(i, convert=False):
-        if isinstance(i, (int, np.integer)):
-            return i
-        try:
-            if convert and i.is_integer():
-                return int(i)
-            raise ValueError(f"Expected an integer not {i}")
-        except AttributeError:
-            raise TypeError(f"Could not convert {i} to an integer")
-
-    def _df(self):
-        """
-        Temporary hack to convert the table to a Pandas dataframe.
-        Shouldn't be used for anything besides exploratory work!
-        """
-        return pd.DataFrame([dataclasses.asdict(row) for row in self._data])
-
-
-class NewBaseTable:
-    _RowClass = None
-    _frozen = False
+    _non_int_fieldtypes = {}
     initial_size = 64  # default
     max_resize = 2**18  # maximum number of rows by which we expand internal storage
+    _frozen = None  # Will be overridden during init
 
     def _create_datastore(self):
         self._datastore = np.empty(
-            (self.initial_size),
-            dtype=[(name, np.int64) for name in self._RowClass._fields],
+            self.initial_size,
+            dtype=[
+                (name, self._non_int_fieldtypes.get(name, np.int64))
+                for name in self._RowClass._fields
+            ],
         )
 
     def __init__(self, initial_size=None):
+        self._frozen = False
         if initial_size is not None:
             self.initial_size = initial_size
         self._create_datastore()
         # Create a view into the datastore: can be resized without allocating new memory
         self._data = self._datastore[0:0]
+        # "Ragged" data is stored separately, as it is of variable length
+        self._extra_data = []
 
     def freeze(self):
         """
@@ -319,7 +146,9 @@ class NewBaseTable:
         return super().__setattr__(attr, value)
 
     def __eq__(self, other):
-        return np.all(self._data == other._data)
+        return (
+            np.all(self._data == other._data) and self._extra_data == other._extra_data
+        )
 
     def __getitem__(self, index):
         return self._RowClass(*self._data[index])
@@ -386,8 +215,76 @@ class NewBaseTable:
                 rows.append([str(j)] + [f"{x}" for x in row])
         return headers, rows
 
+    def _repr_html_(self):
+        """
+        Called e.g. by jupyter notebooks to render tables
+        """
+        from . import _print_options  # pylint: disable=import-outside-toplevel
 
-class IEdgeTable(NewBaseTable):
+        headers, rows = self._text_header_and_rows(limit=_print_options["max_lines"])
+        html = tskit.util.html_table(rows, header=headers)
+        return html.replace(
+            "tskit.set_print_options", f"{__package__}.set_print_options"
+        )
+
+    @staticmethod
+    def to_dict(obj):
+        try:
+            return obj._asdict()
+        except AttributeError:
+            try:
+                return dataclasses.asdict(obj)
+            except TypeError:
+                pass
+        return obj
+
+    def _df(self):
+        """
+        Temporary hack to convert the table to a Pandas dataframe.
+        Shouldn't be used for anything besides exploratory work!
+        """
+        return pd.DataFrame([row._asdict() for row in self._data])
+
+
+class BaseExtraTable(BaseTable):
+    """
+    A table that has extra data associated with each row (e.g. metadata)
+    that can't be stored in the main numpy data array because it is ragged.
+    Most tables will have metadata, so we define this be default
+    """
+
+    _extra_names = ["metadata"]
+
+    def _create_datastore(self):
+        self._datastore = np.empty(
+            self.initial_size,
+            dtype=[
+                (name, self._non_int_fieldtypes.get(name, np.int64))
+                for name in self._RowClass._fields
+                if name not in self._extra_names
+            ],
+        )
+
+    def __init__(self, initial_size=None):
+        super().__init__()
+        # list of lists containing the extra data in order declared in the RowClass
+        self._extra_data = []
+        self._extra_data_cols = {name: i for i, name in enumerate(self._extra_names)}
+
+    def copy(self):
+        copy = super().copy()
+        copy._extra_data = [row.copy() for row in self._extra_data]
+        return copy
+
+    def clear(self):
+        super().clear()
+        self._extra_data = []
+
+    def __getitem__(self, index):
+        return self._RowClass(*self._data[index], *self._extra_data[index])
+
+
+class IEdgeTable(BaseTable):
     """
     A table containing the iedges. This contains more complex logic than other
     GIG tables as we want to store and check various forms of
@@ -497,8 +394,7 @@ class IEdgeTable(NewBaseTable):
         skip_validate=None,
     ) -> int:
         """
-        Add a row to an IEdgeTable: the arguments are passed to the RowClass constructor
-        (with the RowClass being a dataclass).
+        The canonical way to add data to an IEdgeTable
 
         .. seealso::
 
@@ -602,7 +498,7 @@ class IEdgeTable(NewBaseTable):
                 self._id_range_for_child[child] = {}
             self._id_range_for_child[child][child_chromosome] = [num_rows, num_rows + 1]
 
-        # add the new row by hand directly
+        # expand the visible data array
         self._data = self._datastore[0 : len(self._data) + 1]
 
         return num_rows
@@ -716,27 +612,6 @@ class IEdgeTable(NewBaseTable):
             skip_validate=skip_validate,
         )
 
-    @staticmethod
-    def to_dict(obj):
-        try:
-            return obj._asdict()
-        except AttributeError:
-            try:
-                return dataclasses.asdict(obj)
-            except TypeError:
-                pass
-        return obj
-
-    def add_rowlist(self, rowlist):
-        """
-        Add a list of rows to a BaseTable. Each item in the rowlist must contain
-        objects of the required table row type. This is a convenience function.
-        For a more flexible and performant method that uses numpy arrays
-        and broadcasting, some tables may also implement an ``add_rows`` method.
-        """
-        for row in rowlist:
-            self.append(row)
-
     def ids_for_child(self, u, chromosome=None):
         """
         Return all the iedge ids for a child. If chromosome is not None, return
@@ -827,100 +702,93 @@ class IEdgeTable(NewBaseTable):
         raise ValueError(f"Direction must be Const.ROOTWARDS, not {direction}")
 
 
-class NodeTable(BaseTable):
+class NodeTable(BaseExtraTable):
     """
     A table containing the nodes with their times
     """
 
     _RowClass = NodeTableRow
+    _non_int_fieldtypes = {"time": np.float64, "flags": np.uint32}
 
-    def __init__(self):
-        # we use the time array repeatedly so cache it.
-        self.time = np.array([], dtype=np.float64)
-        super().__init__()
-
-    def copy(self):
-        """
-        Returns an unfrozen deep copy of this table
-        """
-        copy = super().copy()
-        copy.time = self.time.copy()
-        return copy
-
-    def clear(self):
-        """
-        Deletes all rows in this table.
-        """
-        self.time = np.array([], dtype=np.float64)
-        super().clear()
+    # define each property by hand, for speed
+    @property
+    def time(self) -> npt.NDArray[np.float64]:
+        return self._data["time"]
 
     @property
     def flags(self) -> npt.NDArray[np.uint32]:
-        return np.array([row.flags for row in self.data], dtype=np.uint32)
+        return self._data["flags"]
 
-    def add_row(self, *args, **kwargs) -> int:
+    @property
+    def individual(self):
+        return self._data["individual"]
+
+    def add_row(self, time, *, flags=None, individual=None, metadata=None) -> int:
         """
-        Add a row to a NodeTable: the arguments are passed to the RowClass constructor
-        (with the RowClass being dataclass).
+        The canonical way to add data to an NodeTable
 
+        :param int flags: The flags for this node
         :return: The row ID of the newly added row
 
         Example:
-            new_id = nodes.add_row(dataclass_field1="foo", dataclass_field2="bar")
+            new_id = nodes.add_row(0, flags=NODE_IS_SAMPLE)
         """
-        node_id = super().add_row(*args, **kwargs)
-        # inefficient to use "append" to enlarge the numpy array but worth it because
-        # we often access the time array even as it is being dynamically created.
-        # A more efficient approach would be to pre-allocate an empty array
-        # and return a view onto an appropriately-sized slice of that array.
-        # The problem can be aleviated a little by using add_rows instead.
-        self.time = np.append(self.time, self[-1].time)
-        return node_id
+        if flags is None:
+            flags = 0
+        if individual is None:
+            individual = NULL
 
-    def add_rows(self, time, flags, individual):
-        """
-        Adds multiple nodes at a time, efficiently.
-        All parameters must be provided as numpy arrays which are broadcast to
-        the same shape as the largest array. To specify no individual,
-        provide :data:`NULL` (-1) as the ``individual`` value.
+        num_rows = len(self._data)
+        if len(self._datastore) == num_rows:
+            self._expand_datastore()
+        self._datastore[num_rows] = (time, flags, individual)
+        self._extra_data.append([metadata])
+        self._data = self._datastore[0 : len(self._data) + 1]
+        return num_rows
 
-        Returns a numpy array of numpy IDs whose shape is
-        given by the shape of the largest input array.
-        """
-        # This is more efficient than repeated calls to add_row
-        # because it can allocate memory in one go. This is currently only
-        # used for the cached .time array but could also be used for
-        # the row data itself once that is efficiently stored.
-        time, flags, individual = np.broadcast_arrays(time, flags, individual)
-        self.time = np.append(self.time, time.flatten())
-        result = np.empty_like(time)
-        for indexes in np.ndindex(result.shape):
-            result[indexes] = super().add_row(
-                time[indexes], flags[indexes], individual[indexes]
-            )
-        return result
+    def append(self, obj) -> int:
+        return self.add_row(
+            **{
+                k: v
+                for k, v in self.to_dict(obj).items()
+                if k in self._RowClass._fields
+            }
+        )
 
 
-class IndividualTable(BaseTable):
+class IndividualTable(BaseExtraTable):
     _RowClass = IndividualTableRow
+    _non_int_fieldtypes = {"flags": np.uint32}
+    _extra_names = ["location", "parents", "metadata"]
 
-    def add_rows(self, parents):
-        """
-        Adds multiple individuals at a time, efficiently.
-        Equivalent to iterating over the "parents"
-        and adding each in turn. For efficiency, parents
-        should be a numpy array of ints of at least 2 dimensions.
+    @property
+    def flags(self) -> npt.NDArray[np.uint32]:
+        return self._data["flags"]
 
-        To create individuals without parents you can pass a
-        2D array whose second dimension is of length zero, e.g.
-        ``np.array([], dtype=int).reshape(num_individuals, 0)``
+    @property
+    def parents(self):
+        idx = self._extra_data_cols["parents"]
+        return [row[idx] for row in self._extra_data]
 
-        Returns a numpy array of individual IDs whose shape is
-        given by the shape of the input array minus the last
-        dimension (i.e. of shape ``parents_array.shape[:-1]``)
-        """
-        # NB: currently no more efficient than calling add_row repeatedly
-        return np.apply_along_axis(self.add_row, -1, parents)
+    def add_row(self, *, flags=None, location=None, parents=None, metadata=None) -> int:
+        if flags is None:
+            flags = 0
+        num_rows = len(self._data)
+        if len(self._datastore) == num_rows:
+            self._expand_datastore()
+        self._datastore[num_rows] = (flags,)
+        self._extra_data.append([location, parents, metadata])
+        self._data = self._datastore[0 : len(self._data) + 1]
+        return num_rows
+
+    def append(self, obj) -> int:
+        return self.add_row(
+            **{
+                k: v
+                for k, v in self.to_dict(obj).items()
+                if k in self._RowClass._fields
+            }
+        )
 
 
 class MRCAdict(dict):
@@ -1359,16 +1227,7 @@ class Tables:
         """
         Add a value to all times (nodes and mutations)
         """
-        # TODO: currently node rows are frozen, so we can't change them in-place
-        # We should make them more easily editable but also change the cached times
-        node_table = NodeTable()
-        for node in self.nodes:
-            node_table.add_row(
-                time=node.time + timedelta,
-                flags=node.flags,
-                individual=node.individual,
-            )
-        self.nodes = node_table
+        self.nodes._data["time"] += timedelta
         # TODO - same for mutations, when we implement them
 
     def decapitate(self, time):

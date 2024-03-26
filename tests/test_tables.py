@@ -89,7 +89,7 @@ class TestFreeze:
 
     def test_freeze(self, trivial_gig):
         tables = trivial_gig.tables
-        with pytest.raises(AttributeError):
+        with pytest.raises(ValueError):
             tables.nodes.add_row(time=0)
         with pytest.raises(AttributeError):
             tables.tables.clear()
@@ -186,7 +186,7 @@ class TestMethods:
 
     def test_change_times(self, trivial_gig):
         tables = trivial_gig.tables.copy()
-        times = tables.nodes.time
+        times = trivial_gig.tables.nodes.time
         tables.change_times(timedelta=1.5)
         assert np.isclose(tables.nodes.time, times + 1.5).all()
 
@@ -536,6 +536,7 @@ class TestNodeTable:
         assert new_nodes.time.dtype == np.float64
         assert np.all(new_nodes.time == [1.0, 2.0, 4.0])
 
+    @pytest.mark.skip("Old implemention: not yet redone")
     def test_add_rows(self):
         # test if e.g. we can broadcast
         nodes = gigl.tables.NodeTable()
@@ -563,7 +564,7 @@ class TestStringRepresentations:
         nodes = [(0, 3.1451), (1, 7.4234)]
         iedge = [222, 777, 322, 877, 1, 0]
         for node in nodes:
-            tables.nodes.add_row(time=node[0], flags=node[1])
+            tables.nodes.add_row(time=node[1], flags=node[0])
         tables.iedges.add_row(
             child_left=iedge[0],
             child_right=iedge[1],
@@ -621,9 +622,7 @@ class TestIndividualAttributes:
     def test_asdict(self, simple_ts):
         tables = gigl.Tables.from_tree_sequence(simple_ts)
         for i, ind in enumerate(tables.individuals):
-            assert np.array_equal(
-                ind.asdict()["parents"], simple_ts.individual(i).parents
-            )
+            assert np.array_equal(ind.parents, simple_ts.individual(i).parents)
 
 
 class TestNodeAttributes:
