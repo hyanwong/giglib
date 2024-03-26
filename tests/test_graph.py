@@ -405,6 +405,17 @@ class TestIEdge:
     Test the wrapper around a single iedge
     """
 
+    def basic_edge(self, *args):
+        return gigl.graph.IEdge(
+            *args,
+            child=0,
+            parent=1,
+            edge=-1,
+            id=0,
+            child_chromosome=0,
+            parent_chromosome=0,
+        )
+
     @pytest.mark.parametrize(
         "name",
         ["parent", "child", "parent_left", "parent_right", "child_left", "child_right"],
@@ -431,7 +442,7 @@ class TestIEdge:
 
     @pytest.mark.parametrize("direction", (Const.ROOTWARDS, Const.LEAFWARDS))
     def test_notransform_position(self, direction):
-        ie = gigl.graph.IEdge(10, 20, 10, 20, child=0, parent=1, id=0)
+        ie = self.basic_edge(10, 20, 10, 20)
         assert ie.transform_position(10, direction) == 10
         assert ie.transform_position(12, direction) == 12
         assert ie.transform_position(17, direction) == 17
@@ -442,7 +453,7 @@ class TestIEdge:
             ie.transform_position(20, direction)
 
     def test_transform_position_linear(self):
-        ie = gigl.graph.IEdge(0, 10, 10, 20, child=0, parent=1, id=0)
+        ie = self.basic_edge(0, 10, 10, 20)
         assert ie.transform_position(0, Const.ROOTWARDS) == 10
         assert ie.transform_position(2, Const.ROOTWARDS) == 12
         assert ie.transform_position(7, Const.ROOTWARDS) == 17
@@ -461,7 +472,7 @@ class TestIEdge:
 
     @pytest.mark.parametrize("direction", (Const.ROOTWARDS, Const.LEAFWARDS))
     def test_transform_position_inversion(self, direction):
-        ie = gigl.graph.IEdge(10, 20, 20, 10, child=0, parent=1, id=0)
+        ie = self.basic_edge(10, 20, 20, 10)
         assert ie.transform_position(10, direction) == 19
         assert ie.transform_position(11, direction) == 18
         assert ie.transform_position(12, direction) == 17
@@ -473,7 +484,7 @@ class TestIEdge:
             ie.transform_position(20, direction)
 
     def test_transform_position_moved_inversion(self):
-        ie = gigl.graph.IEdge(10, 20, 30, 20, child=0, parent=1, id=0)
+        ie = self.basic_edge(10, 20, 30, 20)
         assert ie.transform_position(10, Const.ROOTWARDS) == 29
         assert ie.transform_position(11, Const.ROOTWARDS) == 28
         assert ie.transform_position(12, Const.ROOTWARDS) == 27

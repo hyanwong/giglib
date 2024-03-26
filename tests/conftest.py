@@ -4,8 +4,7 @@ import numpy as np
 import pytest
 import tskit
 from GeneticInheritanceGraphLibrary.constants import Const
-from GeneticInheritanceGraphLibrary.constants import ValidFlags
-from tests.gigutil import iedge
+from tests.gigutil import add_iedge
 from tests.gigutil import make_nodes_table
 
 
@@ -58,15 +57,11 @@ def trivial_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    tables.iedges.add_rowlist(
-        [
-            iedge(0, 5, 0, 5, c=1, p=0),
-            iedge(0, 5, 0, 5, c=2, p=0),
-            iedge(0, 5, 0, 5, c=3, p=0),
-            iedge(0, 3, 3, 0, c=4, p=1),  # inversion
-            iedge(3, 5, 3, 5, c=4, p=1),
-        ]
-    )
+    add_iedge(tables, 0, 5, 0, 5, c=1, p=0)
+    add_iedge(tables, 0, 5, 0, 5, c=2, p=0)
+    add_iedge(tables, 0, 5, 0, 5, c=3, p=0)
+    add_iedge(tables, 0, 3, 3, 0, c=4, p=1)  # inversion
+    add_iedge(tables, 3, 5, 3, 5, c=4, p=1)
     return gigl.Graph(tables)
 
 
@@ -85,13 +80,9 @@ def extended_inversion_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    tables.iedges.add_rowlist(
-        [
-            iedge(20, 155, 20, 155, c=0, p=2),
-            iedge(10, 160, 160, 10, c=2, p=3),
-            iedge(0, 100, 0, 100, c=1, p=3),
-        ]
-    )
+    add_iedge(tables, 20, 155, 20, 155, c=0, p=2)
+    add_iedge(tables, 10, 160, 160, 10, c=2, p=3)
+    add_iedge(tables, 0, 100, 0, 100, c=1, p=3)
     tables.sort()
     return gigl.Graph(tables)
 
@@ -110,13 +101,9 @@ def double_inversion_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    tables.iedges.add_rowlist(
-        [
-            iedge(0, 100, 300, 200, c=0, p=2),
-            iedge(200, 300, 100, 0, c=2, p=3),
-            iedge(0, 100, 0, 100, c=1, p=3),
-        ]
-    )
+    add_iedge(tables, 0, 100, 300, 200, c=0, p=2)
+    add_iedge(tables, 200, 300, 100, 0, c=2, p=3)
+    add_iedge(tables, 0, 100, 0, 100, c=1, p=3)
     tables.sort()
     return gigl.Graph(tables)
 
@@ -138,20 +125,17 @@ def multi_chromosome_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    for ie in [
-        iedge(0, 10, 0, 10, c=1, p=0, child_chromosome=1, parent_chromosome=0),
-        # actually only 0..5 are passed to node 1 from the samples on chr 1
-        iedge(0, 3, 5, 8, c=1, p=0, child_chromosome=3, parent_chromosome=0),
-        iedge(3, 5, 10, 8, c=1, p=0, child_chromosome=3, parent_chromosome=0),
-        iedge(0, 10, 0, 10, c=2, p=0, child_chromosome=5, parent_chromosome=0),
-        iedge(0, 5, 0, 5, c=3, p=1, child_chromosome=0, parent_chromosome=1),
-        iedge(5, 10, 0, 5, c=3, p=1, child_chromosome=0, parent_chromosome=3),
-        iedge(0, 5, 0, 5, c=4, p=1, child_chromosome=0, parent_chromosome=1),
-        iedge(5, 10, 0, 5, c=4, p=1, child_chromosome=0, parent_chromosome=3),
-        # last one attaches to chr 1 of root, which no others do
-        iedge(0, 10, 0, 10, c=5, p=0, child_chromosome=0, parent_chromosome=1),
-    ]:
-        tables.add_iedge_row(**ie.asdict(), validate=ValidFlags.GIG)
+    add_iedge(tables, 0, 10, 0, 10, c=1, p=0, child_chromosome=1, parent_chromosome=0)
+    # actually only 0..5 are passed to node 1 from the samples on chr 1
+    add_iedge(tables, 0, 3, 5, 8, c=1, p=0, child_chromosome=3, parent_chromosome=0)
+    add_iedge(tables, 3, 5, 10, 8, c=1, p=0, child_chromosome=3, parent_chromosome=0)
+    add_iedge(tables, 0, 10, 0, 10, c=2, p=0, child_chromosome=5, parent_chromosome=0)
+    add_iedge(tables, 0, 5, 0, 5, c=3, p=1, child_chromosome=0, parent_chromosome=1)
+    add_iedge(tables, 5, 10, 0, 5, c=3, p=1, child_chromosome=0, parent_chromosome=3)
+    add_iedge(tables, 0, 5, 0, 5, c=4, p=1, child_chromosome=0, parent_chromosome=1)
+    add_iedge(tables, 5, 10, 0, 5, c=4, p=1, child_chromosome=0, parent_chromosome=3)
+    # last one attaches to chr 1 of root, which no others do
+    add_iedge(tables, 0, 10, 0, 10, c=5, p=0, child_chromosome=0, parent_chromosome=1)
     return gigl.Graph(tables)
 
 
@@ -179,26 +163,22 @@ def all_sv_types_no_re_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    tables.iedges.add_rowlist(
-        [
-            iedge(0, 200, 0, 200, c=1, p=0),
-            iedge(0, 200, 0, 200, c=2, p=1),
-            iedge(0, 200, 0, 200, c=3, p=1),
-            iedge(0, 50, 0, 50, c=4, p=2),
-            iedge(50, 100, 150, 200, c=4, p=2),
-            iedge(0, 200, 0, 200, c=5, p=3),
-            iedge(200, 300, 100, 200, c=5, p=3),
-            iedge(0, 20, 0, 20, c=6, p=0),
-            iedge(20, 120, 120, 20, c=6, p=0),
-            iedge(120, 200, 120, 200, c=6, p=0),
-            iedge(0, 100, 0, 100, c=7, p=4),
-            iedge(0, 100, 0, 100, c=8, p=4),
-            iedge(0, 300, 0, 300, c=9, p=5),
-            iedge(0, 300, 0, 300, c=10, p=5),
-            iedge(0, 200, 0, 200, c=11, p=6),
-            iedge(0, 200, 0, 200, c=12, p=6),
-        ]
-    )
+    add_iedge(tables, 0, 200, 0, 200, c=1, p=0)
+    add_iedge(tables, 0, 200, 0, 200, c=2, p=1)
+    add_iedge(tables, 0, 200, 0, 200, c=3, p=1)
+    add_iedge(tables, 0, 50, 0, 50, c=4, p=2)
+    add_iedge(tables, 50, 100, 150, 200, c=4, p=2)
+    add_iedge(tables, 0, 200, 0, 200, c=5, p=3)
+    add_iedge(tables, 200, 300, 100, 200, c=5, p=3)
+    add_iedge(tables, 0, 20, 0, 20, c=6, p=0)
+    add_iedge(tables, 20, 120, 120, 20, c=6, p=0)
+    add_iedge(tables, 120, 200, 120, 200, c=6, p=0)
+    add_iedge(tables, 0, 100, 0, 100, c=7, p=4)
+    add_iedge(tables, 0, 100, 0, 100, c=8, p=4)
+    add_iedge(tables, 0, 300, 0, 300, c=9, p=5)
+    add_iedge(tables, 0, 300, 0, 300, c=10, p=5)
+    add_iedge(tables, 0, 200, 0, 200, c=11, p=6)
+    add_iedge(tables, 0, 200, 0, 200, c=12, p=6)
     return gigl.Graph(tables)
 
 
@@ -223,30 +203,26 @@ def all_sv_types_1re_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    tables.iedges.add_rowlist(
-        [
-            iedge(0, 200, 0, 200, c=1, p=0),
-            iedge(0, 200, 0, 200, c=2, p=1),
-            iedge(0, 200, 0, 200, c=3, p=1),
-            # deletion
-            iedge(0, 50, 0, 50, c=4, p=2),
-            iedge(50, 100, 150, 200, c=4, p=2),
-            # duplication
-            iedge(0, 200, 0, 200, c=5, p=3),
-            iedge(200, 300, 100, 200, c=5, p=3),
-            # recombination combines two SVs
-            iedge(0, 70, 0, 70, c=6, p=4),
-            iedge(70, 200, 170, 300, c=6, p=5),
-            #
-            iedge(0, 100, 0, 100, c=7, p=4),  # unrecombined
-            iedge(0, 200, 0, 200, c=8, p=6),
-            iedge(0, 300, 0, 300, c=9, p=5),  # unrecombined
-            # inversion
-            iedge(0, 20, 0, 20, c=10, p=0),
-            iedge(20, 120, 120, 20, c=10, p=0),
-            iedge(120, 200, 120, 200, c=10, p=0),
-        ]
-    )
+    add_iedge(tables, 0, 200, 0, 200, c=1, p=0)
+    add_iedge(tables, 0, 200, 0, 200, c=2, p=1)
+    add_iedge(tables, 0, 200, 0, 200, c=3, p=1)
+    # deletion
+    add_iedge(tables, 0, 50, 0, 50, c=4, p=2)
+    add_iedge(tables, 50, 100, 150, 200, c=4, p=2)
+    # duplication
+    add_iedge(tables, 0, 200, 0, 200, c=5, p=3)
+    add_iedge(tables, 200, 300, 100, 200, c=5, p=3)
+    # recombination combines two SVs
+    add_iedge(tables, 0, 70, 0, 70, c=6, p=4)
+    add_iedge(tables, 70, 200, 170, 300, c=6, p=5)
+    #
+    add_iedge(tables, 0, 100, 0, 100, c=7, p=4)  # unrecombined
+    add_iedge(tables, 0, 200, 0, 200, c=8, p=6)
+    add_iedge(tables, 0, 300, 0, 300, c=9, p=5)  # unrecombined
+    # inversion
+    add_iedge(tables, 0, 20, 0, 20, c=10, p=0)
+    add_iedge(tables, 20, 120, 120, 20, c=10, p=0)
+    add_iedge(tables, 120, 200, 120, 200, c=10, p=0)
     return gigl.Graph(tables)
 
 
@@ -275,40 +251,36 @@ def all_sv_types_2re_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    tables.iedges.add_rowlist(
-        [
-            iedge(0, 200, 0, 200, c=1, p=0),
-            iedge(0, 200, 0, 200, c=2, p=1),
-            iedge(0, 200, 0, 200, c=3, p=1),
-            # deletion
-            iedge(0, 50, 0, 50, c=4, p=2),
-            iedge(50, 100, 150, 200, c=4, p=2),
-            # duplication
-            iedge(0, 200, 0, 200, c=5, p=3),
-            iedge(200, 300, 100, 200, c=5, p=3),
-            # inversion
-            iedge(0, 20, 0, 20, c=6, p=0),
-            iedge(20, 120, 120, 20, c=6, p=0),
-            iedge(120, 200, 120, 200, c=6, p=0),
-            #
-            # Extra coalescent node for duplication
-            iedge(0, 300, 0, 300, c=7, p=5),
-            #
-            # recombination combines two SVs
-            iedge(0, 70, 0, 70, c=8, p=4),
-            iedge(70, 200, 170, 300, c=8, p=7),
-            #
-            # recombination reinstates original coords
-            iedge(0, 150, 0, 150, c=9, p=7),
-            iedge(150, 200, 150, 200, c=9, p=6),
-            #
-            iedge(0, 100, 0, 100, c=10, p=4),  # unrecombined
-            iedge(0, 200, 0, 200, c=11, p=8),
-            iedge(0, 300, 0, 300, c=12, p=5),  # unrecombined
-            iedge(0, 200, 0, 200, c=13, p=9),
-            iedge(0, 200, 0, 200, c=14, p=6),  # unrecombined
-        ]
-    )
+    add_iedge(tables, 0, 200, 0, 200, c=1, p=0)
+    add_iedge(tables, 0, 200, 0, 200, c=2, p=1)
+    add_iedge(tables, 0, 200, 0, 200, c=3, p=1)
+    # deletion
+    add_iedge(tables, 0, 50, 0, 50, c=4, p=2)
+    add_iedge(tables, 50, 100, 150, 200, c=4, p=2)
+    # duplication
+    add_iedge(tables, 0, 200, 0, 200, c=5, p=3)
+    add_iedge(tables, 200, 300, 100, 200, c=5, p=3)
+    # inversion
+    add_iedge(tables, 0, 20, 0, 20, c=6, p=0)
+    add_iedge(tables, 20, 120, 120, 20, c=6, p=0)
+    add_iedge(tables, 120, 200, 120, 200, c=6, p=0)
+    #
+    # Extra coalescent node for duplication
+    add_iedge(tables, 0, 300, 0, 300, c=7, p=5)
+    #
+    # recombination combines two SVs
+    add_iedge(tables, 0, 70, 0, 70, c=8, p=4)
+    add_iedge(tables, 70, 200, 170, 300, c=8, p=7)
+    #
+    # recombination reinstates original coords
+    add_iedge(tables, 0, 150, 0, 150, c=9, p=7)
+    add_iedge(tables, 150, 200, 150, 200, c=9, p=6)
+    #
+    add_iedge(tables, 0, 100, 0, 100, c=10, p=4)  # unrecombined
+    add_iedge(tables, 0, 200, 0, 200, c=11, p=8)
+    add_iedge(tables, 0, 300, 0, 300, c=12, p=5)  # unrecombined
+    add_iedge(tables, 0, 200, 0, 200, c=13, p=9)
+    add_iedge(tables, 0, 200, 0, 200, c=14, p=6)  # unrecombined
     tables.sort()
     return gigl.Graph(tables)
 
@@ -345,18 +317,14 @@ def inverted_duplicate_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    tables.iedges.add_rowlist(
-        [
-            iedge(
-                0, 5, 100, 105, c=A, p=2
-            ),  # test inherited region at 100, 105 in parent 2
-            iedge(5, 15, 110, 100, c=A, p=2),  # duplicated inversion
-            iedge(0, 10, 10, 20, c=B, p=3),
-            iedge(
-                90, 190, 0, 100, c=2, p=3
-            ),  # test an iedge which is not sample-resolved
-        ]
-    )
+    add_iedge(
+        tables, 0, 5, 100, 105, c=A, p=2
+    )  # inherited region at 100, 105 in prnt 2
+    add_iedge(tables, 5, 15, 110, 100, c=A, p=2)  # duplicated inversion
+    add_iedge(tables, 0, 10, 10, 20, c=B, p=3)
+    add_iedge(
+        tables, 90, 190, 0, 100, c=2, p=3
+    )  # an iedge which is not sample-resolved
     tables.sort()
     return gigl.Graph(tables)
 
@@ -378,19 +346,13 @@ def inverted_duplicate_with_missing_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    tables.iedges.add_rowlist(
-        [
-            iedge(
-                0, 5, 100, 105, c=A, p=2
-            ),  # test inherited region at 100, 105 in parent 2
-            iedge(
-                25, 35, 110, 100, c=A, p=2
-            ),  # duplicated inversion, with missing region
-            iedge(0, 10, 10, 20, c=B, p=3),
-            iedge(
-                90, 190, 0, 100, c=2, p=3
-            ),  # test an iedge which is not sample-resolved
-        ]
-    )
+    add_iedge(
+        tables, 0, 5, 100, 105, c=A, p=2
+    )  # inherited region at 100, 105 in prnt 2
+    add_iedge(tables, 25, 35, 110, 100, c=A, p=2)  # duplicated inversion, with missing
+    add_iedge(tables, 0, 10, 10, 20, c=B, p=3)
+    add_iedge(
+        tables, 90, 190, 0, 100, c=2, p=3
+    )  # an iedge which is not sample-resolved
     tables.sort()
     return gigl.Graph(tables)

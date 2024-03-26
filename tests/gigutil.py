@@ -20,11 +20,11 @@ def make_iedges_table(arr, tables):
     return tables.iedges
 
 
-def iedge(cl, cr, pl, pr, *, c, p, **kwargs):
+def add_iedge(tables, cl, cr, pl, pr, *, c, p, **kwargs):
     """
-    A helper function to quickly make an IEdgeTableRow.
+    A helper function to make an IEdgeTableRow using 'c' and 'p' abbreviations.
     """
-    return gigl.tables.IEdgeTableRow(cl, cr, pl, pr, child=c, parent=p, **kwargs)
+    return tables.add_iedge_row(cl, cr, pl, pr, child=c, parent=p, **kwargs)
 
 
 def make_nodes_table(arr, tables):
@@ -50,17 +50,22 @@ class DTWF_simulator:
         Make a set of individuals with their diploid genomes by adding to tables,
         returning two arrays of IDs: the individual IDs and the node IDs.
         """
-        individual_ids = self.tables.individuals.add_rows(parents=parent_individuals)
+        individual_ids = [
+            self.tables.individuals.add_row(parents=p) for p in parent_individuals
+        ]
         if node_flags is None:
             node_flags = self.default_node_flags
-        return (
-            individual_ids,
-            self.tables.nodes.add_rows(
-                time=time,
-                flags=node_flags,
-                individual=np.broadcast_to(individual_ids, (2, len(individual_ids))).T,
-            ),
-        )
+        individual = np.broadcast_to(individual_ids, (2, len(individual_ids))).T
+
+        node_ids = []
+        for data in zip(*np.broadcast_arrays(time, node_flags, individual)):
+            node_ids.append(
+                [
+                    self.tables.nodes.add_row(tm, flags=flags, individual=ind_id)
+                    for tm, flags, ind_id in zip(*data)
+                ]
+            )
+        return individual_ids, node_ids
 
     def new_population(
         self, time, recombination_rate=0, size=None, seq_len=None, node_flags=None

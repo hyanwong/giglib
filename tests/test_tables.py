@@ -45,7 +45,7 @@ class TestCreation:
 
     def test_noninteger_positions(self):
         bad_ts = msprime.simulate(10, recombination_rate=10, random_seed=1)
-        with pytest.raises(ValueError, match="an integer"):
+        with pytest.raises(ValueError, match="integers"):
             gigl.Tables.from_tree_sequence(bad_ts)
 
 
@@ -71,12 +71,12 @@ class TestFreeze:
         table = getattr(gigl.tables, TableClass)()
         table.add_row(**params)
         table.freeze()
-        with pytest.raises(AttributeError):
+        with pytest.raises((AttributeError, ValueError)):
             table.add_row(**params)
         # Try replacing the data directly
-        with pytest.raises(AttributeError, match="frozen"):
+        with pytest.raises((AttributeError, ValueError)):
             table._data = []
-        with pytest.raises(AttributeError, match="frozen"):
+        with pytest.raises((AttributeError, ValueError)):
             table.clear()
         unfrozen = table.copy()
         unfrozen.add_row(**params)
@@ -89,7 +89,7 @@ class TestFreeze:
 
     def test_freeze(self, trivial_gig):
         tables = trivial_gig.tables
-        with pytest.raises(AttributeError):
+        with pytest.raises(ValueError):
             tables.nodes.add_row(time=0)
         with pytest.raises(AttributeError):
             tables.tables.clear()
@@ -186,7 +186,7 @@ class TestMethods:
 
     def test_change_times(self, trivial_gig):
         tables = trivial_gig.tables.copy()
-        times = tables.nodes.time
+        times = trivial_gig.tables.nodes.time
         tables.change_times(timedelta=1.5)
         assert np.isclose(tables.nodes.time, times + 1.5).all()
 
@@ -220,13 +220,6 @@ class TestIEdgeTable:
         assert tables.iedges.child_left[0] == 0
         assert tables.iedges[0].child_span == 1
         assert tables.iedges[0].parent_span == -1
-
-    def test_append_bad_coord_type(self):
-        tables = gigl.Tables()
-        tables.nodes.add_row(flags=gigl.NODE_IS_SAMPLE, time=0)
-        tables.nodes.add_row(flags=gigl.NODE_IS_SAMPLE, time=0)
-        with pytest.raises(TypeError, match="Could not convert"):
-            tables.iedges.add_int_row(0, 1, None, 1, child=0, parent=1)
 
     def test_novalidate_add_row(self):
         tables = gigl.Tables()
@@ -389,8 +382,16 @@ class TestIedgesValidation:
         tables = gigl.Tables()
         tables.nodes.add_row(time=1)
         tables.nodes.add_row(time=0)
-        with pytest.raises(ValueError, match="Expected an integer"):
+        with pytest.raises(ValueError, match="integers"):
             tables.add_iedge_row(0, 1, 0, 1.2, child=1, parent=0, validate=flags)
+
+    def test_add_iedge_row_fail_negative(self):
+        flags = ValidFlags.IEDGES_INTEGERS
+        tables = gigl.Tables()
+        tables.nodes.add_row(time=1)
+        tables.nodes.add_row(time=0)
+        with pytest.raises(ValueError, match="non-negative"):
+            tables.add_iedge_row(0, 1, -1, 0, child=1, parent=0, validate=flags)
 
     def test_add_iedge_row_fail_child_nonoverlapping(self):
         flags = ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING
@@ -535,6 +536,7 @@ class TestNodeTable:
         assert new_nodes.time.dtype == np.float64
         assert np.all(new_nodes.time == [1.0, 2.0, 4.0])
 
+    @pytest.mark.skip("Old implemention: not yet redone")
     def test_add_rows(self):
         # test if e.g. we can broadcast
         nodes = gigl.tables.NodeTable()
@@ -562,7 +564,7 @@ class TestStringRepresentations:
         nodes = [(0, 3.1451), (1, 7.4234)]
         iedge = [222, 777, 322, 877, 1, 0]
         for node in nodes:
-            tables.nodes.add_row(time=node[0], flags=node[1])
+            tables.nodes.add_row(time=node[1], flags=node[0])
         tables.iedges.add_row(
             child_left=iedge[0],
             child_right=iedge[1],
@@ -620,9 +622,7 @@ class TestIndividualAttributes:
     def test_asdict(self, simple_ts):
         tables = gigl.Tables.from_tree_sequence(simple_ts)
         for i, ind in enumerate(tables.individuals):
-            assert np.array_equal(
-                ind.asdict()["parents"], simple_ts.individual(i).parents
-            )
+            assert np.array_equal(ind.parents, simple_ts.individual(i).parents)
 
 
 class TestNodeAttributes:

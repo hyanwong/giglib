@@ -289,7 +289,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
                 )
             else:
                 new_tables.add_iedge_row(
-                    **ie.asdict(), **self.simulator.add_iedge_params()
+                    **ie._asdict(), **self.simulator.add_iedge_params()
                 )
         new_tables.sort()
         self.simulator.tables = new_tables

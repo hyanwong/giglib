@@ -3,9 +3,9 @@ Define a generalised (genetic) inheritance graph object, which is
 a validated set of GIG tables with some extra indexes etc for
 efficient access.
 """
-import dataclasses
 import json
 from collections import defaultdict
+from collections import namedtuple
 
 import numpy as np
 import portion as P
@@ -213,7 +213,7 @@ class Graph:
 
     @property
     def iedges(self):
-        return Items(self.tables.iedges, IEdge)
+        return NewItems(self.tables.iedges, IEdge)
 
     def iedges_for_parent(self, u):
         """
@@ -419,29 +419,35 @@ class Items:
         self.cls = cls
 
     def __getitem__(self, index):
-        return self.cls(**self.table[index].asdict(), id=index)
+        return self.cls(**self.table[index]._asdict(), id=index)
 
     def __len__(self):
         return len(self.table)
 
     def __iter__(self):
         for i in range(len(self.table)):
-            yield self.cls(**self.table[i].asdict(), id=i)
+            yield self.cls(**self.table[i]._asdict(), id=i)
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class IEdge(IEdgeTableRow):
+class NewItems(Items):
+    def __getitem__(self, index):
+        return self.cls(**self.table[index]._asdict(), id=index)
+
+    def __iter__(self):
+        for i in range(len(self.table)):
+            yield self.cls(**self.table[i]._asdict(), id=i)
+
+
+class IEdge(namedtuple("IEdge", IEdgeTableRow._fields + ("id",))):
     """
     A single interval edge in a Graph. Similar to an edge table row
     but with an ID and various other useful methods that rely on
     the graph being a consistent GIG (e.g. that abs(parent_span) == abs(child_span))
     """
 
-    id: int  # NOQA: A003
-
     @property
     def span(self):
-        return self.child_span if self.child_span >= 0 else self.parent_span
+        return self.child_right - self.child_left
 
     @property
     def parent_max(self):
@@ -472,7 +478,7 @@ class IEdge(IEdgeTableRow):
         return self.child_left
 
     def is_inversion(self):
-        return self.parent_span < 0
+        return self.parent_right < self.parent_left
 
     def is_simple_inversion(self):
         """
@@ -514,19 +520,18 @@ class IEdge(IEdgeTableRow):
         )
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class Node(NodeTableRow):
+class Node(namedtuple("Node", NodeTableRow._fields + ("id",))):
     """
     A single node in a Graph. Similar to an node table row but with an ID.
     """
 
-    id: int  # NOQA: A003
+    def is_sample(self):
+        return self.flags & Const.NODE_IS_SAMPLE
 
 
-@dataclasses.dataclass(frozen=True, kw_only=True)
-class Individual(IndividualTableRow):
+class Individual(namedtuple("Individual", IndividualTableRow._fields + ("id",))):
     """
     A single individual in a Graph. Similar to an individual table row but with an ID.
     """
 
-    id: int  # NOQA: A003
+    pass
