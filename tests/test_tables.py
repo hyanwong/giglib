@@ -22,6 +22,12 @@ class TestCreation:
             assert getattr(tables.iedges, pos).dtype == np.int64
             assert isinstance(tables.iedges[0].child_left, (int, np.integer))
 
+    def test_from_tree_sequence_initial_sizes(self, simple_ts):
+        tables = gigl.Tables.from_tree_sequence(simple_ts)
+        assert tables.nodes._num_preallocated_rows == simple_ts.num_nodes
+        assert tables.iedges._num_preallocated_rows == simple_ts.num_edges
+        assert tables.individuals._num_preallocated_rows == simple_ts.num_individuals
+
     @pytest.mark.parametrize("time", [0, 1])
     def test_simple_from_tree_sequence_with_timedelta(self, simple_ts, time):
         assert simple_ts.num_trees > 1
@@ -47,6 +53,13 @@ class TestCreation:
         bad_ts = msprime.simulate(10, recombination_rate=10, random_seed=1)
         with pytest.raises(ValueError, match="integers"):
             gigl.Tables.from_tree_sequence(bad_ts)
+
+
+class TestTableClasses:
+    @pytest.mark.parametrize("cls", ["NodeTable", "IEdgeTable", "IndividualTable"])
+    def test_initial_sizes(self, cls):
+        table = getattr(gigl.tables, cls)(initial_size=10)
+        assert table._num_preallocated_rows == 10
 
 
 class TestFreeze:
@@ -137,6 +150,13 @@ class TestCopy:
         assert tables_copy.iedges == tables.iedges
         tables_copy.iedges.flags = ValidFlags.NONE
         assert tables_copy.iedges != tables.iedges
+
+    def test_initial_sizes_copy(self, simple_ts):
+        tables = gigl.Tables.from_tree_sequence(simple_ts)
+        copy = tables.copy()
+        assert copy.nodes._num_preallocated_rows == simple_ts.num_nodes
+        assert copy.iedges._num_preallocated_rows == simple_ts.num_edges
+        assert copy.individuals._num_preallocated_rows == simple_ts.num_individuals
 
 
 class TestExtractColumn:
