@@ -229,7 +229,15 @@ class TestDTWF_one_break_no_rec_inversions_slow:
             cls.test_inversion()
             print(cls.ts)
         """
-        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow()
+        final_pop_size = 100
+        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow(
+            initial_sizes={
+                "nodes": 2 * final_pop_size * self.default_gens,
+                "edges": 2 * final_pop_size * self.default_gens * 2,
+                "individuals": final_pop_size * self.default_gens,
+            },
+        )
+
         self.simulator.run(
             num_diploids=2,
             seq_len=self.seq_len,
@@ -309,7 +317,9 @@ class TestDTWF_one_break_no_rec_inversions_slow:
 
         # Can progress the simulation
         gig = self.simulator.run_more(
-            num_diploids=100, gens=self.default_gens - 1, random_seed=1
+            num_diploids=final_pop_size,
+            gens=self.default_gens - 1,
+            random_seed=1,
         )
         # should have deleted the grand MRCA (used for matching)
         assert len(gig.nodes) == len(self.simulator.tables.nodes) - 1

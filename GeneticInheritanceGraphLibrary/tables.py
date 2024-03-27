@@ -266,7 +266,7 @@ class BaseExtraTable(BaseTable):
         )
 
     def __init__(self, initial_size=None):
-        super().__init__()
+        super().__init__(initial_size=initial_size)
         # list of lists containing the extra data in order declared in the RowClass
         self._extra_data = []
         self._extra_data_cols = {name: i for i, name in enumerate(self._extra_names)}
@@ -333,8 +333,8 @@ class IEdgeTable(BaseTable):
     def edge(self):
         return self._data["edge"]
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, initial_size=None):
+        super().__init__(initial_size=initial_size)
         self.clear()
 
     def copy(self):
@@ -1004,9 +1004,23 @@ class Tables:
         "individuals": IndividualTable,
     }
 
-    def __init__(self, time_units=None):
+    def __init__(
+        self,
+        time_units=None,
+        *,
+        initial_sizes=None,
+    ):
+        """
+        :param str time_units: The units of time used, e.g. "generations" or "years"
+        :param dict initial_sizes: A dictionary of the initial number of rows
+            expected for each table,
+            e.g. ``{"nodes": 1000, "iedges": 1000, "individuals": 1000}``. Missing
+            keys will be set to the default ``initial_size`` for that type of table.
+        """
+        if initial_sizes is None:
+            initial_sizes = {}
         for name, cls in self.table_classes.items():
-            setattr(self, name, cls())
+            setattr(self, name, cls(initial_size=initial_sizes.get(name, None)))
         self.time_units = "unknown" if time_units is None else time_units
 
     def __eq__(self, other) -> bool:
@@ -1151,7 +1165,7 @@ class Tables:
                 -self.nodes.time[self.iedges.child],  # Primary key
             )
         )
-        new_iedges = IEdgeTable()
+        new_iedges = IEdgeTable(initial_size=len(self.iedges))
         for i in edge_order:
             new_iedges.append(self.iedges[i])
         new_iedges.flags = self.iedges.flags  # should be the same only we can assure
@@ -1286,7 +1300,14 @@ class Tables:
         :rtype: Tables
         """
         ts_tables = ts.tables
-        tables = cls(time_units=ts.time_units)
+        tables = cls(
+            time_units=ts.time_units,
+            initial_sizes={
+                "nodes": ts.num_nodes,
+                "iedges": ts.num_edges,
+                "individuals": ts.num_individuals,
+            },
+        )
         if ts_tables.migrations.num_rows > 0:
             raise NotImplementedError
         if ts_tables.mutations.num_rows > 0:

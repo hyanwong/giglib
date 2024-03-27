@@ -133,7 +133,7 @@ class DTWF_simulator:
             )
         )
 
-    def __init__(self, skip_validate=False):
+    def __init__(self, skip_validate=False, initial_sizes=None):
         """
         Create a simulation class, which can then simulate a forward Discrete Time
         Wright-Fisher model with varying population sizes over generations.
@@ -142,8 +142,11 @@ class DTWF_simulator:
         create a valid set of tables suitable for using the find_mrca_regions() method.
         Setting this to False saves a small fraction (about 2%) of the simulation time,
         at the expense of not doing any validation (dangerous!)
+
+        If initial_sizes is specified, it should be an array of the expected sizes
+        for each table, see the ``gigl.Tables.__init__`` method for more information.
         """
-        self.tables = gigl.Tables()
+        self.tables = gigl.Tables(initial_sizes=initial_sizes)
         self.tables.time_units = "generations"  # optional, but helpful when plotting
         self.skip_validate = skip_validate
 
