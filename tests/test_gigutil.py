@@ -345,7 +345,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
 
         # Can progress the simulation
         gig = self.simulator.run_more(
-            num_diploids=100,
+            num_diploids=final_pop_size,
             gens=self.default_gens - 1,
             random_seed=1,
             progress_monitor=self.progress_monitor,
@@ -440,7 +440,15 @@ class TestDTWF_one_break_no_rec_inversions_slow:
             test.test_tandem_duplication()
             print(test.gig)
         """
-        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow(self.iedge_validate)
+        final_pop_size = 100
+        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow(
+            self.iedge_validate,
+            initial_sizes={
+                "nodes": 2 * final_pop_size * self.default_gens,
+                "edges": 2 * final_pop_size * self.default_gens * 2,
+                "individuals": final_pop_size * self.default_gens,
+            },
+        )
         self.simulator.run(
             num_diploids=2,
             seq_len=self.seq_len,
@@ -503,7 +511,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
 
         # Can progress the simulation
         gig = self.simulator.run_more(
-            num_diploids=100,
+            num_diploids=final_pop_size,
             gens=self.default_gens - 1,
             random_seed=1,
             progress_monitor=self.progress_monitor,
@@ -514,7 +522,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         self.gig = gig
         # Check that there are a number of duplicated regions:
 
-        lengths = [gig.max_position(u) for u in gig.samples]
+        lengths = [gig.sequence_length(u) for u in gig.samples]
         unique_lengths = np.unique(lengths)
         assert len(unique_lengths) > 2
         assert np.all((np.diff(unique_lengths) % np.diff(self.duplication)) == 0)
