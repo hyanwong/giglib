@@ -389,6 +389,20 @@ class TestIedgesValidation:
         )
         assert tables.iedges.flags == flag
 
+    def test_add_iedge_allow_negative_edge_chrom(self):
+        # Negative chromosome numbers could be used e.g. for circular chromosomes
+        flags = ValidFlags.IEDGES_INTEGERS
+        tables = gigl.Tables()
+        tables.nodes.add_row(time=1)
+        tables.nodes.add_row(time=0)
+        tables.add_iedge_row(0, 1, 0, 1, child=1, parent=0, edge=-1, validate=flags)
+        tables.add_iedge_row(
+            0, 1, 0, 1, child=1, parent=0, parent_chromosome=-1, validate=flags
+        )
+        tables.add_iedge_row(
+            0, 1, 0, 1, child=1, parent=0, parent_chromosome=-1, validate=flags
+        )
+
     def test_bad_flags(self):
         flags = ValidFlags.IEDGES_COMBO_NODE_TABLE
         tables = gigl.Tables()
@@ -411,7 +425,17 @@ class TestIedgesValidation:
         tables.nodes.add_row(time=1)
         tables.nodes.add_row(time=0)
         with pytest.raises(ValueError, match="non-negative"):
+            tables.add_iedge_row(-1, 0, 0, 1, child=1, parent=0, validate=flags)
+        with pytest.raises(ValueError, match="non-negative"):
+            tables.add_iedge_row(0, -1, 0, 1, child=1, parent=0, validate=flags)
+        with pytest.raises(ValueError, match="non-negative"):
+            tables.add_iedge_row(0, 1, 0, -1, child=1, parent=0, validate=flags)
+        with pytest.raises(ValueError, match="non-negative"):
             tables.add_iedge_row(0, 1, -1, 0, child=1, parent=0, validate=flags)
+        with pytest.raises(ValueError, match="non-negative"):
+            tables.add_iedge_row(0, 1, 0, 1, child=-1, parent=0, validate=flags)
+        with pytest.raises(ValueError, match="non-negative"):
+            tables.add_iedge_row(0, 1, 0, 1, child=0, parent=-1, validate=flags)
 
     def test_add_iedge_row_fail_child_nonoverlapping(self):
         flags = ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING
