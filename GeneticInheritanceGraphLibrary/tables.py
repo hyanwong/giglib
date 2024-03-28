@@ -97,7 +97,7 @@ class IndividualTableRow(
 
 class BaseTable:
     _RowClass = None
-    _non_int_fieldtypes = {}
+    _non_int64_fieldtypes = {}  # By default all fields are int64
     initial_size = 64  # default
     max_resize = 2**18  # maximum number of rows by which we expand internal storage
     _frozen = None  # Will be overridden during init
@@ -106,7 +106,7 @@ class BaseTable:
         self._datastore = np.empty(
             self.initial_size,
             dtype=[
-                (name, self._non_int_fieldtypes.get(name, np.int64))
+                (name, self._non_int64_fieldtypes.get(name, np.int64))
                 for name in self._RowClass._fields
             ],
         )
@@ -259,7 +259,7 @@ class BaseExtraTable(BaseTable):
         self._datastore = np.empty(
             self.initial_size,
             dtype=[
-                (name, self._non_int_fieldtypes.get(name, np.int64))
+                (name, self._non_int64_fieldtypes.get(name, np.int64))
                 for name in self._RowClass._fields
                 if name not in self._extra_names
             ],
@@ -295,6 +295,10 @@ class IEdgeTable(BaseTable):
     """
 
     _RowClass = IEdgeTableRow
+    _non_int64_fieldtypes = {
+        "child_chromosome": np.int16,  # Save some space
+        "parent_chromosome": np.int16,  # Save some space
+    }
 
     # define each property by hand, for speed
     @property
@@ -464,22 +468,22 @@ class IEdgeTable(BaseTable):
             # need to check the values before they were put into the data array,
             # as numpy silently converts floats to integers on assignment
             if validate & ValidFlags.IEDGES_INTEGERS:
-                for is_edge, i in enumerate(
+                for i, val in enumerate(
                     (
-                        edge,
-                        child_left,
-                        child_right,
-                        parent_left,
-                        parent_right,
-                        child,
-                        parent,
-                        child_chromosome,
-                        parent_chromosome,
+                        child_left,  # 0
+                        child_right,  # 1
+                        parent_left,  # 2
+                        parent_right,  # 3
+                        child,  # 4
+                        parent,  # 5
+                        child_chromosome,  # 6
+                        parent_chromosome,  # 7
+                        edge,  # 8
                     )
                 ):
-                    if int(i) != i:
+                    if int(val) != val:
                         raise ValueError("Iedge data must be integers")
-                    if is_edge != 0 and i < 0:
+                    if i < 6 and val < 0:
                         raise ValueError(
                             "Iedge data must be non-negative (except edge ID)"
                         )
@@ -708,7 +712,7 @@ class NodeTable(BaseExtraTable):
     """
 
     _RowClass = NodeTableRow
-    _non_int_fieldtypes = {"time": np.float64, "flags": np.uint32}
+    _non_int64_fieldtypes = {"time": np.float64, "flags": np.uint32}
 
     # define each property by hand, for speed
     @property
@@ -758,7 +762,7 @@ class NodeTable(BaseExtraTable):
 
 class IndividualTable(BaseExtraTable):
     _RowClass = IndividualTableRow
-    _non_int_fieldtypes = {"flags": np.uint32}
+    _non_int64_fieldtypes = {"flags": np.uint32}
     _extra_names = ["location", "parents", "metadata"]
 
     @property
