@@ -121,6 +121,9 @@ class BaseTable:
         # "Ragged" data is stored separately, as it is of variable length
         self._extra_data = []
 
+    def sort(self, sort_order):
+        self._data[:] = self._data[sort_order]
+
     def freeze(self):
         """
         Freeze the table so that it cannot be modified
@@ -146,9 +149,7 @@ class BaseTable:
         return super().__setattr__(attr, value)
 
     def __eq__(self, other):
-        return (
-            np.all(self._data == other._data) and self._extra_data == other._extra_data
-        )
+        return np.all(self._data == other._data)
 
     def __getitem__(self, index):
         return self._RowClass(*self._data[index])
@@ -271,6 +272,9 @@ class BaseExtraTable(BaseTable):
         self._extra_data = []
         self._extra_data_cols = {name: i for i, name in enumerate(self._extra_names)}
 
+    def __eq__(self, other):
+        return super().__eq__(other) and self._extra_data == other._extra_data
+
     def copy(self):
         copy = super().copy()
         copy._extra_data = [row.copy() for row in self._extra_data]
@@ -283,6 +287,10 @@ class BaseExtraTable(BaseTable):
     def __getitem__(self, index):
         return self._RowClass(*self._data[index], *self._extra_data[index])
 
+    def sort(self, sort_order):
+        super().sort(sort_order)
+        self._extra_data[:] = self._extra_data[sort_order]
+
 
 class IEdgeTable(BaseTable):
     """
@@ -294,6 +302,13 @@ class IEdgeTable(BaseTable):
     :data:`~ValidFlags.IEDGES_FOR_CHILD_ADJACENT` to be true.
     """
 
+    # Note - this buffers a dict of dicts of size-2-lists. Each list gives a start
+    # and end index into ._data. The first key gives the child ID, the second the
+    # chromosome. This is stored in the ._id_range_for_child attribute, e.g.:
+    #    start, end = self._id_range_for_child[childID][chromosomeID]
+    #    edge_rows = self._data[start:end]
+    # This will only work if the flags IEDGES_FOR_CHILD_ADJACENT and
+    # IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC are set
     _RowClass = IEdgeTableRow
     _non_int64_fieldtypes = {
         "child_chromosome": np.int16,  # Save some space
@@ -372,6 +387,21 @@ class IEdgeTable(BaseTable):
         if self._id_range_for_child != other._id_range_for_child:
             return False
         return super().__eq__(other)
+
+    def sort(self, sort_order):
+        super().sort(sort_order)
+        # Reset the ._id_range_for_child array so that it
+        # reflects the first index for that childID/ chrID combo
+        self._id_range_for_child = {}
+        for idx, e in enumerate(self):
+            if e.child not in self._id_range_for_child:
+                self._id_range_for_child[e.child] = {}
+            if e.child_chromosome not in self._id_range_for_child[e.child]:
+                self._id_range_for_child[e.child][e.child_chromosome] = [idx, idx + 1]
+            else:
+                self._id_range_for_child[e.child][e.child_chromosome][1] = idx + 1
+
+        self.unset_bitflag(ValidFlags.IEDGES_SORTED)
 
     def set_bitflag(self, flag):
         self.flags |= flag
@@ -1165,16 +1195,12 @@ class Tables:
             (
                 self.iedges.child_left,
                 self.iedges.child_chromosome,
-                self.iedges.child,
+                self.iedges.child,  # Secondary key (break ties by child node ID)
                 -self.nodes.time[self.iedges.child],  # Primary key
             )
         )
-        new_iedges = IEdgeTable(initial_size=len(self.iedges))
-        for i in edge_order:
-            new_iedges.append(self.iedges[i])
-        new_iedges.flags = self.iedges.flags  # should be the same only we can assure
-        new_iedges.set_bitflag(ValidFlags.IEDGES_SORTED)
-        self.iedges = new_iedges
+        self.iedges.sort(edge_order)
+        self.iedges.set_bitflag(ValidFlags.IEDGES_SORTED)
 
     def graph(self):
         """
