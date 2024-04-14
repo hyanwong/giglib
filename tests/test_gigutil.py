@@ -157,6 +157,16 @@ class TestSimpleSims:
         assert np.array_equal(counts, [40, 20, 4])
         assert len(gig.individuals) == 2 + 10 + 20
 
+    def test_multi_chromosomes(self):
+        gens = 2
+        simulator = sim.DTWF_no_recombination()
+        gig = simulator.run(
+            num_diploids=(2, 10, 20), seq_lens=[100, 50], gens=gens, random_seed=1
+        )
+        gig = gig.sample_resolve()
+        for sample in gig.samples:
+            print(sample)
+
     def test_run_more(self):
         simulator = sim.DTWF_no_recombination()
         gens = 2
