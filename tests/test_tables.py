@@ -189,13 +189,15 @@ class TestMethods:
 
     def test_sort(self):
         tables = gigl.Tables()
-        tables.nodes.add_row(2)
-        tables.nodes.add_row(1)
-        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
-        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
-        tables.iedges.add_row(5, 0, 0, 5, parent=0, child=2)
-        tables.iedges.add_row(0, 5, 0, 5, parent=1, child=3)
-        tables.iedges.add_row(0, 5, 0, 5, parent=0, child=1)  # Out of order
+        n_root = tables.nodes.add_row(2)
+        n_internal = tables.nodes.add_row(1)
+        n_samp0 = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        n_samp1 = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.iedges.add_row(0, 5, 5, 0, parent=n_root, child=n_samp0)
+        tables.iedges.add_row(0, 5, 0, 5, parent=n_internal, child=n_samp1)
+        tables.iedges.add_row(
+            0, 5, 0, 5, parent=n_root, child=n_internal
+        )  # Out of order
         tables.sort()
         assert tables.iedges[0].parent == 0
         assert tables.iedges[1].parent == 0
@@ -209,6 +211,45 @@ class TestMethods:
         times = trivial_gig.tables.nodes.time
         tables.change_times(timedelta=1.5)
         assert np.isclose(tables.nodes.time, times + 1.5).all()
+
+    def test_remove_non_ancestral_nodes(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)  # unused
+        n_root = tables.nodes.add_row(2)
+        tables.nodes.add_row(10)  # unused
+        n_internal = tables.nodes.add_row(1)
+        n_samp0 = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        n_samp1 = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.add_iedge_row(
+            0, 5, 0, 5, parent=n_root, child=n_internal, validate=ValidFlags.GIG
+        )
+        tables.add_iedge_row(
+            0, 5, 5, 0, parent=n_root, child=n_samp0, validate=ValidFlags.GIG
+        )
+        tables.add_iedge_row(
+            0, 5, 0, 5, parent=n_internal, child=n_samp1, validate=ValidFlags.GIG
+        )
+        assert len(tables.nodes) == 6
+        new_tables = tables.copy()
+        mapping = new_tables.remove_non_ancestral_nodes()
+        assert len(new_tables.iedges) == len(tables.iedges)
+        assert len(new_tables.nodes) == 4
+        gig = new_tables.graph()
+        assert len(gig.nodes) == 4
+        for e0, e1 in zip(tables.iedges, new_tables.iedges):
+            assert e0.child == mapping[e1.child]
+            assert e0.parent == mapping[e1.parent]
+            assert e0.child_left == e1.child_left
+            assert e0.child_right == e1.child_right
+            assert e0.parent_left == e1.parent_left
+            assert e0.parent_right == e1.parent_right
+            assert e0.child_chromosome == e1.child_chromosome
+            assert e0.parent_chromosome == e1.parent_chromosome
+        for u in range(len(new_tables.nodes)):
+            assert np.all(
+                tables.iedges.ids_for_child(mapping[u])
+                == new_tables.iedges.ids_for_child(u)
+            )
 
 
 class TestBaseTable:

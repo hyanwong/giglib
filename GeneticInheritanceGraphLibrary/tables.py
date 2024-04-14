@@ -123,12 +123,13 @@ class BaseTable:
 
     def freeze(self):
         """
-        Freeze the table so that it cannot be modified
+        Freeze the table so that it cannot be modified. In future versions, this
+        may also shrink the storage required for the table
         """
-        # turn the data into a tuple so that it is immutable. This doesn't
-        # make a copy, but just passes the data by reference
         self._datastore.setflags(write=False)
         self._frozen = True
+        # TODO: use resize(refcheck=False) [dangerous!] to shrink self._datastore to the
+        # size of self._data.
 
     def copy(self):
         copy = self.__class__()
@@ -382,6 +383,15 @@ class IEdgeTable(BaseTable):
     def has_bitflag(self, flag):
         return bool(self.flags & flag)
 
+    def _increment_id_range_for_child(self, child, child_chromosome, rownum):
+        # Update internal data structures
+        try:
+            self._id_range_for_child[child][child_chromosome][1] = rownum + 1
+        except KeyError:
+            if child not in self._id_range_for_child:
+                self._id_range_for_child[child] = {}
+            self._id_range_for_child[child][child_chromosome] = [rownum, rownum + 1]
+
     def add_row(
         self,
         child_left,
@@ -494,16 +504,9 @@ class IEdgeTable(BaseTable):
         # (they can be set to valid by using the table.add_iedge_row wrapper instead)
         self.flags &= validate | ~ValidFlags.IEDGES_ALL
 
-        # Update internal data structures
-        try:
-            self._id_range_for_child[child][child_chromosome][1] = num_rows + 1
-        except KeyError:
-            if child not in self._id_range_for_child:
-                self._id_range_for_child[child] = {}
-            self._id_range_for_child[child][child_chromosome] = [num_rows, num_rows + 1]
-
+        self._increment_id_range_for_child(child, child_chromosome, num_rows)
         # expand the visible data array
-        self._data = self._datastore[0 : len(self._data) + 1]
+        self._data = self._datastore[0 : num_rows + 1]
 
         return num_rows
 
@@ -1178,7 +1181,7 @@ class Tables:
             ]
         )
 
-    def sort(self):
+    def sort(self, shrink_memory=False):
         """
         Sort the tables in place. Currently only affects the iedges table. Sorting
         criteria match those used in tskit (see
@@ -1187,22 +1190,27 @@ class Tables:
         # index to sort edges so they are sorted by child time
         # and grouped by child id. Within each group with the same child ID,
         # the edges are sorted by child_left
-        if len(self.iedges) == 0:
+        iedges = self.iedges
+        if len(iedges) == 0:
             return
         edge_order = np.lexsort(
             (
-                self.iedges.child_left,
-                self.iedges.child_chromosome,
-                self.iedges.child,
-                -self.nodes.time[self.iedges.child],  # Primary key
+                iedges.child_left,
+                iedges.child_chromosome,
+                iedges.child,
+                -self.nodes.time[iedges.child],  # Primary key
             )
         )
-        new_iedges = IEdgeTable(initial_size=len(self.iedges))
-        for i in edge_order:
-            new_iedges.append(self.iedges[i])
-        new_iedges.flags = self.iedges.flags  # should be the same only we can assure
-        new_iedges.set_bitflag(ValidFlags.IEDGES_SORTED)
-        self.iedges = new_iedges
+        if shrink_memory:
+            iedges._datastore = iedges._data.copy()[edge_order]
+            iedges._data = iedges._datastore[:]
+        else:
+            iedges._datastore[0 : len(iedges)] = iedges._data[edge_order]
+        iedges._id_range_for_child = {}
+        for i, (c, c_chr) in enumerate(zip(iedges.child, iedges.child_chromosome)):
+            iedges._increment_id_range_for_child(c, c_chr, i)
+
+        iedges.set_bitflag(ValidFlags.IEDGES_SORTED)
 
     def graph(self):
         """
@@ -1396,6 +1404,9 @@ class Tables:
         #    `.simplify(filter_nodes=False, keep_unary=True)`, because it does not
         #    squash adjacent edges together. It should therefore preserve
         #    "recombination diamonds". This could be useful for some applications,
+        if not self.iedges.has_bitflag(ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD):
+            raise ValueError("Can only run if children younger than parents")
+
         stack = {
             c: collections.defaultdict(P.interval.Interval)
             for c in reversed(np.argsort(self.nodes.time))
@@ -1413,21 +1424,21 @@ class Tables:
                 }
             # We can't add in the edges in the correct order because we are adding
             # the youngest edges first, so we don't need to keep chromosomes in the
-            # right order as we will have to sort anyway. If we *did* want to keep
+            # right order (we will have to sort anyway). If we *did* want to keep
             # chromosome order for edges, we could use sorted(chromosomes.keys())
             # here instead.
-            for child_chrom in chromosomes.keys():
-                for ie_id in old_iedges.ids_for_child(child, child_chrom):
+            for child_chr in chromosomes.keys():
+                for ie_id in old_iedges.ids_for_child(child, child_chr):
                     ie = old_iedges[ie_id]
                     parent = ie.parent
-                    parent_chrom = ie.parent_chromosome
+                    parent_chr = ie.parent_chromosome
                     child_ivl = P.closedopen(ie.child_left, ie.child_right)
                     is_inversion = ie.is_inversion()
                     # JEROME'S NOTE (from previous algorithm): if we had an index here
                     # sorted by left coord we could binary search to first match, and
                     # could break once c_right > left (I think?), rather than having
                     # to intersect all the intervals with the current c_rgt/c_lft
-                    for intervals in chromosomes[child_chrom]:
+                    for intervals in chromosomes[child_chr]:
                         for interval in intervals:
                             if c := child_ivl & interval:  # intersect
                                 p = old_iedges.transform_interval(
@@ -1436,11 +1447,11 @@ class Tables:
                                 if is_inversion:
                                     # For passing up, interval orientation doesn't matter
                                     # so put lowest position first, as `portion` requires
-                                    stack[parent][parent_chrom] |= P.closedopen(
+                                    stack[parent][parent_chr] |= P.closedopen(
                                         p[1], p[0]
                                     )
                                 else:
-                                    stack[parent][parent_chrom] |= P.closedopen(*p)
+                                    stack[parent][parent_chr] |= P.closedopen(*p)
                                 # Add the trimmed interval to the new edge table
                                 self.add_iedge_row(
                                     c.lower,
@@ -1448,11 +1459,47 @@ class Tables:
                                     *p,
                                     child=child,
                                     parent=parent,
-                                    child_chromosome=child_chrom,
-                                    parent_chromosome=parent_chrom,
+                                    child_chromosome=child_chr,
+                                    parent_chromosome=parent_chr,
                                 )
         if sort:
             self.sort()
+
+    def remove_non_ancestral_nodes(self):
+        """
+        Subset the node table to remove any nonsample nodes that are not referenced
+        in the iedges table
+        """
+        if not self.iedges.has_bitflag(ValidFlags.IEDGES_INTEGERS):
+            raise ValueError(
+                "Requires edges to contain non-negative child & parent ids"
+            )
+        keep_nodes = np.zeros(len(self.nodes), dtype=bool)
+        keep_nodes[self.iedges.child] = True
+        keep_nodes[self.iedges.parent] = True
+        mapping = np.where(keep_nodes)[0]
+        inv_mapping = -np.ones(len(self.nodes), dtype=np.int64)
+        inv_mapping[mapping] = np.arange(len(mapping))
+        self.nodes._datastore[: len(mapping)] = self.nodes._datastore[mapping]
+        self.nodes._data = self.nodes._datastore[: len(mapping)]
+        ed = self.nodes._extra_data
+        self.nodes._extra_data = [ed[i] for i in mapping]
+
+        iedges = self.iedges
+        iedges.child[:] = inv_mapping[iedges.child]
+        assert np.all(iedges.child >= 0)
+        iedges.parent[:] = inv_mapping[iedges.parent]
+        assert np.all(iedges.parent >= 0)
+
+        # must change the built-in indexes. However, edges are in the samme order,
+        # so just chnage the keys
+        iedges._id_range_for_child = {
+            inv_mapping[child]: data
+            for child, data in iedges._id_range_for_child.items()
+        }
+
+        # TODO also change node IDs for mutations, when we have them
+        return mapping
 
     def find_mrca_regions(
         self, u, v, *, u_chromosomes=None, v_chromosomes=None, time_cutoff=None
