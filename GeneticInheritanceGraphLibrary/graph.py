@@ -63,7 +63,7 @@ class Graph:
         )  # to overwrite later - initialised here in case we return early with 0 edges
 
         # Cache
-        self.samples = self.tables.samples()
+        self.sample_ids = self.tables.sample_ids
 
         # TODO: should cache node spans here,
         # see https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/27
@@ -201,7 +201,7 @@ class Graph:
     @property
     def num_samples(self):
         # Deprecated
-        return len(self.samples)
+        return len(self.sample_ids)
 
     @property
     def nodes(self):

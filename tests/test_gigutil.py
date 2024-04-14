@@ -164,7 +164,7 @@ class TestSimpleSims:
             num_diploids=(2, 10, 20), seq_lens=[100, 50], gens=gens, random_seed=1
         )
         gig = gig.sample_resolve()
-        for sample in gig.samples:
+        for sample in gig.sample_ids:
             print(sample)
 
     def test_run_more(self):
@@ -194,7 +194,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
         assert gig.num_iedges > 0
         ts = gig.to_tree_sequence()
-        assert ts.num_samples == len(gig.samples)
+        assert ts.num_samples == len(gig.sample_ids)
         assert ts.num_trees > 1
         assert ts.at_index(0).num_edges > 0
 

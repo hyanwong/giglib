@@ -1261,7 +1261,8 @@ class Tables:
 
         return GIG(self)
 
-    def samples(self):
+    @property
+    def sample_ids(self):
         """
         Return the IDs of all samples in the nodes table
         """

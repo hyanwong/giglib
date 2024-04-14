@@ -139,7 +139,7 @@ class TestCopy:
     def test_iedges_cache(self, trivial_gig):
         tables = trivial_gig.tables
         assert tables.iedges.flags == ValidFlags.GIG
-        sample = tables.samples()[0]
+        sample = trivial_gig.sample_ids[0]
         chrom = 0
         tables_copy = tables.copy()
         assert tables_copy.iedges == tables.iedges
@@ -185,7 +185,7 @@ class TestExtractColumn:
 class TestMethods:
     def test_samples(self, simple_ts):
         tables = gigl.Tables.from_tree_sequence(simple_ts)
-        assert np.array_equal(tables.samples(), simple_ts.samples())
+        assert np.array_equal(tables.sample_ids, simple_ts.samples())
 
     def test_sort(self):
         tables = gigl.Tables()
@@ -743,8 +743,8 @@ class TestFindMrcas:
         assert simple_ts.num_samples >= 2
         max_trees = 0
         gig = gigl.Graph.from_tree_sequence(simple_ts)
-        for u in range(len(gig.samples)):
-            for v in range(u + 2, len(gig.samples)):
+        for u in range(len(gig.sample_ids)):
+            for v in range(u + 2, len(gig.sample_ids)):
                 mrcas = gig.tables.find_mrca_regions(u, v)
                 equiv_ts = simple_ts.simplify([u, v], filter_nodes=False)
                 max_trees = max(max_trees, equiv_ts.num_trees)
@@ -897,8 +897,8 @@ class TestFindMrcas:
         rng = np.random.default_rng(1)
         ts = simple_ts.keep_intervals([(0, 2)]).trim()
         gig = gigl.Graph.from_tree_sequence(ts)
-        assert gig.samples[0] == 0
-        assert gig.samples[1] == 1
+        assert gig.sample_ids[0] == 0
+        assert gig.sample_ids[1] == 1
         mrcas = gig.tables.find_mrca_regions(0, 1)
         all_breaks = set()
         for _ in range(20):

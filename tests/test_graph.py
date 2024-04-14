@@ -20,7 +20,7 @@ class TestConstructor:
         gig = tables.graph()
         assert len(gig.nodes) == 2
         assert len(gig.iedges) == 1
-        assert len(gig.samples) == 1
+        assert len(gig.sample_ids) == 1
 
     def test_no_edges(self):
         tables = gigl.Tables()
@@ -30,7 +30,7 @@ class TestConstructor:
         gig = tables.graph()
         assert len(gig.nodes) == 3
         assert len(gig.iedges) == 0
-        assert len(gig.samples) == 1
+        assert len(gig.sample_ids) == 1
         # Cached values should be defined but empty
         assert gig.child_range.shape == (len(gig.nodes), 2)
         assert np.all(gig.child_range == gigl.NULL)
@@ -155,7 +155,7 @@ class TestMethods:
 
     def test_sequence_length(self, simple_ts):
         gig = gigl.Graph.from_tree_sequence(simple_ts)
-        for u in gig.samples:
+        for u in gig.sample_ids:
             assert gig.sequence_length(u) == simple_ts.sequence_length
 
     def test_sequence_length_root(self, all_sv_types_no_re_gig):
@@ -167,7 +167,7 @@ class TestMethods:
         tables = gigl.Tables()
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         gig = tables.graph()
-        for u in gig.samples:
+        for u in gig.sample_ids:
             assert gig.sequence_length(u) == 0
 
 
@@ -180,7 +180,7 @@ class TestTskit:
     def test_simple_from_tree_sequence(self, simple_ts):
         assert simple_ts.num_trees > 1
         gig = gigl.Graph.from_tree_sequence(simple_ts)
-        assert np.all(gig.samples == gig.tables.samples())
+        assert np.all(gig.sample_ids == gig.tables.sample_ids)
 
     def test_to_tree_sequence(self, degree2_2_tip_ts):
         gig = gigl.Graph.from_tree_sequence(degree2_2_tip_ts)
