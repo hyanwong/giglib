@@ -1365,6 +1365,95 @@ class Tables:
         tables.sort()
         return tables
 
+    def sample_resolve(self, sort=True):
+        """
+        Sample resolve the Tables, keeping only those edge regions which
+        transmit information to the current samples. This is rather
+        like running the Hudson algorithm on a fixed graph, but without
+        counting up the number of samples under each node.
+
+        The algorithm is implemented by using a stack that contains intervals
+        for each node, ordered by node time (oldest first). When considering a
+        node, we pop the (youngest) node off the end of the stack, which
+        ensures that we have collected all the intervals with that node as a
+        parent, before passing inheritance information upwards
+        """
+        # == Implementation details ==
+        # A. Rather than representing the intervals for a node as a list of
+        #    (left, right) tuples, the "portion" library is used, allowing multiple
+        #    intervals to be combined into a single object and automatically merged
+        #    together when they adjoin or overlap (coalesce). This reduces the
+        #    number of intervals and their fragmentation as we go up the stack.
+        # B. For simplicity we put all nodes onto the stack at the start, in time
+        #    order (relying on the fact that python dicts now preserve order). We
+        #    then fill out their intervals as we go, and gradually remove the items
+        #    from the stack as we work through it. Since sample_resolve() will touch
+        #    almost all nodes, declaring and filling the stack up-front is efficient.
+        #    An alternative if only a few nodes are likely to be visited would
+        #    be to create a dynamic stack continuously sorted by node time, e.g.
+        #        stack = sortedcontainers.SortedDict(lambda k: -nodes_time[k])
+        # C. This differs slightly from the similar tskit method
+        #    `.simplify(filter_nodes=False, keep_unary=True)`, because it does not
+        #    squash adjacent edges together. It should therefore preserve
+        #    "recombination diamonds". This could be useful for some applications,
+        stack = {
+            c: collections.defaultdict(P.interval.Interval)
+            for c in reversed(np.argsort(self.nodes.time))
+        }
+        old_iedges = self.iedges
+        self.iedges = IEdgeTable()  # Make a new one
+        while len(stack):
+            child, chromosomes = stack.popitem()
+            # An internal sample might have some material passed-up from its children
+            # here, but we can replace that with everything passed up to parents
+            if self.nodes[child].is_sample():
+                chromosomes = {
+                    chrom: P.closedopen(0, np.inf)
+                    for chrom in old_iedges.chromosomes_for_child(child)
+                }
+            # We can't add in the edges in the correct order because we are adding
+            # the youngest edges first, so we don't need to keep chromosomes in the
+            # right order as we will have to sort anyway. If we *did* want to keep
+            # chromosome order for edges, we could use sorted(chromosomes.keys())
+            # here instead.
+            for child_chrom in chromosomes.keys():
+                for ie_id in old_iedges.ids_for_child(child, child_chrom):
+                    ie = old_iedges[ie_id]
+                    parent = ie.parent
+                    parent_chrom = ie.parent_chromosome
+                    child_ivl = P.closedopen(ie.child_left, ie.child_right)
+                    is_inversion = ie.is_inversion()
+                    # JEROME'S NOTE (from previous algorithm): if we had an index here
+                    # sorted by left coord we could binary search to first match, and
+                    # could break once c_right > left (I think?), rather than having
+                    # to intersect all the intervals with the current c_rgt/c_lft
+                    for intervals in chromosomes[child_chrom]:
+                        for interval in intervals:
+                            if c := child_ivl & interval:  # intersect
+                                p = old_iedges.transform_interval(
+                                    ie_id, (c.lower, c.upper), Const.ROOTWARDS
+                                )
+                                if is_inversion:
+                                    # For passing up, interval orientation doesn't matter
+                                    # so put lowest position first, as `portion` requires
+                                    stack[parent][parent_chrom] |= P.closedopen(
+                                        p[1], p[0]
+                                    )
+                                else:
+                                    stack[parent][parent_chrom] |= P.closedopen(*p)
+                                # Add the trimmed interval to the new edge table
+                                self.add_iedge_row(
+                                    c.lower,
+                                    c.upper,
+                                    *p,
+                                    child=child,
+                                    parent=parent,
+                                    child_chromosome=child_chrom,
+                                    parent_chromosome=parent_chrom,
+                                )
+        if sort:
+            self.sort()
+
     def find_mrca_regions(
         self, u, v, *, u_chromosomes=None, v_chromosomes=None, time_cutoff=None
     ):
