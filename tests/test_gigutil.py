@@ -7,6 +7,7 @@ from . import sim
 
 
 INVERTED_CHILD_FLAG = 1 << 17
+DUPLICATION_CHILD_FLAG = 1 << 18
 
 
 # Tests for functions in tests/gigutil.py
@@ -168,15 +169,21 @@ class TestDTWF_one_break_no_rec_inversions_slow:
     default_gens = 5
     seq_len = 531
     inversion = tskit.Interval(100, 200)
-
+    duplication = tskit.Interval(50, 500)  # make a huge duplicated region
+    progress_monitor = False
     simulator = None
     ts = None  # only used to extract a tree sequence from subfunctions
+    iedge_validate = True
 
     def test_plain_sim(self):
         gens = self.default_gens
-        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow()
+        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow(self.iedge_validate)
         gig = self.simulator.run(
-            num_diploids=10, seq_len=self.seq_len, gens=gens, random_seed=1
+            num_diploids=10,
+            seq_len=self.seq_len,
+            gens=gens,
+            random_seed=1,
+            progress_monitor=self.progress_monitor,
         )
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
         assert gig.num_iedges > 0
@@ -187,12 +194,21 @@ class TestDTWF_one_break_no_rec_inversions_slow:
 
     def test_run_more(self):
         gens = self.default_gens
-        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow()
+        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow(self.iedge_validate)
         gig = self.simulator.run(
-            num_diploids=10, seq_len=self.seq_len, gens=gens, random_seed=1
+            num_diploids=10,
+            seq_len=self.seq_len,
+            gens=gens,
+            random_seed=1,
+            progress_monitor=self.progress_monitor,
         )
         new_gens = 2
-        gig = self.simulator.run_more(num_diploids=(4, 2), gens=new_gens, random_seed=1)
+        gig = self.simulator.run_more(
+            num_diploids=(4, 2),
+            gens=new_gens,
+            random_seed=1,
+            progress_monitor=self.progress_monitor,
+        )
         times, counts = np.unique(gig.tables.nodes.time, return_counts=True)
         assert len(times) == gens + new_gens + 1
         assert times[0] == 0
@@ -206,9 +222,15 @@ class TestDTWF_one_break_no_rec_inversions_slow:
     def test_vs_tskit_implementation(self, seed):
         # The tskit_DTWF_simulator should produce identical results to the GIG simulator
         gens = self.default_gens
-        self.simulator = DTWF_one_break_no_rec_inversions_test()
+        self.simulator = DTWF_one_break_no_rec_inversions_test(self.iedge_validate)
         ts_simulator = tskit_DTWF_simulator(sequence_length=self.seq_len)
-        gig = self.simulator.run(7, self.seq_len, gens=gens, random_seed=seed)
+        gig = self.simulator.run(
+            7,
+            self.seq_len,
+            gens=gens,
+            random_seed=seed,
+            progress_monitor=self.progress_monitor,
+        )
         ts = ts_simulator.run(7, gens=gens, random_seed=seed)
         ts.tables.assert_equals(gig.to_tree_sequence().tables, ignore_provenance=True)
         assert ts.num_trees > 0
@@ -225,12 +247,13 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         Note that this routine can be called directly e.g.
             from tests.test_gigutil import TestDTWF_one_break_no_rec_inversions_slow
 
-            cls = TestDTWF_one_break_no_rec_inversions_slow()
-            cls.test_inversion()
-            print(cls.ts)
+            test = TestDTWF_one_break_no_rec_inversions_slow()
+            test.test_inversion()
+            print(test.ts)
         """
         final_pop_size = 100
         self.simulator = sim.DTWF_one_break_no_rec_inversions_slow(
+            self.iedge_validate,
             initial_sizes={
                 "nodes": 2 * final_pop_size * self.default_gens,
                 "edges": 2 * final_pop_size * self.default_gens * 2,
@@ -246,6 +269,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
             further_node_flags=np.array(
                 [[INVERTED_CHILD_FLAG, 0], [0, 0]], dtype=np.int32
             ),
+            progress_monitor=self.progress_monitor,
         )
         # Insert an inversion by editing the tables
         tables = self.simulator.tables
@@ -266,7 +290,11 @@ class TestDTWF_one_break_no_rec_inversions_slow:
             if ie.child == inverted_child_id and ie.child_left == 0:
                 assert ie.parent_left == 0
                 assert ie.child_right == ie.parent_right
-                assert ie.child_right > 200  # check seed gives breakpoint a bit along
+                # the chosen seed should give a breakpoint a bit along
+                if ie.child_right <= self.inversion.right:
+                    raise ValueError(
+                        "Choose a different seed (breakpoint not far right enough)"
+                    )
 
                 new_tables.add_iedge_row(
                     0,
@@ -320,6 +348,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
             num_diploids=final_pop_size,
             gens=self.default_gens - 1,
             random_seed=1,
+            progress_monitor=self.progress_monitor,
         )
         # should have deleted the grand MRCA (used for matching)
         assert len(gig.nodes) == len(self.simulator.tables.nodes) - 1
@@ -341,6 +370,9 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         # Check we can turn the decapitated gig tables into a tree sequence
         # (as long as this isn't simplified, decapitation should remove the only SV)
         tables = gig.tables.copy()
+        # shouldn't be able to edit a row like this really (in case
+        # we change the time)
+        # tables.nodes[inverted_child_id] = tables.
         node_map = tables.decapitate(time=gig.max_time)
         decapitated_gig = tables.graph()
         # check that decapitation has removed the inversion
@@ -389,3 +421,109 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         assert divergence[0] < max_divergence * 0.999
         assert np.isclose(divergence[1], max_divergence)
         assert divergence[2] < max_divergence * 0.999
+
+    def test_tandem_duplication(self):
+        """
+        Run a simulation in which a single tandem duplication is introduced then the
+        population explodes so that the duplication is not lost.
+
+        Unlike an inversion, we can't convert this to a tree sequence because
+        unequal recombination will keep generating new SVs during the lifetime
+        of the simulation.
+
+        Note that this routine can be called directly e.g.
+            from tests.test_gigutil import TestDTWF_one_break_no_rec_inversions_slow
+
+            test = TestDTWF_one_break_no_rec_inversions_slow()
+            test.progress_monitor = True  # to show how the sim is progressing
+            test.default_gens = 40  # increase number of gens
+            test.test_tandem_duplication()
+            print(test.gig)
+        """
+        final_pop_size = 100
+        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow(
+            self.iedge_validate,
+            initial_sizes={
+                "nodes": 2 * final_pop_size * self.default_gens,
+                "edges": 2 * final_pop_size * self.default_gens * 2,
+                "individuals": final_pop_size * self.default_gens,
+            },
+        )
+        self.simulator.run(
+            num_diploids=2,
+            seq_len=self.seq_len,
+            gens=1,
+            random_seed=1234,  # chosen to give >= 3-fold tandem repeats after 5 gens
+            further_node_flags=np.array(
+                [[DUPLICATION_CHILD_FLAG, 0], [0, 0]], dtype=np.int32
+            ),
+            progress_monitor=self.progress_monitor,
+        )
+        # Insert a tandem duplication by editing the tables
+        tables = self.simulator.tables
+        times, inverses = np.unique(tables.nodes.time, return_inverse=True)
+        assert len(times) == 3
+        first_gen = np.where(inverses == np.where([times == 1])[0])[0]
+        second_gen = np.where(inverses == np.where([times == 0])[0])[0]
+        assert len(first_gen) == 4  # haploid genomes
+        assert len(second_gen) == 4  # haploid genomes
+        # Edit the existing iedges to create a duplication in one child
+        new_tables = tables.copy(omit_iedges=True)
+        dup_child_id = np.where(tables.nodes.flags == DUPLICATION_CHILD_FLAG)[0]
+        assert len(dup_child_id) == 1
+        dup_child_id = dup_child_id[0]
+        assert dup_child_id in second_gen
+        for ie in tables.iedges:
+            if ie.child == dup_child_id:
+                assert ie.child_right == ie.parent_right
+                if ie.child_left == 0:
+                    assert ie.parent_left == 0
+                    new_tables.add_iedge_row(
+                        0,
+                        self.duplication.right,
+                        0,
+                        self.duplication.right,
+                        child=dup_child_id,
+                        parent=ie.parent,
+                        **self.simulator.add_iedge_params(),
+                    )
+                    new_tables.add_iedge_row(
+                        self.duplication.right,
+                        self.seq_len + self.duplication.span,
+                        self.duplication.left,
+                        self.seq_len,
+                        child=dup_child_id,
+                        parent=ie.parent,
+                        **self.simulator.add_iedge_params(),
+                    )
+                else:
+                    # Don't add in the edge for the other parent. This duplication
+                    # will not be associated with a recombination
+                    pass
+            else:
+                new_tables.add_iedge_row(
+                    **ie._asdict(), **self.simulator.add_iedge_params()
+                )
+        new_tables.sort()
+        self.simulator.tables = new_tables
+        # Check it gives a valid gig
+        gig = self.simulator.tables.copy().graph()
+
+        # Can progress the simulation
+        gig = self.simulator.run_more(
+            num_diploids=final_pop_size,
+            gens=self.default_gens - 1,
+            random_seed=1,
+            progress_monitor=self.progress_monitor,
+        )
+        # should have deleted the grand MRCA (used for matching)
+        assert len(gig.nodes) == len(self.simulator.tables.nodes) - 1
+
+        self.gig = gig
+        # Check that there are a number of duplicated regions:
+
+        lengths = [gig.sequence_length(u) for u in gig.samples]
+        unique_lengths = np.unique(lengths)
+        assert len(unique_lengths) > 2
+        assert np.all((np.diff(unique_lengths) % np.diff(self.duplication)) == 0)
+        # These should also form a tree that traces the duplicated regions

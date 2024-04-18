@@ -1,5 +1,6 @@
 import GeneticInheritanceGraphLibrary as gigl
 import numpy as np
+from tqdm.auto import tqdm
 
 # Utilities for creating and editing gigs
 
@@ -168,6 +169,7 @@ class DTWF_simulator:
         random_seed=None,
         initial_node_flags=None,
         further_node_flags=None,
+        progress_monitor=None,
     ):
         """
         Initialise and run a new population for a given number of generations. The last
@@ -190,6 +192,8 @@ class DTWF_simulator:
             gens, num_diploids[-gens - 1], node_flags=initial_node_flags
         )
         # First generation by hand, so that we can specify the sequence length
+        if progress_monitor:
+            progress_monitor = tqdm(total=gens, desc="Simulating", unit="gen")
         gens -= 1
         self.new_population(
             gens,
@@ -204,6 +208,8 @@ class DTWF_simulator:
             self.new_population(
                 gens, size=num_diploids[-gens - 1], node_flags=further_node_flags
             )
+            if progress_monitor:
+                progress_monitor.update(1)
 
         self.tables.sort()
         # We should probably simplify or at least sample_resolve here?
@@ -211,7 +217,9 @@ class DTWF_simulator:
         # Probably a parameter `simplify` would be useful?
         return self.tables.copy().graph()
 
-    def run_more(self, num_diploids, seq_len, gens, random_seed=None):
+    def run_more(
+        self, num_diploids, seq_len, gens, random_seed=None, progress_monitor=None
+    ):
         """
         The num_diploids parameter can be an array of length `gens` giving the diploid
         population size in each generation.
@@ -225,9 +233,13 @@ class DTWF_simulator:
 
         # augment the generations
         self.tables.change_times(gens)
+        if progress_monitor:
+            progress_monitor = tqdm(total=gens, desc="Simulating more", unit="gen")
         while gens > 0:
             gens -= 1
             self.new_population(gens, size=num_diploids[-gens - 1])
+            if progress_monitor:
+                progress_monitor.update(1)
 
         self.tables.sort()
         return self.tables.copy().graph()
@@ -347,6 +359,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         random_seed=None,
         initial_node_flags=None,
         further_node_flags=None,
+        progress_monitor=None,
     ):
         """
         The num_diploids param can be an array of length `gens + 1` giving the diploid
@@ -354,6 +367,8 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         """
         self.rng = np.random.default_rng(random_seed)
         self.num_tries_for_breakpoint = 20  # number of tries to find a breakpoint
+        if progress_monitor:
+            progress_monitor = tqdm(total=gens, desc="Simulating", unit="gen")
         if isinstance(num_diploids, int):
             num_diploids = [num_diploids] * (gens + 1)
         self.pop = self.initialise_population(
@@ -364,9 +379,11 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
             self.new_population(
                 gens, size=num_diploids[-gens - 1], node_flags=further_node_flags
             )
+            if progress_monitor:
+                progress_monitor.update(1)
         return self.tables_to_gig_without_grand_mrca()
 
-    def run_more(self, num_diploids, gens, random_seed=None):
+    def run_more(self, num_diploids, gens, random_seed=None, progress_monitor=None):
         """
         The num_diploids parameter can be an array of length `gens` giving the diploid
         population size in each generation.
@@ -378,9 +395,13 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         if isinstance(num_diploids, int):
             num_diploids = [num_diploids] * (gens)
         self.tables.change_times(gens)
+        if progress_monitor:
+            progress_monitor = tqdm(total=gens, desc="Simulating more", unit="gen")
         while gens > 0:
             gens -= 1
             self.new_population(gens, size=num_diploids[-gens - 1])
+            if progress_monitor:
+                progress_monitor.update(1)
         return self.tables_to_gig_without_grand_mrca()
 
     def find_comparable_points(self, tables, parent_nodes):
