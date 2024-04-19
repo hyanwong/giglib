@@ -4,11 +4,9 @@ a validated set of GIG tables with some extra indexes etc for
 efficient access.
 """
 import json
-from collections import defaultdict
 from collections import namedtuple
 
 import numpy as np
-import portion as P
 import tskit
 
 from .constants import Const
@@ -57,24 +55,36 @@ class Graph:
 
         # Cached variables. We define these up top, as all validated GIGs
         # should have them, even if they have no edges
-        self.child_range = -np.ones((len(self.nodes), 2), dtype=np.int32)
-        self.iedge_map_sorted_by_parent = np.arange(
-            len(self.iedges)
-        )  # to overwrite later - initialised here in case we return early with 0 edges
 
+        # set up some aliases for use in the rest of the function.
+        iedge_table = self.tables.iedges
+        # These should all be references to the underlying arrays
+        child = iedge_table.child
+        parent = iedge_table.parent
+        child_left = iedge_table.child_left
+        child_right = iedge_table.child_right
+        parent_left = iedge_table.parent_left
+        parent_right = iedge_table.parent_right
+        node_times = self.tables.nodes.time
+
+        # the _id_range_for_parent dict mirrors the ._id_range_for_parent
+        # dictionary, cached in the iedges table. However, this indexes into
+        # a mapping which specifies iedges sorted primarily by parent ID.
+        self._id_range_for_parent = {}
+        self._iedge_map_sorted_by_parent = np.arange(
+            len(iedge_table)
+        )  # to overwrite later - initialised here in case we return early with 0 edges
         # Cache
-        self.samples = self.tables.samples()
+        self.sample_ids = self.tables.sample_ids
 
         # TODO: should cache node spans here,
         # see https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/27
 
-        if len(self.tables.iedges) == 0:
+        if len(iedge_table) == 0:
             return
 
-        iedges_child = self.tables.iedges.child
-        iedges_parent = self.tables.iedges.parent
         # Check that all node IDs are non-negative and less than #nodes
-        for nm, nodes in (("child", iedges_child), ("parent", iedges_parent)):
+        for nm, nodes in (("child", child), ("parent", parent)):
             if nodes.min() < 0:
                 raise ValueError(f"Iedge {np.argmin(nodes)} contains negative {nm} ID.")
             if nodes.max() >= len(self.nodes):
@@ -84,16 +94,15 @@ class Graph:
 
         # check all parents are strictly older than their children
         # (NB: this also allows a time of np.inf for an "ultimate root" node)
-        node_times = self.tables.nodes.time
-        for i, ie in enumerate(self.iedges):
+        for i, ie in enumerate(iedge_table):
             if node_times[ie.parent] <= node_times[ie.child]:
                 raise ValueError(
                     f"Edge {i}: parent node {ie.parent} not older than child {ie.child}"
                 )
 
         # Check that all iedges have same absolute parent span as child span
-        parent_spans = self.tables.iedges.parent_right - self.tables.iedges.parent_left
-        child_spans = self.tables.iedges.child_right - self.tables.iedges.child_left
+        parent_spans = parent_right - parent_left
+        child_spans = child_right - child_left
         span_equal = np.abs(parent_spans) == np.abs(child_spans)
         if not np.all(span_equal):
             bad = np.where(~span_equal)[0]
@@ -107,9 +116,9 @@ class Graph:
 
         # Check iedges are sorted so that nodes are in decreasing order
         # of child time, with ties broken by child ID, increasing
-        timediff = np.diff(self.tables.nodes.time[iedges_child])
-        chromodiff = np.diff(self.tables.iedges.child_chromosome)
-        node_id_diff = np.diff(iedges_child)
+        timediff = np.diff(node_times[child])
+        chromodiff = np.diff(iedge_table.child_chromosome)
+        node_id_diff = np.diff(child)
 
         if np.any(timediff > 0):
             raise ValueError("iedges are not sorted by child time, descending")
@@ -117,28 +126,21 @@ class Graph:
         if np.any(node_id_diff[timediff == 0] < 0):
             raise ValueError("iedges are not sorted by child time (desc) then ID (asc)")
         # must be adjacent
-        self.tables.iedges.set_bitflag(ValidFlags.IEDGES_FOR_CHILD_ADJACENT)
+        iedge_table.set_bitflag(ValidFlags.IEDGES_FOR_CHILD_ADJACENT)
 
         # Check within a child, edges are sorted by chromosome ascending
-        if np.any(np.diff(self.tables.iedges.child_chromosome)[node_id_diff == 0] < 0):
+        if np.any(np.diff(iedge_table.child_chromosome)[node_id_diff == 0] < 0):
             raise ValueError("iedges for a given child are not sorted by chromosome")
-        self.tables.iedges.set_bitflag(
-            ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
-        )
+        iedge_table.set_bitflag(ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC)
 
         # Check within a child & chromosome, edges are sorted by left coord ascending
         if np.any(
-            np.diff(self.tables.iedges.child_left)[
-                np.logical_and(node_id_diff == 0, chromodiff == 0)
-            ]
-            <= 0
+            np.diff(child_left)[np.logical_and(node_id_diff == 0, chromodiff == 0)] <= 0
         ):
             # print(np.diff(self.tables.iedges.child_left))
             # print(np.logical_and(node_id_diff == 0, chromodiff==0))
             raise ValueError("iedges for a given child/chr are not sorted by left pos")
-        self.tables.iedges.set_bitflag(
-            ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC
-        )
+        iedge_table.set_bitflag(ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC)
 
         # CREATE CACHED VARIABLES
 
@@ -146,29 +148,35 @@ class Graph:
 
         # index to sort edges so they are sorted as in tskit: first by parent time
         # then grouped by parent id. Within each group with the same parent ID,
-        # the edges are sorted by child_is and then child_left
-        self.iedge_map_sorted_by_parent[:] = np.lexsort(
+        # the edges are sorted by parent_chromosome, then child_left
+        self._iedge_map_sorted_by_parent[:] = np.lexsort(
             (
-                self.tables.iedges.child_left,
-                self.tables.iedges.child,
-                self.tables.iedges.parent,
-                self.tables.nodes.time[self.tables.iedges.parent],  # Primary key
+                # NB: this is not totally symmetrical with the edge map sorted by child,
+                # because a parent node can have multiple children at the same position
+                child,
+                # sort by max(parent_left, parent_right). This mirrors
+                # the iedge row sort by max(child_left, child_right) == shild_left
+                np.where(parent_right > parent_left, parent_right, parent_left),
+                iedge_table.parent_chromosome,
+                parent,
+                node_times[parent],  # Primary key
             )
         )
         last_parent = -1
-        for j, idx in enumerate(self.iedge_map_sorted_by_parent):
+        for j, idx in enumerate(self._iedge_map_sorted_by_parent):
             ie = self.iedges[idx]
             if ie.parent != last_parent:
-                self.child_range[ie.parent, 0] = j
-            if last_parent != -1:
-                self.child_range[last_parent, 1] = j
+                # encountered new parent node
+                self._id_range_for_parent[ie.parent] = {}
+            if ie.parent_chromosome not in self._id_range_for_parent[ie.parent]:
+                self._id_range_for_parent[ie.parent][ie.parent_chromosome] = [j, j + 1]
+            else:
+                self._id_range_for_parent[ie.parent][ie.parent_chromosome][1] = j + 1
             last_parent = ie.parent
-        if last_parent != -1:
-            self.child_range[last_parent, 1] = len(self.iedges)
 
         # Check every location has only one parent for each chromosome
         for u in range(len(self.nodes)):
-            for chromosome in self.tables.iedges.chromosomes_for_child(u):
+            for chromosome in self.tables.iedges.chromosomes_as_child(u):
                 prev_right = -np.inf
                 for ie in self.iedges_for_child(u, chromosome):
                     if ie.child_left < prev_right:
@@ -201,26 +209,47 @@ class Graph:
     @property
     def num_samples(self):
         # Deprecated
-        return len(self.samples)
+        return len(self.sample_ids)
 
     @property
     def nodes(self):
-        return Items(self.tables.nodes, Node)
+        """
+        Return an object used to iterate over the nodes in this GIG
+        """
+
+        return GIGItemIterator(self.tables.nodes, Node)
+
+    def samples(self):
+        """
+        Iterate over the sample nodes, returning
+        """
+        return GIGItemIterator(self.tables.nodes, Node, ids=self.sample_ids)
 
     @property
     def individuals(self):
-        return Items(self.tables.individuals, Individual)
+        """
+        Return an object used to iterate over the individuals in this GIG
+        """
+        return GIGItemIterator(self.tables.individuals, Individual)
 
     @property
     def iedges(self):
-        return NewItems(self.tables.iedges, IEdge)
+        """
+        Return an object used to iterate over the iedges in this GIG
+        """
+        return GIGItemIterator(self.tables.iedges, IEdge)
 
-    def iedges_for_parent(self, u):
+    def iedges_for_parent(self, u, chromosome=None):
         """
         Iterate over all iedges with parent u
         """
-        for i in range(*self.child_range[u, :]):
-            yield self.iedges[self.iedge_map_sorted_by_parent[i]]
+        if chromosome is None:
+            start = next(self._id_range_for_parent[u].keys())[0]
+            end = next(reversed(self._id_range_for_parent[u].keys()))[1]
+        else:
+            start, end = self._id_range_for_parent[u][chromosome]
+        for i in range(start, end):
+            yield self.iedges[self._iedge_map_sorted_by_parent[i]]
 
     def iedges_for_child(self, u, chromosome=None):
         """
@@ -229,35 +258,75 @@ class Graph:
         for i in self.tables.iedges.ids_for_child(u, chromosome):
             yield self.iedges[i]
 
-    def max_position(self, u):
+    def chromosomes_as_child(self, u):
+        return self.tables.iedges.chromosomes_as_child(u)
+
+    def chromosomes_as_parent(self, u):
+        return self._id_range_for_parent.get(u, {}).keys()
+
+    def chromosomes(self, u):
+        return self.chromosomes_as_child(u) | self.chromosomes_as_parent(u)
+
+    def max_pos_as_child(self, u, chromosome=None):
+        return self.tables.iedges.max_pos_as_child(u, chromosome=chromosome)
+
+    def max_pos_as_parent(self, u, chromosome=None):
+        if u not in self._id_range_for_parent:
+            return None
+        if chromosome is None:
+            return max(
+                self.max_pos_as_parent(u, c)
+                for c in self._id_range_for_parent[u].keys()
+            )
+        else:
+            if chromosome not in self._id_range_for_parent[u]:
+                return None
+            idx = self._id_range_for_parent[u][chromosome][1] - 1  # index of last iedge
+            return self.tables.iedges[self._iedge_map_sorted_by_parent[idx]].parent_max
+
+    def max_pos(self, u, chromosome=None):
         """
         Return the maximum position in the edges above or below this node.
-        This defines the known sequence length of the node u.
+        This defines the known sequence length of the node u for a given
+        chromosome (or the maximum position in any chromosome if not specified)
         """
-        maxpos = [ie.parent_max for ie in self.iedges_for_parent(u)]
-        maxpos += [ie.child_max for ie in self.iedges_for_child(u)]
-        if len(maxpos) > 0:
-            return max(maxpos)
-        return None
+        max_child = self.max_pos_as_child(u, chromosome=chromosome)
+        max_parent = self.max_pos_as_parent(u, chromosome=chromosome)
+        if max_parent is None and max_child is None:
+            return None
+        if max_parent is None:
+            return max_child
+        if max_child is None:
+            return max_parent
+        return max(max_child, max_parent)
 
-    def min_position(self, u):
-        """
-        Return the minimum position in the edges above or below this node.
-        Genetic data for positions before this is treated as unknown.
-        """
-        minpos = [ie.parent_min for ie in self.iedges_for_parent(u)]
-        minpos += [ie.child_min for ie in self.iedges_for_child(u)]
-        if len(minpos) > 0:
-            return min(minpos)
-        return None
+    def min_pos_as_child(self, u, chromosome=None):
+        return self.tables.iedges.min_pos_as_child(u, chromosome=chromosome)
 
-    def sequence_length(self, u):
+    # We don't yet define min_pos_as_parent or therefore min_pos, because
+    # _iedge_map_sorted_by_parent is not sorted by lowest position, so
+    # we would have to iterate through all the edges for this parent
+
+    def sequence_length(self, u, chromosome):
         """
         Return the known sequence length of the node u: equivalent to
         max_position(u) but returns 0 rather than None if this is an
         isolated node (with no associated edges).
         """
-        return self.max_position(u) or 0
+        return self.max_pos(u, chromosome) or 0
+
+    def total_sequence_length(self, u):
+        """
+        Return the sum of all the sequence lengths in all the chromosomes
+        """
+        iedges = self.tables.iedges
+        chroms = (
+            self._id_range_for_parent.get(u, {}).keys()
+            | iedges._id_range_for_child.get(u, {}).keys()
+        )
+        if len(chroms) > 0:
+            return max(self.sequence_length(u, c) for c in chroms)
+        return 0
 
     def to_tree_sequence(self, sequence_length=None):
         """
@@ -324,118 +393,45 @@ class Graph:
         transmit information to the current samples. This is rather
         like running the Hudson algorithm on a fixed graph, but without
         counting up the number of samples under each node.
-
-        The algorithm is implemented by using a stack that contains intervals
-        for each node, ordered by node time (oldest first). When considering a
-        node, we pop the (youngest) node off the end of the stack, which
-        ensures that we have collected all the intervals with that node as a
-        parent, before passing inheritance information upwards
         """
-        # == Implementation details ==
-        # A. Rather than representing the intervals for a node as a list of
-        #    (left, right) tuples, the "portion" library is used, allowing multiple
-        #    intervals to be combined into a single object and automatically merged
-        #    together when they adjoin or overlap (coalesce). This reduces the
-        #    number of intervals and their fragmentation as we go up the stack.
-        # B. For simplicity we put all nodes onto the stack at the start, in time
-        #    order (relying on the fact that python dicts now preserve order). We
-        #    then fill out their intervals as we go, and gradually remove the items
-        #    from the stack as we work through it. Since sample_resolve() will touch
-        #    almost all nodes, declaring and filling the stack up-front is efficient.
-        #    An alternative if only a few nodes are likely to be visited would
-        #    be to create a dynamic stack continuously sorted by node time, e.g.
-        #        stack = sortedcontainers.SortedDict(lambda k: -nodes_time[k])
-        # C. This differs slightly from the similar tskit method
-        #    `.simplify(filter_nodes=False, keep_unary=True)`, because it does not
-        #    squash adjacent edges together. It should therefore preserve
-        #    "recombination diamonds". This could be useful for some applications,
-        stack = {
-            c: defaultdict(P.interval.Interval)
-            for c in reversed(np.argsort(self.tables.nodes.time))
-        }
-        new_tables = self.tables.copy(omit_iedges=True)
-        while len(stack):
-            child, chromosomes = stack.popitem()
-            # An internal sample might have some material passed-up from its children
-            # here, but we can replace that with everything passed up to parents
-            if self.nodes[child].is_sample():
-                chromosomes = {
-                    chrom: P.closedopen(0, np.inf)
-                    for chrom in self.tables.iedges.chromosomes_for_child(child)
-                }
-            # We can't add in the edges in the correct order because we are adding
-            # the youngest edges first, so we don't need to keep chromosomes in the
-            # right order as we will have to sort anyway. If we *did* want to keep
-            # chromosome order for edges, we could use sorted(chromosomes.keys())
-            # here instead.
-            for child_chrom in chromosomes.keys():
-                for ie_id in self.tables.iedges.ids_for_child(child, child_chrom):
-                    ie = self.tables.iedges[ie_id]
-                    parent = ie.parent
-                    parent_chrom = ie.parent_chromosome
-                    child_ivl = P.closedopen(ie.child_left, ie.child_right)
-                    is_inversion = ie.is_inversion()
-                    # JEROME'S NOTE (from previous algorithm): if we had an index here
-                    # sorted by left coord we could binary search to first match, and
-                    # could break once c_right > left (I think?), rather than having
-                    # to intersect all the intervals with the current c_rgt/c_lft
-                    for intervals in chromosomes[child_chrom]:
-                        for interval in intervals:
-                            if c := child_ivl & interval:  # intersect
-                                p = self.tables.iedges.transform_interval(
-                                    ie_id, (c.lower, c.upper), Const.ROOTWARDS
-                                )
-                                if is_inversion:
-                                    # For passing up, interval orientation doesn't matter
-                                    # so put lowest position first, as `portion` requires
-                                    stack[parent][parent_chrom] |= P.closedopen(
-                                        p[1], p[0]
-                                    )
-                                else:
-                                    stack[parent][parent_chrom] |= P.closedopen(*p)
-                                # Add the trimmed interval to the new edge table
-                                new_tables.add_iedge_row(
-                                    c.lower,
-                                    c.upper,
-                                    *p,
-                                    child=child,
-                                    parent=parent,
-                                    child_chromosome=child_chrom,
-                                    parent_chromosome=parent_chrom,
-                                )
-        new_tables.sort()
-        return self.__class__(new_tables)
+        new_tables = self.tables.copy()
+        new_tables.sample_resolve()
+        return new_tables.graph()
 
 
-class Items:
+class GIGItemIterator:
     """
-    Class to wrap all the items in a table. Since it has a
+    Class to help iterate over items in a GIG. In paticular this is focussed on
+    items that are represented as table rows, such as nodes, iedges, and . Since it has a
     __len__ method, it should play nicely with showing progressbar
     output with tqdm (e.g. for i in tqdm.tqdm(gig.iedges): ...)
     """
 
-    def __init__(self, table, cls):
+    def __init__(self, table, cls, ids=None):
+        self.ids = ids
         self.table = table
         self.cls = cls
 
     def __getitem__(self, index):
-        return self.cls(**self.table[index]._asdict(), id=index)
+        if self.ids is None:
+            return self.cls(**self.table[index]._asdict(), id=index)
+        else:
+            true_id = self.ids[index]
+            return self.cls(**self.table[true_id]._asdict(), id=true_id)
 
     def __len__(self):
-        return len(self.table)
+        if self.ids is None:
+            return len(self.table)
+        else:
+            return len(self.ids)
 
     def __iter__(self):
-        for i in range(len(self.table)):
-            yield self.cls(**self.table[i]._asdict(), id=i)
-
-
-class NewItems(Items):
-    def __getitem__(self, index):
-        return self.cls(**self.table[index]._asdict(), id=index)
-
-    def __iter__(self):
-        for i in range(len(self.table)):
-            yield self.cls(**self.table[i]._asdict(), id=i)
+        if self.ids is None:
+            for i in range(len(self.table)):
+                yield self.cls(**self.table[i]._asdict(), id=i)
+        else:
+            for i in self.ids:
+                yield self.cls(**self.table[i]._asdict(), id=i)
 
 
 class IEdge(namedtuple("IEdge", IEdgeTableRow._fields + ("id",))):
@@ -522,7 +518,8 @@ class IEdge(namedtuple("IEdge", IEdgeTableRow._fields + ("id",))):
 
 class Node(namedtuple("Node", NodeTableRow._fields + ("id",))):
     """
-    A single node in a Graph. Similar to an node table row but with an ID.
+    An object representing a single node in a :class:`Graph`. This acts like an
+    :class:`~tables.NodeTableRow` but also has an ID.
     """
 
     def is_sample(self):
@@ -531,7 +528,8 @@ class Node(namedtuple("Node", NodeTableRow._fields + ("id",))):
 
 class Individual(namedtuple("Individual", IndividualTableRow._fields + ("id",))):
     """
-    A single individual in a Graph. Similar to an individual table row but with an ID.
+    An object representing a single individual in a :class:`Graph`. This acts like an
+    :class:`~tables.IndividualTableRow` but also has an ID.
     """
 
     pass

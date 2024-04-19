@@ -111,9 +111,11 @@ class DTWF_one_break_no_rec_inversions_test(sim.DTWF_one_break_no_rec_inversions
     as in the tskit_DTWF_simulator.
     """
 
-    def find_comparable_points(self, gig, parent_nodes):
+    def find_comparable_points(self, gig, parent_nodes, chroms):
         """ """
-        mrcas = gig.find_mrca_regions(*parent_nodes)
+        mrcas = gig.find_mrca_regions(
+            *parent_nodes, u_chromosomes=[chroms[0]], v_chromosomes=[chroms[1]]
+        )
         # Create a new mrca dict with arbitrary keys but where each value is a single
         # interval with the appropriate matching coords in u and v. Items in the dict
         # are sorted by the left coordinate of the mrca. Keys can be arbitrary because
@@ -127,7 +129,10 @@ class DTWF_one_break_no_rec_inversions_test(sim.DTWF_one_break_no_rec_inversions
         )
         comparable_pts = mrcas.random_match_pos(self.rng)
         # Don't bother with inversions: testing doesn't use them
-        return np.array([comparable_pts.u, comparable_pts.v], dtype=np.int64)
+        return (
+            np.array([comparable_pts.u, comparable_pts.v], dtype=np.int64),
+            (comparable_pts.chr_u, comparable_pts.chr_v),
+        )
 
 
 # MAIN TESTS BELOW
@@ -137,7 +142,7 @@ class TestSimpleSims:
     def test_no_recomb_sim(self):
         gens = 10
         simulator = sim.DTWF_no_recombination()
-        gig = simulator.run(num_diploids=10, seq_len=100, gens=gens, random_seed=1)
+        gig = simulator.run(num_diploids=10, seq_lens=[100], gens=gens, random_seed=1)
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
         assert gig.num_iedges > 0
 
@@ -145,28 +150,40 @@ class TestSimpleSims:
         gens = 2
         simulator = sim.DTWF_no_recombination()
         gig = simulator.run(
-            num_diploids=(2, 10, 20), seq_len=100, gens=gens, random_seed=1
+            num_diploids=(2, 10, 20), seq_lens=[100], gens=gens, random_seed=1
         )
         times, counts = np.unique(gig.tables.nodes.time, return_counts=True)
         assert np.array_equal(times, [0, 1, 2])
         assert np.array_equal(counts, [40, 20, 4])
         assert len(gig.individuals) == 2 + 10 + 20
 
+    def test_multi_chromosomes(self):
+        gens = 2
+        simulator = sim.DTWF_no_recombination()
+        gig = simulator.run(
+            num_diploids=(2, 10, 20), seq_lens=[100, 50], gens=gens, random_seed=1
+        )
+        gig = gig.sample_resolve()
+        for u in gig.sample_ids:
+            assert set(gig.chromosomes(u)) == {0, 1}
+            assert gig.sequence_length(u, 0) == gig.max_pos(u, 0) == 100
+            assert gig.sequence_length(u, 1) == gig.max_pos(u, 1) == 50
+            assert gig.sequence_length(u, 2) == 0
+            assert gig.max_pos(u, 2) is None
+
     def test_run_more(self):
         simulator = sim.DTWF_no_recombination()
         gens = 2
-        gig = simulator.run(num_diploids=2, seq_len=100, gens=gens, random_seed=1)
+        gig = simulator.run(num_diploids=2, seq_lens=[100], gens=gens, random_seed=1)
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
         new_gens = 3
-        gig = simulator.run_more(
-            num_diploids=4, seq_len=100, gens=new_gens, random_seed=1
-        )
+        gig = simulator.run_more(num_diploids=4, gens=new_gens, random_seed=1)
         assert len(np.unique(gig.tables.nodes.time)) == gens + new_gens + 1
 
 
 class TestDTWF_one_break_no_rec_inversions_slow:
     default_gens = 5
-    seq_len = 531
+    seq_lens = [531]
     inversion = tskit.Interval(100, 200)
 
     simulator = None
@@ -176,12 +193,12 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         gens = self.default_gens
         self.simulator = sim.DTWF_one_break_no_rec_inversions_slow()
         gig = self.simulator.run(
-            num_diploids=10, seq_len=self.seq_len, gens=gens, random_seed=1
+            num_diploids=10, seq_lens=self.seq_lens, gens=gens, random_seed=1
         )
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
         assert gig.num_iedges > 0
         ts = gig.to_tree_sequence()
-        assert ts.num_samples == len(gig.samples)
+        assert ts.num_samples == len(gig.sample_ids)
         assert ts.num_trees > 1
         assert ts.at_index(0).num_edges > 0
 
@@ -189,7 +206,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         gens = self.default_gens
         self.simulator = sim.DTWF_one_break_no_rec_inversions_slow()
         gig = self.simulator.run(
-            num_diploids=10, seq_len=self.seq_len, gens=gens, random_seed=1
+            num_diploids=10, seq_lens=self.seq_lens, gens=gens, random_seed=1
         )
         new_gens = 2
         gig = self.simulator.run_more(num_diploids=(4, 2), gens=new_gens, random_seed=1)
@@ -207,8 +224,8 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         # The tskit_DTWF_simulator should produce identical results to the GIG simulator
         gens = self.default_gens
         self.simulator = DTWF_one_break_no_rec_inversions_test()
-        ts_simulator = tskit_DTWF_simulator(sequence_length=self.seq_len)
-        gig = self.simulator.run(7, self.seq_len, gens=gens, random_seed=seed)
+        ts_simulator = tskit_DTWF_simulator(sequence_length=self.seq_lens[0])
+        gig = self.simulator.run(7, self.seq_lens, gens=gens, random_seed=seed)
         ts = ts_simulator.run(7, gens=gens, random_seed=seed)
         ts.tables.assert_equals(gig.to_tree_sequence().tables, ignore_provenance=True)
         assert ts.num_trees > 0
@@ -240,7 +257,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
 
         self.simulator.run(
             num_diploids=2,
-            seq_len=self.seq_len,
+            seq_lens=self.seq_lens,
             gens=1,
             random_seed=123,
             further_node_flags=np.array(

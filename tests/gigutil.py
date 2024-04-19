@@ -67,13 +67,8 @@ class DTWF_simulator:
             )
         return individual_ids, node_ids
 
-    def new_population(
-        self, time, recombination_rate=0, size=None, seq_len=None, node_flags=None
-    ):
+    def new_population(self, time, size=None, recombination_rate=0, node_flags=None):
         """
-        If seq_len is specified, use this as the expected sequence length of the
-        parents of the new population, otherwise take from the parent.sequence_length
-
         If num_diploids is specified, use this as the number of diploids in the new
         population, otherwise use the number of diploids in the previous population.
         """
@@ -108,21 +103,29 @@ class DTWF_simulator:
             ):
                 parent_genomes = prev_pop[parent_individual]
                 self.add_inheritance_paths(
-                    parent_genomes, child_genome, seq_len, recombination_rate
+                    parent_genomes,
+                    child_genome,
+                    recombination_rate,
                 )
 
-    def add_inheritance_paths(
-        self, parent_nodes, child_node, seq_len, recombination_rate
-    ):
+    def add_inheritance_paths(self, parent_nodes, child_node, recombination_rate):
+        # For the first generation, this will need to use self.seq_lens
+        # to establish the number of chromosomes and their correct bounds
         raise NotImplementedError(
             "Implement an add_inheritance_paths method to make a DTWF simulator"
         )
 
     def initialise_population(
-        self, time, size, node_flags=None
+        # seq_lens is a dict mapping chromosome number to sequence length
+        self,
+        time,
+        size,
+        seq_lens,
+        node_flags=None,
     ) -> dict[int, tuple[int, int]]:
         self.tables.clear()
         self.pop = None
+        self.seq_lens = seq_lens
         return dict(
             zip(
                 *self.make_diploids(
@@ -162,9 +165,10 @@ class DTWF_simulator:
     def run(
         self,
         num_diploids,
-        seq_len,
+        seq_lens,
         gens,
         *,
+        num_chromosomes=1,
         random_seed=None,
         initial_node_flags=None,
         further_node_flags=None,
@@ -183,22 +187,19 @@ class DTWF_simulator:
         Returns a gig represeting the ancestry of the population at time 0
         """
         self.rng = np.random.default_rng(random_seed)
+        try:
+            seq_lens = {chrom: length for chrom, length in seq_lens.items()}
+        except AttributeError:
+            seq_lens = {chrom: length for chrom, length in enumerate(seq_lens)}
         if isinstance(num_diploids, int):
             num_diploids = [num_diploids] * (gens + 1)
 
         self.pop = self.initialise_population(
-            gens, num_diploids[-gens - 1], node_flags=initial_node_flags
-        )
-        # First generation by hand, so that we can specify the sequence length
-        gens -= 1
-        self.new_population(
             gens,
-            seq_len=100,
-            size=num_diploids[-gens - 1],
-            node_flags=further_node_flags,
+            num_diploids[-gens - 1],
+            node_flags=initial_node_flags,
+            seq_lens=seq_lens,
         )
-
-        # Subsequent generations
         while gens > 0:
             gens -= 1
             self.new_population(
@@ -211,7 +212,7 @@ class DTWF_simulator:
         # Probably a parameter `simplify` would be useful?
         return self.tables.copy().graph()
 
-    def run_more(self, num_diploids, seq_len, gens, random_seed=None):
+    def run_more(self, num_diploids, gens, random_seed=None):
         """
         The num_diploids parameter can be an array of length `gens` giving the diploid
         population size in each generation.
@@ -234,27 +235,52 @@ class DTWF_simulator:
 
 
 class DTWF_no_recombination_sim(DTWF_simulator):
-    def add_inheritance_paths(self, parent_nodes, child, seq_len, recombination_rate):
+    """
+    A discrete-time Wright-Fisher model in which no recombination takes place,
+    but a random parent is chosen for each chromosome.
+    """
+
+    def add_inheritance_paths(self, parent_nodes, child, recombination_rate):
         "Add inheritance paths from a randomly chosen parent genome to the child genome."
         if recombination_rate != 0:
             raise ValueError("Recombination rate must be zero for this simulation.")
-        rand_parent = self.rng.integers(2)  # randomly choose 1st or 2nd parent node
-        parent = parent_nodes[rand_parent]
-        lft = 0
-        if seq_len is not None:
-            rgt = seq_len
+        mum, dad = parent_nodes
+        if self.tables.iedges.edges_exist_for_child(
+            mum
+        ) != self.tables.iedges.edges_exist_for_child(dad):
+            raise ValueError(
+                "Cannot combine parents with and without previous ancestry"
+            )
+        if self.tables.iedges.edges_exist_for_child(mum):
+            # Has previous ancestry, so we need to check the chromosomes
+            mum_chroms = self.tables.iedges.chromosomes_as_child(mum)
+            if mum_chroms != self.tables.iedges.chromosomes_as_child(dad):
+                raise ValueError("Parents must have the same chromosome IDs")
+            chromosomes = mum_chroms
+            rand_parent = self.rng.integers(2, size=len(chromosomes))
+            seq_lens = {
+                ch: self.tables.iedges.max_pos_as_child(
+                    parent_nodes[idx], chromosome=ch
+                )
+                for ch, idx in zip(chromosomes, rand_parent)
+            }
         else:
-            rgt = self.tables.iedges.max_child_pos(parent)
-
-        self.tables.add_iedge_row(
-            lft,
-            rgt,
-            lft,
-            rgt,
-            child=child,
-            parent=parent,
-            **self.add_iedge_params(),
-        )
+            rand_parent = self.rng.integers(2, size=len(self.seq_lens))
+            seq_lens = self.seq_lens
+        lft = 0
+        for idx, (chrom, rgt) in zip(rand_parent, seq_lens.items()):
+            parent = parent_nodes[idx]
+            self.tables.add_iedge_row(
+                lft,
+                rgt,
+                lft,
+                rgt,
+                child=child,
+                parent=parent,
+                child_chromosome=chrom,
+                parent_chromosome=chrom,
+                **self.add_iedge_params(),
+            )
 
 
 class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
@@ -273,7 +299,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
     """
 
     def initialise_population(
-        self, time, size, L, node_flags=None
+        self, time, size, seq_lens, node_flags=None
     ) -> dict[int, tuple[int, int]]:
         # Make a "fake" MRCA node so we can use the find_mrca_regions method
         # to locate comparable regions for recombination in the parent genomes
@@ -290,16 +316,19 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
             )
         )
         for nodes in temp_pop.values():
-            for u in nodes:
-                self.tables.add_iedge_row(
-                    0,
-                    L,
-                    0,
-                    L,
-                    child=u,
-                    parent=self.grand_mrca,
-                    **self.add_iedge_params(),
-                )
+            for chrom, L in seq_lens.items():
+                for u in nodes:
+                    self.tables.add_iedge_row(
+                        0,
+                        L,
+                        0,
+                        L,
+                        child=u,
+                        parent=self.grand_mrca,
+                        child_chromosome=chrom,
+                        parent_chromosome=chrom,
+                        **self.add_iedge_params(),
+                    )
         return temp_pop
 
     def tables_to_gig_without_grand_mrca(self):
@@ -331,33 +360,44 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
                     ie.parent_right,
                     child=node_map[ie.child],
                     parent=node_map[ie.parent],
+                    child_chromosome=ie.child_chromosome,
+                    parent_chromosome=ie.parent_chromosome,
                 )
             except KeyError:
                 assert ie.parent == self.grand_mrca
-        # Shouldn't need to sort really: we could do as a check?
+        # Shouldn't need to sort really, as gMRCA is oldest we could do as a check?
         # No need to make a copy here, as we have started with a new tables object
         return output_tables.graph()
 
     def run(
         self,
         num_diploids,
-        seq_len,
+        seq_lens,
         gens,
         *,
+        num_chromosomes=1,
         random_seed=None,
         initial_node_flags=None,
         further_node_flags=None,
     ):
         """
         The num_diploids param can be an array of length `gens + 1` giving the diploid
-        population size in each generation. This allows quick growth of a population
+        population size in each generation. This allows variable populations sizes over
+        time, e.g. to simplement quick growth of a population.
         """
         self.rng = np.random.default_rng(random_seed)
         self.num_tries_for_breakpoint = 20  # number of tries to find a breakpoint
+        try:
+            seq_lens = {chrom: l for chrom, l in seq_lens.items()}
+        except AttributeError:
+            seq_lens = {chrom: l for chrom, l in enumerate(seq_lens)}
         if isinstance(num_diploids, int):
             num_diploids = [num_diploids] * (gens + 1)
         self.pop = self.initialise_population(
-            gens, size=num_diploids[-gens - 1], L=seq_len, node_flags=initial_node_flags
+            gens,
+            size=num_diploids[-gens - 1],
+            seq_lens=seq_lens,
+            node_flags=initial_node_flags,
         )
         while gens > 0:
             gens -= 1
@@ -383,75 +423,98 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
             self.new_population(gens, size=num_diploids[-gens - 1])
         return self.tables_to_gig_without_grand_mrca()
 
-    def find_comparable_points(self, tables, parent_nodes):
+    def find_comparable_points(self, tables, parent_nodes, parent_chroms):
         """
         Find comparable points in the parent nodes, and return the
         coordinates of the matching regions in the parent nodes.
         """
-        mrcas = tables.find_mrca_regions(*parent_nodes)
+        u_chrom, v_chrom = parent_chroms
+        mrcas = tables.find_mrca_regions(
+            *parent_nodes,
+            u_chromosomes=[u_chrom],
+            v_chromosomes=[v_chrom],
+        )
         # Pick a single comparable location but ban recombination if one is
         # inverted and the other is not inverted
         tries = 0
-        while (pts := mrcas.random_match_pos(self.rng)).opposite_orientations:
+        while (pos := mrcas.random_match_pos(self.rng)).opposite_orientations:
             tries += 1
             if tries > self.num_tries_for_breakpoint:
                 raise ValueError(
                     "Could not find a pair of matching regions in the same orientation"
                     f"after {tries} tries"
                 )
-        return np.array([pts.u, pts.v], dtype=np.int64)
+        return np.array([pos.u, pos.v], dtype=np.int64), (pos.chr_u, pos.chr_v)
 
-    def add_inheritance_paths(self, parent_nodes, child, seq_len, _):
-        breaks = self.find_comparable_points(self.tables, parent_nodes)
-
-        rnd = self.rng.integers(4)
-        # To avoid bias we choose a breakpoint either to the left or the right
-        # of the identified location. If one was inverted and the other not,
-        # we would need to be careful here, but this is banned in this sim.
-        # Here's an example:
-        #     0123456789
-        # u = abcgfedhij
-        # v = ABCGFEDHIJ
-        # We label the potential positions for breaks as 0..10 (inclusive)
-        # SEQUENCE       a   b   c   g   f   e   d   h   i   j
-        # BREAKPOINT   0   1   2   3   4   5   6   7   8   9   10
-        # So if we get a breakpoint at 0 or 10 we can ignore it
-        break_to_right_of_position = rnd & 1
-        breaks += break_to_right_of_position
-
-        if rnd & 2:  # Use 2nd bit to randomly choose 1st or 2nd parent node
-            # We need to randomise the order of parent nodes to avoid
-            # all children of this parent having the same genome to left / right
-            lft_parent, rgt_parent = parent_nodes
-            lft_parent_break, rgt_parent_break = breaks
-        else:
-            rgt_parent, lft_parent = parent_nodes
-            rgt_parent_break, lft_parent_break = breaks
-
-        # Must add edges in the correct order to preserve edge sorting by left coord
-        brk = lft_parent_break
-        if brk > 0:  # If break not placed just before position 0
-            pL, pR = 0, brk  # parent left and right start at the same pos as child
-            self.tables.add_iedge_row(
-                0,
-                brk,
-                pL,
-                pR,
-                child=child,
-                parent=lft_parent,
-                **self.add_iedge_params(),
+    def add_inheritance_paths(self, parent_nodes, child, _):
+        mum, dad = parent_nodes
+        mum_chroms = self.tables.iedges.chromosomes_as_child(mum)
+        if mum_chroms != self.tables.iedges.chromosomes_as_child(dad):
+            raise ValueError("Parents must have the same chromosome IDs")
+        for chrom in sorted(mum_chroms):
+            chroms = (chrom, chrom)
+            breaks, parent_chroms = self.find_comparable_points(
+                self.tables, parent_nodes, chroms
             )
-        if seq_len is None:
-            seq_len = self.tables.iedges.max_child_pos(rgt_parent)
-        if rgt_parent_break < seq_len:  # If break not just after the last pos
-            pL, pR = rgt_parent_break, seq_len
-            cR = brk + (pR - pL)  # child rgt must account for len of rgt parent region
-            self.tables.add_iedge_row(
-                brk,
-                cR,
-                pL,
-                pR,
-                child=child,
-                parent=rgt_parent,
-                **self.add_iedge_params(),
-            )
+            assert parent_chroms[0] == chroms[0]
+            assert parent_chroms[1] == chroms[1]
+            rnd = self.rng.integers(4)
+            # To avoid bias we choose a breakpoint either to the left or the right
+            # of the identified location. If one was inverted and the other not,
+            # we would need to be careful here, but this is banned in this sim.
+            # Here's an example:
+            #     0123456789
+            # u = abcgfedhij
+            # v = ABCGFEDHIJ
+            # We label the potential positions for breaks as 0..10 (inclusive)
+            # SEQUENCE       a   b   c   g   f   e   d   h   i   j
+            # BREAKPOINT   0   1   2   3   4   5   6   7   8   9   10
+            # So if we get a breakpoint at 0 or 10 we can ignore it
+            break_to_right_of_position = rnd & 1
+            breaks += break_to_right_of_position
+
+            if rnd & 2:  # Use 2nd bit to randomly choose 1st or 2nd parent node
+                # We need to randomise the order of parent nodes to avoid
+                # all children of this parent having the same genome to left / right
+                lft_parent, rgt_parent = parent_nodes
+                lft_chrom, rgt_chrom = parent_chroms
+                lft_parent_break, rgt_parent_break = breaks
+            else:
+                rgt_parent, lft_parent = parent_nodes
+                rgt_chrom, lft_chrom = parent_chroms
+                rgt_parent_break, lft_parent_break = breaks
+
+                # Must add edges in correct order to preserve edge sorting by left coord
+            brk = lft_parent_break
+            if brk > 0:  # If break not placed just before position 0
+                pL, pR = 0, brk  # parent left and right start at the same pos as child
+                self.tables.add_iedge_row(
+                    0,
+                    brk,
+                    pL,
+                    pR,
+                    child=child,
+                    parent=lft_parent,
+                    child_chromosome=chrom,
+                    parent_chromosome=lft_chrom,
+                    **self.add_iedge_params(),
+                )
+            if not self.tables.iedges.edges_exist_for_child(rgt_parent, rgt_chrom):
+                raise ValueError("Must have edges for parents to get seq len")
+            seq_len = self.tables.iedges.max_pos_as_child(rgt_parent, rgt_chrom)
+            if rgt_parent_break < seq_len:  # If break not just after the last pos
+                pL, pR = rgt_parent_break, seq_len
+                cR = brk + (
+                    pR - pL
+                )  # child rgt must account for len of rgt parent region
+                self.tables.add_iedge_row(
+                    brk,
+                    cR,
+                    pL,
+                    pR,
+                    child=child,
+                    parent=rgt_parent,
+                    child_chromosome=chrom,
+                    parent_chromosome=rgt_chrom,
+                    **self.add_iedge_params(),
+                )
