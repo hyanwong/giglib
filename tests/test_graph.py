@@ -195,7 +195,7 @@ class TestMethods:
         n = 0
         for u, sample in zip(trivial_gig.sample_ids, trivial_gig.samples()):
             assert u == sample.id
-            assert sample.time == trivial_gig.nodes.time[u]
+            assert sample.time == trivial_gig.tables.nodes.time[u]
             assert trivial_gig.nodes[u].is_sample()
             n += 1
         assert n == np.sum(trivial_gig.tables.nodes.flags & gigl.NODE_IS_SAMPLE > 0)
