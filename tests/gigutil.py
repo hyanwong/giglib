@@ -188,9 +188,9 @@ class DTWF_simulator:
         """
         self.rng = np.random.default_rng(random_seed)
         try:
-            seq_lens = {chrom: l for chrom, l in seq_lens.items()}
+            seq_lens = {chrom: length for chrom, length in seq_lens.items()}
         except AttributeError:
-            seq_lens = {chrom: l for chrom, l in enumerate(seq_lens)}
+            seq_lens = {chrom: length for chrom, length in enumerate(seq_lens)}
         if isinstance(num_diploids, int):
             num_diploids = [num_diploids] * (gens + 1)
 
