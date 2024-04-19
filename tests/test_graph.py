@@ -32,9 +32,8 @@ class TestConstructor:
         assert len(gig.iedges) == 0
         assert len(gig.sample_ids) == 1
         # Cached values should be defined but empty
-        assert gig.child_range.shape == (len(gig.nodes), 2)
-        assert np.all(gig.child_range == gigl.NULL)
-        assert gig.iedge_map_sorted_by_parent.shape == (0,)
+        assert len(gig._id_range_for_parent) == 0
+        assert gig._iedge_map_sorted_by_parent.shape == (0,)
 
     def test_from_bad(self):
         with pytest.raises(
@@ -153,22 +152,43 @@ class TestMethods:
                 edges.add(iedge.id)
         assert len(edges) == simple_ts.num_edges
 
+    def test_max_pos(self):
+        ts = tskit.Tree.generate_balanced(2, span=4).tree_sequence
+        tables = gigl.Tables.from_tree_sequence(ts.keep_intervals([[1, 3]]))
+        unconnected_node = tables.nodes.add_row(time=2)
+        gig = tables.graph()
+        for n in ts.nodes():  # Will omit the unconnected one
+            assert gig.max_pos(n.id) == 3
+            if n.is_sample():
+                assert gig.max_pos_as_child(n.id) == 3
+                assert gig.min_pos_as_child(n.id) == 1
+            else:
+                assert gig.max_pos_as_child(n.id) is None
+                assert gig.min_pos_as_child(n.id) is None
+        assert gig.max_pos(unconnected_node) is None
+        assert gig.min_pos_as_child(unconnected_node) is None
+
     def test_sequence_length(self, simple_ts):
         gig = gigl.Graph.from_tree_sequence(simple_ts)
         for u in gig.sample_ids:
-            assert gig.sequence_length(u) == simple_ts.sequence_length
+            assert gig.sequence_length(u, chromosome=0) == simple_ts.sequence_length
 
     def test_sequence_length_root(self, all_sv_types_no_re_gig):
         # root will have no upward edges
         root = len(all_sv_types_no_re_gig.nodes) - 1
-        assert all_sv_types_no_re_gig.sequence_length(root) == 200
+        for chrom in all_sv_types_no_re_gig.chromosomes(root):
+            assert all_sv_types_no_re_gig.sequence_length(root, chrom) == 200
+        assert all_sv_types_no_re_gig.total_sequence_length(root) == 200
 
     def test_no_sequence_length(self):
         tables = gigl.Tables()
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         gig = tables.graph()
         for u in gig.sample_ids:
-            assert gig.sequence_length(u) == 0
+            # any chromosomes reported as length 0
+            assert gig.sequence_length(u, 0) == 0
+            assert gig.sequence_length(u, 1) == 0
+            assert gig.sequence_length(u, 2) == 0
 
 
 class TestTskit:
@@ -267,8 +287,8 @@ class TestSampleResolving:
         # TODO - test a transformation of e.g. 3 in the original sample
 
     def test_extended_inversion(self, extended_inversion_gig):
-        assert extended_inversion_gig.max_position(0) == 155
-        assert extended_inversion_gig.min_position(0) == 20
+        assert extended_inversion_gig.max_pos(0) == 155
+        assert extended_inversion_gig.min_pos_as_child(0) == 20
 
         assert extended_inversion_gig.nodes[0].is_sample()
         iedges = list(extended_inversion_gig.iedges_for_child(0))
@@ -424,7 +444,7 @@ class TestIEdge:
         gig = gigl.Graph.from_tree_sequence(simple_ts)
         suffix = name.split("_")[-1]
 
-        ie = gig.iedges[gig.iedge_map_sorted_by_parent[0]]  # tskit order
+        ie = gig.iedges[gig._iedge_map_sorted_by_parent[0]]  # tskit order
         assert getattr(ie, name) == getattr(simple_ts.edge(0), suffix)
 
     def test_span(self, all_sv_types_no_re_gig):

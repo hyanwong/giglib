@@ -663,14 +663,20 @@ class IEdgeTable(BaseTable):
         except KeyError:
             return np.arange(0)
 
-    def max_child_pos(self, u, chromosome=0):
+    def max_pos_as_child(self, u, chromosome=None):
         """
-        Return the maximum child position for a given child ID. If
-        IEDGES_VALID_INTERVALS is set, this should be equivalent to
-        np.max(child_right[child == u]), but faster because it relies on
-        ValidFlags.IEDGES_WITHIN_CHILD_SORTED.
+        Return the maximum child position for a given child ID and chromosome.
+        This should be equivalent np.max(child_right[child == u]), but faster
+        because it relies on ValidFlags.IEDGES_WITHIN_CHILD_SORTED.
 
-        Returns None if there are no edges for the given child.
+        If chromosome is not given, this will return the maximum child
+        position in *any* chromosome.
+
+        Returns None if there are no iedges for the given child.
+
+        .. note::
+            This does not look at edges for which this node is a parent,
+            so e.g. root nodes may not have a maximum position defined
         """
         if not self.has_bitflag(
             ValidFlags.IEDGES_WITHIN_CHILD_SORTED
@@ -681,18 +687,58 @@ class IEdgeTable(BaseTable):
                 "nonoverlapping, and ordered by chromosome then position"
             )
         try:
-            return self[self._id_range_for_child[u][chromosome][1] - 1].child_max
+            if chromosome is None:
+                return max(
+                    self[self._id_range_for_child[u][c][1] - 1].child_max
+                    for c in self._id_range_for_child[u].keys()
+                )
+            else:
+                return self[self._id_range_for_child[u][chromosome][1] - 1].child_max
         except KeyError:
             return None
 
-    def chromosomes_for_child(self, u):
+    def min_pos_as_child(self, u, chromosome=None):
         """
-        Iterate over the chromosome numbers for a given child ID.
+        Return the minimum child position for a given child ID and chromosome.
+        This should be equivalent np.max(child_right[child == u]), but faster
+        because it relies on ValidFlags.IEDGES_WITHIN_CHILD_SORTED.
+
+        If chromosome is not given, this will return the minimum child
+        position in *any* chromosome.
+
+        Returns None if there are no iedges for the given child.
+
+        .. note::
+            This does not look at edges for which this node is a parent,
+            so e.g. root nodes may not have a minimum position defined
+        """
+        if not self.has_bitflag(
+            ValidFlags.IEDGES_WITHIN_CHILD_SORTED
+            | ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING
+        ):
+            raise ValueError(
+                "Cannot use this method unless iedges for a child are adjacent, "
+                "nonoverlapping, and ordered by chromosome then position"
+            )
+        try:
+            if chromosome is None:
+                return min(
+                    self[self._id_range_for_child[u][c][0]].child_min
+                    for c in self._id_range_for_child[u].keys()
+                )
+            else:
+                return self[self._id_range_for_child[u][chromosome][0]].child_min
+        except KeyError:
+            return None
+
+    def chromosomes_as_child(self, u):
+        """
+        Iterate over the chromosome numbers for a node ID ``u``, when
+        this node is considered as a child.
         This will only iterate over the chromosomes which correspond to
         edges above the node ``u``: if ``u`` had chromosomes which are not
         traced by any edge, these will not be reported.
         """
-
         return self._id_range_for_child.get(u, {}).keys()
 
     def transform_interval(self, iedge_id, interval, direction):
@@ -1420,7 +1466,7 @@ class Tables:
             if self.nodes[child].is_sample():
                 chromosomes = {
                     chrom: P.closedopen(0, np.inf)
-                    for chrom in old_iedges.chromosomes_for_child(child)
+                    for chrom in old_iedges.chromosomes_as_child(child)
                 }
             # We can't add in the edges in the correct order because we are adding
             # the youngest edges first, so we don't need to keep chromosomes in the
@@ -1555,9 +1601,9 @@ class Tables:
             from node ``v``. If None (default), return MRCAs for all ``v``'s chromosomes
         """
         if u_chromosomes is None:
-            u_chromosomes = list(self.iedges.chromosomes_for_child(u))
+            u_chromosomes = list(self.iedges.chromosomes_as_child(u))
         if v_chromosomes is None:
-            v_chromosomes = list(self.iedges.chromosomes_for_child(v))
+            v_chromosomes = list(self.iedges.chromosomes_as_child(v))
         if not isinstance(u, (int, np.integer)) or not isinstance(v, (int, np.integer)):
             raise ValueError("u and v must be integers")
 

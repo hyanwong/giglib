@@ -312,6 +312,15 @@ class TestIEdgeTable:
                 ie_rows = list(tables.iedges.ids_for_child(ie_row.child))
             assert tables.iedges[ie_rows.pop(0)] == ie_row
 
+    def test_no_edges_child_iterator(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(time=0)
+        ie_rows = list(tables.iedges.ids_for_child(0))
+        assert len(ie_rows) == 0
+        ie_rows = list(tables.iedges.ids_for_child(0, chromosome=10))
+        assert len(ie_rows) == 0
+        assert 0 not in tables.iedges._id_range_for_child
+
     def test_bad_child_iterator(self, all_sv_types_2re_gig):
         tables = all_sv_types_2re_gig.tables.copy()
         # Add a valid edge but don't check it
@@ -396,14 +405,31 @@ class TestIEdgeTable:
         tables.add_iedge_row(
             10, 20, 10, 20, child=youngest_child, parent=0, validate=ValidFlags.GIG
         )
-        assert tables.iedges.max_child_pos(youngest_child, chromosome=0) == 20
+        assert tables.iedges.max_pos_as_child(youngest_child, chromosome=0) == 20
 
     def test_bad_max_child_pos(self, trivial_gig):
         tables = trivial_gig.tables.copy()
         # Don't validate
         tables.iedges.add_row(10, 20, 10, 20, child=0, parent=4)
         with pytest.raises(ValueError, match="Cannot use this method"):
-            tables.iedges.max_child_pos(0, chromosome=0)
+            tables.iedges.max_pos_as_child(0, chromosome=0)
+
+    def test_max_child_simple(self):
+        ts = tskit.Tree.generate_balanced(2, span=4).tree_sequence
+        root = ts.first().root
+        tables = gigl.Tables.from_tree_sequence(ts.keep_intervals([[1, 3]]))
+        unconnected_node = tables.nodes.add_row(time=2)
+        for leaf in ts.samples():
+            assert tables.iedges.max_pos_as_child(leaf) == 3
+            assert tables.iedges.max_pos_as_child(leaf, chromosome=0) == 3
+            assert tables.iedges.max_pos_as_child(leaf, chromosome=1) is None
+            assert tables.iedges.min_pos_as_child(leaf) == 1
+            assert tables.iedges.min_pos_as_child(leaf, chromosome=0) == 1
+            assert tables.iedges.min_pos_as_child(leaf, chromosome=1) is None
+        assert tables.iedges.max_pos_as_child(root) is None
+        assert tables.iedges.min_pos_as_child(root) is None
+        assert tables.iedges.max_pos_as_child(unconnected_node) is None
+        assert tables.iedges.min_pos_as_child(unconnected_node) is None
 
 
 class TestIedgesValidation:
@@ -696,7 +722,7 @@ class TestIEdgeAttributes:
         tables = gig.tables
         assert getattr(tables.iedges, name).dtype == np.int64
         suffix = name.split("_")[-1]
-        ts_order = gig.iedge_map_sorted_by_parent
+        ts_order = gig._iedge_map_sorted_by_parent
         assert np.all(
             getattr(tables.iedges, name)[ts_order]
             == getattr(simple_ts, "edges_" + suffix)
@@ -718,7 +744,7 @@ class TestNodeAttributes:
     def test_child(self, simple_ts):
         gig = gigl.Graph.from_tree_sequence(simple_ts)
         tables = gig.tables
-        ts_order = gig.iedge_map_sorted_by_parent
+        ts_order = gig._iedge_map_sorted_by_parent
         assert np.all(tables.iedges.child[ts_order] == simple_ts.edges_child)
 
 
@@ -768,8 +794,8 @@ class TestFindMrcas:
         tree1 = degree2_2_tip_ts.last()
         assert T[tree0.root] != T[tree1.root]
         gig = gigl.Graph.from_tree_sequence(degree2_2_tip_ts)
-        assert gig.sequence_length(0) == degree2_2_tip_ts.sequence_length
-        assert gig.sequence_length(1) == degree2_2_tip_ts.sequence_length
+        assert gig.sequence_length(0, 0) == degree2_2_tip_ts.sequence_length
+        assert gig.sequence_length(1, 0) == degree2_2_tip_ts.sequence_length
         cutoff = (T[[tree0.root, tree1.root]]).mean()
         shared_regions = gig.tables.find_mrca_regions(0, 1, time_cutoff=cutoff)
         assert len(shared_regions) == 1
@@ -825,10 +851,11 @@ class TestFindMrcas:
         gig = extended_inversion_gig
         if sample_resolve:
             gig = gig.sample_resolve()
-        assert gig.min_position(0) == 20
-        assert gig.max_position(0) == 155
-        assert gig.min_position(1) == 0
-        assert gig.max_position(1) == 100
+        assert set(gig.sample_ids) == {0, 1}
+        assert gig.min_pos_as_child(0) == 20
+        assert gig.max_pos(0) == 155
+        assert gig.min_pos_as_child(1) == 0
+        assert gig.max_pos(1) == 100
         mrcas = gig.tables.find_mrca_regions(0, 1)
         assert len(mrcas) == 1
         assert 3 in mrcas

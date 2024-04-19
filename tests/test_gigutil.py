@@ -164,8 +164,12 @@ class TestSimpleSims:
             num_diploids=(2, 10, 20), seq_lens=[100, 50], gens=gens, random_seed=1
         )
         gig = gig.sample_resolve()
-        for sample in gig.sample_ids:
-            print(sample)
+        for u in gig.sample_ids:
+            assert set(gig.chromosomes(u)) == {0, 1}
+            assert gig.sequence_length(u, 0) == gig.max_pos(u, 0) == 100
+            assert gig.sequence_length(u, 1) == gig.max_pos(u, 1) == 50
+            assert gig.sequence_length(u, 2) == 0
+            assert gig.max_pos(u, 2) is None
 
     def test_run_more(self):
         simulator = sim.DTWF_no_recombination()

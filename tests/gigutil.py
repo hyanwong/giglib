@@ -253,13 +253,15 @@ class DTWF_no_recombination_sim(DTWF_simulator):
             )
         if self.tables.iedges.edges_exist_for_child(mum):
             # Has previous ancestry, so we need to check the chromosomes
-            mum_chroms = self.tables.iedges.chromosomes_for_child(mum)
-            if mum_chroms != self.tables.iedges.chromosomes_for_child(dad):
+            mum_chroms = self.tables.iedges.chromosomes_as_child(mum)
+            if mum_chroms != self.tables.iedges.chromosomes_as_child(dad):
                 raise ValueError("Parents must have the same chromosome IDs")
             chromosomes = mum_chroms
             rand_parent = self.rng.integers(2, size=len(chromosomes))
             seq_lens = {
-                ch: self.tables.iedges.max_child_pos(parent_nodes[idx], chromosome=ch)
+                ch: self.tables.iedges.max_pos_as_child(
+                    parent_nodes[idx], chromosome=ch
+                )
                 for ch, idx in zip(chromosomes, rand_parent)
             }
         else:
@@ -446,8 +448,8 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
 
     def add_inheritance_paths(self, parent_nodes, child, _):
         mum, dad = parent_nodes
-        mum_chroms = self.tables.iedges.chromosomes_for_child(mum)
-        if mum_chroms != self.tables.iedges.chromosomes_for_child(dad):
+        mum_chroms = self.tables.iedges.chromosomes_as_child(mum)
+        if mum_chroms != self.tables.iedges.chromosomes_as_child(dad):
             raise ValueError("Parents must have the same chromosome IDs")
         for chrom in sorted(mum_chroms):
             chroms = (chrom, chrom)
@@ -499,7 +501,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
                 )
             if not self.tables.iedges.edges_exist_for_child(rgt_parent, rgt_chrom):
                 raise ValueError("Must have edges for parents to get seq len")
-            seq_len = self.tables.iedges.max_child_pos(rgt_parent, rgt_chrom)
+            seq_len = self.tables.iedges.max_pos_as_child(rgt_parent, rgt_chrom)
             if rgt_parent_break < seq_len:  # If break not just after the last pos
                 pL, pR = rgt_parent_break, seq_len
                 cR = brk + (
