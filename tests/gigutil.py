@@ -316,8 +316,9 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
             )
         )
         for nodes in temp_pop.values():
-            for chrom, L in seq_lens.items():
-                for u in nodes:
+            for u in nodes:
+                for chrom, L in seq_lens.items():
+                    print(u, self.grand_mrca)
                     self.tables.add_iedge_row(
                         0,
                         L,
@@ -373,7 +374,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         self,
         num_diploids,
         seq_lens,
-        gens,
+        gens=None,
         *,
         num_chromosomes=1,
         random_seed=None,
@@ -393,6 +394,11 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
             seq_lens = {chrom: l for chrom, l in enumerate(seq_lens)}
         if isinstance(num_diploids, int):
             num_diploids = [num_diploids] * (gens + 1)
+        else:
+            if gens is not None:
+                raise ValueError("Cannot specify num gens with array of pop sizes")
+            gens = len(num_diploids) - 1
+
         self.pop = self.initialise_population(
             gens,
             size=num_diploids[-gens - 1],

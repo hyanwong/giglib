@@ -406,3 +406,35 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         assert divergence[0] < max_divergence * 0.999
         assert np.isclose(divergence[1], max_divergence)
         assert divergence[2] < max_divergence * 0.999
+
+    def test_multi_chromosomes(self):
+        gens = 10
+        simulator = sim.DTWF_one_break_no_rec_inversions_slow()
+        # a few rounds of tiny population sizes, so that we get coalescence
+        simulator.run(num_diploids=(2, 2, 2), seq_lens=[100, 50, 200], random_seed=1)
+        gig = simulator.run_more(num_diploids=10, gens=gens, random_seed=1)
+        gig = gig.sample_resolve()
+        # No recombinations between chromosomes in this simulation: check there are no
+        # MRCA regions shared between chromosomes
+        s1 = gig.sample_ids[0]
+        s2 = gig.sample_ids[1]
+        for chromA in gig.chromosomes(s1):
+            for chromB in gig.chromosomes(s2):
+                if chromA != chromB:
+                    assert (
+                        len(
+                            gig.find_mrca_regions(
+                                s1, s2, u_chromosomes=[chromA], v_chromosomes=[chromB]
+                            )
+                        )
+                        == 0
+                    )
+                else:
+                    assert (
+                        len(
+                            gig.find_mrca_regions(
+                                s1, s2, u_chromosomes=[chromA], v_chromosomes=[chromB]
+                            )
+                        )
+                        > 0
+                    )

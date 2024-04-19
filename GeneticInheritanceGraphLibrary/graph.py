@@ -392,11 +392,19 @@ class Graph:
         Sample resolve a GIG, keeping only those edge regions which
         transmit information to the current samples. This is rather
         like running the Hudson algorithm on a fixed graph, but without
-        counting up the number of samples under each node.
+        counting up the number of samples under each node. This is
+        identical to the :meht:`Tables.sample_resolve` method, but returns
+        a new GIG instead.
         """
         new_tables = self.tables.copy()
         new_tables.sample_resolve()
         return new_tables.graph()
+
+    def find_mrca_regions(self, *args, **kwargs):
+        """
+        A wrapper around the find_mrca_regions method in the tables object
+        """
+        return self.tables.find_mrca_regions(*args, **kwargs)
 
 
 class GIGItemIterator:

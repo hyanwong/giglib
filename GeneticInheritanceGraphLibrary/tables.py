@@ -623,9 +623,10 @@ class IEdgeTable(BaseTable):
         if chromosome is None:
             return u in self._id_range_for_child
         else:
-            if u in self._id_range_for_child:
+            try:
                 return chromosome in self._id_range_for_child[u]
-            return False
+            except KeyError:
+                return False
 
     def ids_for_child(self, u, chromosome=None):
         """
