@@ -117,6 +117,15 @@ and implementation differences, an incomplete list of which are below:
 - **No `.trees()` iterator** See above: the meaning of a "local tree" is unclear in a GIG, so
   implementing the equivalent of the fundamental _tskit_ `.trees()` method is likely to require
   substantial theoretical work.
+- **Algorithms on tables** Unlike _tskit_, some fundamental algorithms such as `find_mrca_regions` and
+  `sample_resolve` (a basic type of `simplify`) can be run directly on a set of tables.
+  For this to work, the tables need to conform to certain validity criteria.
+  Substantial additional functionality has been incoporated into the tables objects, so that table rows
+  (especially for iedges) can be validated on calling `table.add_row()`, according to certain validity flags
+  (see the [`ValidFlags` class](GeneticInheritanceGraphLibrary/constants.py) in `constants.py`).
+  This allows use of the GIG structure during generation of the tables, without having the substantial
+  overhead of continually having to freeze them into an immutable graph. This makes forward simulation
+  feasible.
 - **Other stuff** More differences should be noted here!
 
 ## Examples
