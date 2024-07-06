@@ -60,7 +60,7 @@ A tandem duplication is represented by two iedges, one for each duplicated regio
 {parent: P, child: C, child_left: 200, child_right: 300, parent_left: 100, parent_right: 200}
 ```
 
-Or one of the edges could represent a non-adjacent duplication (e.g. corresponding to a transposable element):
+Or one of the iedges could represent a non-adjacent duplication (e.g. corresponding to a transposable element):
 ```
 {parent: P, child: C, child_left: 250, child_right: 350, parent_left: 100, parent_right: 200}
 ```
