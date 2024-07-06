@@ -1425,7 +1425,8 @@ class Tables:
         Sample resolve the Tables, keeping only those edge regions which
         transmit information to the current samples. This is rather
         like running the Hudson algorithm on a fixed graph, but without
-        counting up the number of samples under each node.
+        counting up the number of samples under each node. This requires
+        the equivalent of making a new edges table, so is a costly operation.
 
         The algorithm is implemented by using a stack that contains intervals
         for each node, ordered by node time (oldest first). When considering a
