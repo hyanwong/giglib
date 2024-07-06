@@ -107,7 +107,7 @@ and implementation differences, an incomplete list of which are below:
 - **Object access** Information stored in GIG tables can be accessed using square brackets, and
   the `len()` function should work, so the canonical usage looks like `gig.nodes[0]`, `len(gig.nodes)`,
   and `[u.id for u in gig.nodes]` rather than the equivalents in _tskit_ (`ts.node(0)`, `ts.num_nodes`,
-  and `[u.id for u in ts.nodes()]`. Similarly, we use `gig.samples` (no braces) rather than `ts.samples()`.
+  and `[u.id for u in ts.nodes()]`. Similarly, we use `gig.sample_ids` (no braces) rather than `ts.samples()`.
 - **Internal iedge order** The iedges in a GIG are sorted such that all those for a given child are
   adjacent (rather than all edges for a parent being adjacent as in _tskit_). Moreover, iedges are
   sorted in decreasing order of child time, so that edges with more recent children come last. Since
