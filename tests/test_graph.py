@@ -1,7 +1,8 @@
-import GeneticInheritanceGraphLibrary as gigl
 import numpy as np
 import pytest
 import tskit
+
+import GeneticInheritanceGraphLibrary as gigl
 from GeneticInheritanceGraphLibrary.constants import Const
 
 
@@ -470,7 +471,7 @@ class TestIEdge:
                 assert ie.parent_right - ie.parent_left < 0
         assert num_inversions == 1
 
-    @pytest.mark.parametrize("direction", (Const.ROOTWARDS, Const.LEAFWARDS))
+    @pytest.mark.parametrize("direction", [Const.ROOTWARDS, Const.LEAFWARDS])
     def test_notransform_position(self, direction):
         ie = self.basic_edge(10, 20, 10, 20)
         assert ie.transform_position(10, direction) == 10
@@ -500,7 +501,7 @@ class TestIEdge:
         with pytest.raises(ValueError, match="not in parent interval"):
             ie.transform_position(20, Const.LEAFWARDS)
 
-    @pytest.mark.parametrize("direction", (Const.ROOTWARDS, Const.LEAFWARDS))
+    @pytest.mark.parametrize("direction", [Const.ROOTWARDS, Const.LEAFWARDS])
     def test_transform_position_inversion(self, direction):
         ie = self.basic_edge(10, 20, 20, 10)
         assert ie.transform_position(10, direction) == 19

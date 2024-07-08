@@ -1,0 +1,47 @@
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+    "*.PHY",
+    "*.md",
+    "*.markdown",
+]
+
+line-length = 120
+
+[lint]
+select = ["E", "F", "B", "W", "I", "N", "UP", "A", "RUF", "PT", "NPY"]
+# N801 allow classnames with multiple caps, e.g. DTWF_simulator
+# N803,806,802 Allow capital varnames
+# N812 Allow capital P for portion
+# N813 Allow capital GeneticInheritanceGraphLibrary -> gigl
+# E741 Allow "l" as var name
+# PT011 allow pytest raises without match
+ignore = ["N801", "N803", "N806", "N802", "E741", "PT011", "PT009", "N999", "N812", "N813"]
+
+[lint.isort]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+

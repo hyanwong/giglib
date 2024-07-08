@@ -56,6 +56,4 @@ def add_row_label(ax, x_offset, y_pos, text, fontsize, color):
     """
     Plotting utility function for adding row labels to MRCA plots
     """
-    ax.text(
-        x_offset, y_pos, text, va="center", ha="right", fontsize=fontsize, color=color
-    )
+    ax.text(x_offset, y_pos, text, va="center", ha="right", fontsize=fontsize, color=color)

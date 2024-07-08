@@ -3,18 +3,15 @@ Define a generalised (genetic) inheritance graph object, which is
 a validated set of GIG tables with some extra indexes etc for
 efficient access.
 """
+
 import json
 from collections import namedtuple
 
 import numpy as np
 import tskit
 
-from .constants import Const
-from .constants import ValidFlags
-from .tables import IEdgeTableRow
-from .tables import IndividualTableRow
-from .tables import NodeTableRow
-from .tables import Tables
+from .constants import Const, ValidFlags
+from .tables import IEdgeTableRow, IndividualTableRow, NodeTableRow, Tables
 
 
 class Graph:
@@ -30,9 +27,7 @@ class Graph:
         the canonical way to do this is to use  {meth}`Tables.graph`
         """
         if not isinstance(tables, Tables):
-            raise ValueError(
-                "tables must be a GeneticInheritanceGraphLibrary.Tables object"
-            )
+            raise ValueError("tables must be a GeneticInheritanceGraphLibrary.Tables object")
         self.tables = tables
         self._validate()
         self.tables.freeze()
@@ -88,17 +83,13 @@ class Graph:
             if nodes.min() < 0:
                 raise ValueError(f"Iedge {np.argmin(nodes)} contains negative {nm} ID.")
             if nodes.max() >= len(self.nodes):
-                raise ValueError(
-                    f"Iedge {np.argmax(nodes)} contains {nm} ID >= num nodes"
-                )
+                raise ValueError(f"Iedge {np.argmax(nodes)} contains {nm} ID >= num nodes")
 
         # check all parents are strictly older than their children
         # (NB: this also allows a time of np.inf for an "ultimate root" node)
         for i, ie in enumerate(iedge_table):
             if node_times[ie.parent] <= node_times[ie.child]:
-                raise ValueError(
-                    f"Edge {i}: parent node {ie.parent} not older than child {ie.child}"
-                )
+                raise ValueError(f"Edge {i}: parent node {ie.parent} not older than child {ie.child}")
 
         # Check that all iedges have same absolute parent span as child span
         parent_spans = parent_right - parent_left
@@ -110,9 +101,7 @@ class Graph:
 
         # Check that child left is always < child right (also checks nonzero span)
         if np.any(child_spans <= 0):
-            raise ValueError(
-                f"child_left >= child_right for iedges {np.where(child_spans < 0)[0]}"
-            )
+            raise ValueError(f"child_left >= child_right for iedges {np.where(child_spans < 0)[0]}")
 
         # Check iedges are sorted so that nodes are in decreasing order
         # of child time, with ties broken by child ID, increasing
@@ -134,9 +123,7 @@ class Graph:
         iedge_table.set_bitflag(ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC)
 
         # Check within a child & chromosome, edges are sorted by left coord ascending
-        if np.any(
-            np.diff(child_left)[np.logical_and(node_id_diff == 0, chromodiff == 0)] <= 0
-        ):
+        if np.any(np.diff(child_left)[np.logical_and(node_id_diff == 0, chromodiff == 0)] <= 0):
             # print(np.diff(self.tables.iedges.child_left))
             # print(np.logical_and(node_id_diff == 0, chromodiff==0))
             raise ValueError("iedges for a given child/chr are not sorted by left pos")
@@ -180,10 +167,7 @@ class Graph:
                 prev_right = -np.inf
                 for ie in self.iedges_for_child(u, chromosome):
                     if ie.child_left < prev_right:
-                        raise ValueError(
-                            f"Node {u} has multiple or duplicate parents at position"
-                            f" {ie.child_left}"
-                        )
+                        raise ValueError(f"Node {u} has multiple or duplicate parents at position" f" {ie.child_left}")
                     prev_right = ie.child_right
         self.tables.iedges.flags = ValidFlags.GIG
 
@@ -274,10 +258,7 @@ class Graph:
         if u not in self._id_range_for_parent:
             return None
         if chromosome is None:
-            return max(
-                self.max_pos_as_parent(u, c)
-                for c in self._id_range_for_parent[u].keys()
-            )
+            return max(self.max_pos_as_parent(u, c) for c in self._id_range_for_parent[u].keys())
         else:
             if chromosome not in self._id_range_for_parent[u]:
                 return None
@@ -320,10 +301,7 @@ class Graph:
         Return the sum of all the sequence lengths in all the chromosomes
         """
         iedges = self.tables.iedges
-        chroms = (
-            self._id_range_for_parent.get(u, {}).keys()
-            | iedges._id_range_for_child.get(u, {}).keys()
-        )
+        chroms = self._id_range_for_parent.get(u, {}).keys() | iedges._id_range_for_child.get(u, {}).keys()
         if len(chroms) > 0:
             return max(self.sequence_length(u, c) for c in chroms)
         return 0
@@ -368,14 +346,10 @@ class Graph:
         for individual in self.individuals:
             for p in individual.parents:
                 if p < int32_min or p > int32_max:
-                    raise ValueError(
-                        f"Cannot store individual IDs > {int32_max} in tskit"
-                    )
+                    raise ValueError(f"Cannot store individual IDs > {int32_max} in tskit")
             tables.individuals.add_row(parents=np.int32(individual.parents))  # can cast
 
-        tables.provenances.add_row(
-            record=json.dumps({"parameters": {"command": "gig.to_tree_sequence"}})
-        )
+        tables.provenances.add_row(record=json.dumps({"parameters": {"command": "gig.to_tree_sequence"}}))
         tables.sort()
         return tables.tree_sequence()
 
@@ -442,7 +416,7 @@ class GIGItemIterator:
                 yield self.cls(**self.table[i]._asdict(), id=i)
 
 
-class IEdge(namedtuple("IEdge", IEdgeTableRow._fields + ("id",))):
+class IEdge(namedtuple("IEdge", (*IEdgeTableRow._fields, "id"))):
     """
     A single interval edge in a Graph. Similar to an edge table row
     but with an ID and various other useful methods that rely on
@@ -488,10 +462,7 @@ class IEdge(namedtuple("IEdge", IEdgeTableRow._fields + ("id",))):
         """
         Is this an in-situ inversion, where parent and child coords are simply swapped
         """
-        return (
-            self.parent_left == self.child_right
-            and self.parent_right == self.child_left
-        )
+        return self.parent_left == self.child_right and self.parent_right == self.child_left
 
     def transform_position(self, x, direction):
         """
@@ -519,12 +490,10 @@ class IEdge(namedtuple("IEdge", IEdgeTableRow._fields + ("id",))):
                 if x < self.parent_left or x >= self.parent_right:
                     raise ValueError(f"Position {x} not in parent interval for {self}")
                 return x - self.parent_left + self.child_left
-        raise ValueError(
-            f"Direction must be Const.ROOTWARDS or Const.LEAFWARDS, not {direction}"
-        )
+        raise ValueError(f"Direction must be Const.ROOTWARDS or Const.LEAFWARDS, not {direction}")
 
 
-class Node(namedtuple("Node", NodeTableRow._fields + ("id",))):
+class Node(namedtuple("Node", (*NodeTableRow._fields, "id"))):
     """
     An object representing a single node in a :class:`Graph`. This acts like an
     :class:`~tables.NodeTableRow` but also has an ID.
@@ -534,7 +503,7 @@ class Node(namedtuple("Node", NodeTableRow._fields + ("id",))):
         return self.flags & Const.NODE_IS_SAMPLE
 
 
-class Individual(namedtuple("Individual", IndividualTableRow._fields + ("id",))):
+class Individual(namedtuple("Individual", (*IndividualTableRow._fields, "id"))):
     """
     An object representing a single individual in a :class:`Graph`. This acts like an
     :class:`~tables.IndividualTableRow` but also has an ID.
