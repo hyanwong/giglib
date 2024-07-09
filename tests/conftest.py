@@ -1,17 +1,15 @@
-import GeneticInheritanceGraphLibrary as gigl
 import msprime
 import numpy as np
 import pytest
 import tskit
+
+import GeneticInheritanceGraphLibrary as gigl
 from GeneticInheritanceGraphLibrary.constants import Const
-from tests.gigutil import add_iedge
-from tests.gigutil import make_nodes_table
+from tests.gigutil import add_iedge, make_nodes_table
 
 
 def no_population_ts():
-    ts = msprime.sim_ancestry(
-        2, recombination_rate=1, sequence_length=10, random_seed=1
-    )
+    ts = msprime.sim_ancestry(2, recombination_rate=1, sequence_length=10, random_seed=1)
     # remove population data: GIGs do not have defined populations
     tables = ts.dump_tables()
     tables.populations.clear()
@@ -39,9 +37,7 @@ def ts_with_multiple_pops():
     demography.add_population(name="B", initial_size=500)
     demography.add_population(name="C", initial_size=200)
     demography.add_population_split(time=100, derived=["A", "B"], ancestral="C")
-    ts = msprime.sim_ancestry(
-        samples={"A": 1, "B": 1}, demography=demography, random_seed=1
-    )
+    ts = msprime.sim_ancestry(samples={"A": 1, "B": 1}, demography=demography, random_seed=1)
     return ts
 
 
@@ -287,9 +283,7 @@ def all_sv_types_2re_gig():
 
 @pytest.fixture(scope="session")
 def gig_from_degree2_ts():
-    ts = msprime.sim_ancestry(
-        5, sequence_length=10, recombination_rate=0.02, random_seed=1
-    )
+    ts = msprime.sim_ancestry(5, sequence_length=10, recombination_rate=0.02, random_seed=1)
     assert ts.num_trees == 2
     return gigl.Graph.from_tree_sequence(ts)
 
@@ -317,14 +311,10 @@ def inverted_duplicate_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    add_iedge(
-        tables, 0, 5, 100, 105, c=A, p=2
-    )  # inherited region at 100, 105 in prnt 2
+    add_iedge(tables, 0, 5, 100, 105, c=A, p=2)  # inherited region at 100, 105 in prnt 2
     add_iedge(tables, 5, 15, 110, 100, c=A, p=2)  # duplicated inversion
     add_iedge(tables, 0, 10, 10, 20, c=B, p=3)
-    add_iedge(
-        tables, 90, 190, 0, 100, c=2, p=3
-    )  # an iedge which is not sample-resolved
+    add_iedge(tables, 90, 190, 0, 100, c=2, p=3)  # an iedge which is not sample-resolved
     tables.sort()
     return gigl.Graph(tables)
 
@@ -346,13 +336,9 @@ def inverted_duplicate_with_missing_gig():
     ]
     tables = gigl.Tables()
     tables.nodes = make_nodes_table(node_data, tables)
-    add_iedge(
-        tables, 0, 5, 100, 105, c=A, p=2
-    )  # inherited region at 100, 105 in prnt 2
+    add_iedge(tables, 0, 5, 100, 105, c=A, p=2)  # inherited region at 100, 105 in prnt 2
     add_iedge(tables, 25, 35, 110, 100, c=A, p=2)  # duplicated inversion, with missing
     add_iedge(tables, 0, 10, 10, 20, c=B, p=3)
-    add_iedge(
-        tables, 90, 190, 0, 100, c=2, p=3
-    )  # an iedge which is not sample-resolved
+    add_iedge(tables, 90, 190, 0, 100, c=2, p=3)  # an iedge which is not sample-resolved
     tables.sort()
     return gigl.Graph(tables)

@@ -1,10 +1,10 @@
-import GeneticInheritanceGraphLibrary as gigl
 import numpy as np
 import pytest
 import tskit
 
-from . import sim
+import GeneticInheritanceGraphLibrary as gigl
 
+from . import sim
 
 INVERTED_CHILD_FLAG = 1 << 17
 
@@ -20,26 +20,18 @@ class tskit_DTWF_simulator:
     # For visualising unsimplified tree sequences, it helps to flag all nodes as samples
     default_node_flags = tskit.NODE_IS_SAMPLE
 
-    def make_diploid(
-        self, time, parent_individuals=None
-    ) -> tuple[int, tuple[int, int]]:
+    def make_diploid(self, time, parent_individuals=None) -> tuple[int, tuple[int, int]]:
         """
         Make an individual and its diploid genomes by adding to tables, returning IDs.
         Specifying parent_individuals is optional but stores the pedigree stored.
         """
         individual_id = self.tables.individuals.add_row(parents=parent_individuals)
         return individual_id, (
-            self.tables.nodes.add_row(
-                time=time, flags=self.default_node_flags, individual=individual_id
-            ),
-            self.tables.nodes.add_row(
-                time=time, flags=self.default_node_flags, individual=individual_id
-            ),
+            self.tables.nodes.add_row(time=time, flags=self.default_node_flags, individual=individual_id),
+            self.tables.nodes.add_row(time=time, flags=self.default_node_flags, individual=individual_id),
         )
 
-    def new_population(
-        self, time, prev_pop, recombination_rate=0, seq_len=None
-    ) -> dict[int, tuple[int, int]]:
+    def new_population(self, time, prev_pop, recombination_rate=0, seq_len=None) -> dict[int, tuple[int, int]]:
         """
         if seq_len is specified, use this as the expected sequence length of the
         parents of the new population, otherwise take from the parent.sequence_length
@@ -50,9 +42,7 @@ class tskit_DTWF_simulator:
         prev_individuals = np.array([i for i in prev_pop.keys()], dtype=np.int32)
 
         # 1. Pick individual parent ID pairs at random, `replace=True` allows selfing
-        mum_dad_arr = self.random.choice(
-            prev_individuals, (len(prev_pop), 2), replace=True
-        )
+        mum_dad_arr = self.random.choice(prev_individuals, (len(prev_pop), 2), replace=True)
 
         for mum_and_dad in mum_dad_arr:
             # 2. Get 1 new individual ID + 2 new node IDs
@@ -98,9 +88,9 @@ class tskit_DTWF_simulator:
             gens = gens - 1
             pop = self.new_population(gens, pop)
         # make sure only nodes at time 0 are samples
-        self.tables.nodes.flags = np.where(
-            self.tables.nodes.time == 0, tskit.NODE_IS_SAMPLE, 0
-        ).astype(self.tables.nodes.flags.dtype)
+        self.tables.nodes.flags = np.where(self.tables.nodes.time == 0, tskit.NODE_IS_SAMPLE, 0).astype(
+            self.tables.nodes.flags.dtype
+        )
         self.tables.sort()
         return self.tables.tree_sequence()
 
@@ -113,9 +103,7 @@ class DTWF_one_break_no_rec_inversions_test(sim.DTWF_one_break_no_rec_inversions
 
     def find_comparable_points(self, gig, parent_nodes, chroms):
         """ """
-        mrcas = gig.find_mrca_regions(
-            *parent_nodes, u_chromosomes=[chroms[0]], v_chromosomes=[chroms[1]]
-        )
+        mrcas = gig.find_mrca_regions(*parent_nodes, u_chromosomes=[chroms[0]], v_chromosomes=[chroms[1]])
         # Create a new mrca dict with arbitrary keys but where each value is a single
         # interval with the appropriate matching coords in u and v. Items in the dict
         # are sorted by the left coordinate of the mrca. Keys can be arbitrary because
@@ -124,9 +112,7 @@ class DTWF_one_break_no_rec_inversions_test(sim.DTWF_one_break_no_rec_inversions
         for mrca_regions in mrcas.values():
             for region, equivalents in mrca_regions.items():
                 tmp.append((region, equivalents))
-        mrcas = gigl.tables.MRCAdict(
-            {k: {v[0]: v[1]} for k, v in enumerate(sorted(tmp, key=lambda x: x[0][0]))}
-        )
+        mrcas = gigl.tables.MRCAdict({k: {v[0]: v[1]} for k, v in enumerate(sorted(tmp, key=lambda x: x[0][0]))})
         comparable_pts = mrcas.random_match_pos(self.rng)
         # Don't bother with inversions: testing doesn't use them
         return (
@@ -149,9 +135,7 @@ class TestSimpleSims:
     def test_variable_population_size(self):
         gens = 2
         simulator = sim.DTWF_no_recombination()
-        gig = simulator.run(
-            num_diploids=(2, 10, 20), seq_lens=[100], gens=gens, random_seed=1
-        )
+        gig = simulator.run(num_diploids=(2, 10, 20), seq_lens=[100], gens=gens, random_seed=1)
         times, counts = np.unique(gig.tables.nodes.time, return_counts=True)
         assert np.array_equal(times, [0, 1, 2])
         assert np.array_equal(counts, [40, 20, 4])
@@ -160,9 +144,7 @@ class TestSimpleSims:
     def test_multi_chromosomes(self):
         gens = 2
         simulator = sim.DTWF_no_recombination()
-        gig = simulator.run(
-            num_diploids=(2, 10, 20), seq_lens=[100, 50], gens=gens, random_seed=1
-        )
+        gig = simulator.run(num_diploids=(2, 10, 20), seq_lens=[100, 50], gens=gens, random_seed=1)
         gig = gig.sample_resolve()
         for u in gig.sample_ids:
             assert set(gig.chromosomes(u)) == {0, 1}
@@ -183,7 +165,7 @@ class TestSimpleSims:
 
 class TestDTWF_one_break_no_rec_inversions_slow:
     default_gens = 5
-    seq_lens = [531]
+    seq_lens = (531,)
     inversion = tskit.Interval(100, 200)
 
     simulator = None
@@ -192,9 +174,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
     def test_plain_sim(self):
         gens = self.default_gens
         self.simulator = sim.DTWF_one_break_no_rec_inversions_slow()
-        gig = self.simulator.run(
-            num_diploids=10, seq_lens=self.seq_lens, gens=gens, random_seed=1
-        )
+        gig = self.simulator.run(num_diploids=10, seq_lens=self.seq_lens, gens=gens, random_seed=1)
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
         assert gig.num_iedges > 0
         ts = gig.to_tree_sequence()
@@ -205,9 +185,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
     def test_run_more(self):
         gens = self.default_gens
         self.simulator = sim.DTWF_one_break_no_rec_inversions_slow()
-        gig = self.simulator.run(
-            num_diploids=10, seq_lens=self.seq_lens, gens=gens, random_seed=1
-        )
+        gig = self.simulator.run(num_diploids=10, seq_lens=self.seq_lens, gens=gens, random_seed=1)
         new_gens = 2
         gig = self.simulator.run_more(num_diploids=(4, 2), gens=new_gens, random_seed=1)
         times, counts = np.unique(gig.tables.nodes.time, return_counts=True)
@@ -260,9 +238,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
             seq_lens=self.seq_lens,
             gens=1,
             random_seed=123,
-            further_node_flags=np.array(
-                [[INVERTED_CHILD_FLAG, 0], [0, 0]], dtype=np.int32
-            ),
+            further_node_flags=np.array([[INVERTED_CHILD_FLAG, 0], [0, 0]], dtype=np.int32),
         )
         # Insert an inversion by editing the tables
         tables = self.simulator.tables
@@ -313,9 +289,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
                     **self.simulator.add_iedge_params(),
                 )
             else:
-                new_tables.add_iedge_row(
-                    **ie._asdict(), **self.simulator.add_iedge_params()
-                )
+                new_tables.add_iedge_row(**ie._asdict(), **self.simulator.add_iedge_params())
         new_tables.sort()
         self.simulator.tables = new_tables
         # Check it gives a valid gig
@@ -364,10 +338,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         for ie in decapitated_gig.iedges:
             assert ie.child != node_map[inverted_child_id]
             assert not ie.is_inversion()
-            assert (
-                decapitated_gig.nodes[ie.child].time + 1
-                == decapitated_gig.nodes[ie.parent].time
-            )
+            assert decapitated_gig.nodes[ie.child].time + 1 == decapitated_gig.nodes[ie.parent].time
             assert ie.child_left == ie.parent_left
             assert ie.child_right == ie.parent_right
         new_gig = decapitated_gig.sample_resolve()
@@ -421,20 +392,6 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         for chromA in gig.chromosomes(s1):
             for chromB in gig.chromosomes(s2):
                 if chromA != chromB:
-                    assert (
-                        len(
-                            gig.find_mrca_regions(
-                                s1, s2, u_chromosomes=[chromA], v_chromosomes=[chromB]
-                            )
-                        )
-                        == 0
-                    )
+                    assert len(gig.find_mrca_regions(s1, s2, u_chromosomes=[chromA], v_chromosomes=[chromB])) == 0
                 else:
-                    assert (
-                        len(
-                            gig.find_mrca_regions(
-                                s1, s2, u_chromosomes=[chromA], v_chromosomes=[chromB]
-                            )
-                        )
-                        > 0
-                    )
+                    assert len(gig.find_mrca_regions(s1, s2, u_chromosomes=[chromA], v_chromosomes=[chromB])) > 0

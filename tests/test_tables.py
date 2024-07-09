@@ -1,11 +1,11 @@
-import GeneticInheritanceGraphLibrary as gigl
 import msprime
 import numpy as np
 import pytest
 import tskit
-from GeneticInheritanceGraphLibrary.constants import Const
-from GeneticInheritanceGraphLibrary.constants import ValidFlags
 from matplotlib import pyplot as plt
+
+import GeneticInheritanceGraphLibrary as gigl
+from GeneticInheritanceGraphLibrary.constants import Const, ValidFlags
 
 
 class TestCreation:
@@ -64,7 +64,7 @@ class TestTableClasses:
 
 class TestFreeze:
     @pytest.mark.parametrize(
-        "TableClass, params",
+        ("TableClass", "params"),
         [
             ("NodeTable", {"time": 0}),
             (
@@ -164,7 +164,7 @@ class TestExtractColumn:
     def test_invalid_column_name(self, trivial_gig):
         tables = trivial_gig.tables
         with pytest.raises(AttributeError):
-            tables.iedges.foobar
+            _ = tables.iedges.foobar
 
     def test_column_from_empty_table(self, trivial_gig):
         tables = trivial_gig.tables
@@ -195,9 +195,7 @@ class TestMethods:
         n_samp1 = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.iedges.add_row(0, 5, 5, 0, parent=n_root, child=n_samp0)
         tables.iedges.add_row(0, 5, 0, 5, parent=n_internal, child=n_samp1)
-        tables.iedges.add_row(
-            0, 5, 0, 5, parent=n_root, child=n_internal
-        )  # Out of order
+        tables.iedges.add_row(0, 5, 0, 5, parent=n_root, child=n_internal)  # Out of order
         tables.sort()
         assert tables.iedges[0].parent == 0
         assert tables.iedges[1].parent == 0
@@ -220,15 +218,9 @@ class TestMethods:
         n_internal = tables.nodes.add_row(1)
         n_samp0 = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         n_samp1 = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
-        tables.add_iedge_row(
-            0, 5, 0, 5, parent=n_root, child=n_internal, validate=ValidFlags.GIG
-        )
-        tables.add_iedge_row(
-            0, 5, 5, 0, parent=n_root, child=n_samp0, validate=ValidFlags.GIG
-        )
-        tables.add_iedge_row(
-            0, 5, 0, 5, parent=n_internal, child=n_samp1, validate=ValidFlags.GIG
-        )
+        tables.add_iedge_row(0, 5, 0, 5, parent=n_root, child=n_internal, validate=ValidFlags.GIG)
+        tables.add_iedge_row(0, 5, 5, 0, parent=n_root, child=n_samp0, validate=ValidFlags.GIG)
+        tables.add_iedge_row(0, 5, 0, 5, parent=n_internal, child=n_samp1, validate=ValidFlags.GIG)
         assert len(tables.nodes) == 6
         new_tables = tables.copy()
         mapping = new_tables.remove_non_ancestral_nodes()
@@ -246,10 +238,7 @@ class TestMethods:
             assert e0.child_chromosome == e1.child_chromosome
             assert e0.parent_chromosome == e1.parent_chromosome
         for u in range(len(new_tables.nodes)):
-            assert np.all(
-                tables.iedges.ids_for_child(mapping[u])
-                == new_tables.iedges.ids_for_child(u)
-            )
+            assert np.all(tables.iedges.ids_for_child(mapping[u]) == new_tables.iedges.ids_for_child(u))
 
 
 class TestBaseTable:
@@ -329,10 +318,7 @@ class TestIEdgeTable:
             next(tables.iedges.ids_for_child(10))
 
     def test_good_child_iterator(self, all_sv_types_2re_gig):
-        flags = (
-            ValidFlags.IEDGES_FOR_CHILD_ADJACENT
-            | ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
-        )
+        flags = ValidFlags.IEDGES_FOR_CHILD_ADJACENT | ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
         tables = all_sv_types_2re_gig.tables.copy()
         # Add a valid edge and check it
         last_child = tables.iedges[-1].child
@@ -402,9 +388,7 @@ class TestIEdgeTable:
     def test_max_child_pos(self, trivial_gig):
         tables = trivial_gig.tables.copy()
         youngest_child = len(tables.nodes) - 1
-        tables.add_iedge_row(
-            10, 20, 10, 20, child=youngest_child, parent=0, validate=ValidFlags.GIG
-        )
+        tables.add_iedge_row(10, 20, 10, 20, child=youngest_child, parent=0, validate=ValidFlags.GIG)
         assert tables.iedges.max_pos_as_child(youngest_child, chromosome=0) == 20
 
     def test_bad_max_child_pos(self, trivial_gig):
@@ -438,12 +422,8 @@ class TestIedgesValidation:
     """
 
     @pytest.mark.parametrize(
-        "flag, skip",
-        [
-            (f, s)
-            for f in ValidFlags.iedges_combo_standalone_iter()
-            for s in (True, False)
-        ],
+        ("flag", "skip"),
+        [(f, s) for f in ValidFlags.iedges_combo_standalone_iter() for s in (True, False)],
     )
     def test_flags(self, flag, skip):
         tables = gigl.Tables()
@@ -451,9 +431,7 @@ class TestIedgesValidation:
         tables.nodes.add_row(time=0)
         assert flag in tables.iedges.flags
         assert tables.iedges.flags != flag
-        tables.add_iedge_row(
-            0, 1, 0, 1, child=1, parent=0, validate=flag, skip_validate=skip
-        )
+        tables.add_iedge_row(0, 1, 0, 1, child=1, parent=0, validate=flag, skip_validate=skip)
         assert tables.iedges.flags == flag
 
     def test_add_iedge_allow_negative_edge_chrom(self):
@@ -463,12 +441,8 @@ class TestIedgesValidation:
         tables.nodes.add_row(time=1)
         tables.nodes.add_row(time=0)
         tables.add_iedge_row(0, 1, 0, 1, child=1, parent=0, edge=-1, validate=flags)
-        tables.add_iedge_row(
-            0, 1, 0, 1, child=1, parent=0, parent_chromosome=-1, validate=flags
-        )
-        tables.add_iedge_row(
-            0, 1, 0, 1, child=1, parent=0, parent_chromosome=-1, validate=flags
-        )
+        tables.add_iedge_row(0, 1, 0, 1, child=1, parent=0, parent_chromosome=-1, validate=flags)
+        tables.add_iedge_row(0, 1, 0, 1, child=1, parent=0, parent_chromosome=-1, validate=flags)
 
     def test_bad_flags(self):
         flags = ValidFlags.IEDGES_COMBO_NODE_TABLE
@@ -538,19 +512,11 @@ class TestIedgesValidation:
         tables.nodes.add_row(time=1)
         tables.nodes.add_row(time=0)
         tables.nodes.add_row(time=0)
-        tables.add_iedge_row(
-            0, 1, 0, 1, child=1, parent=0, child_chromosome=1, validate=flags
-        )
+        tables.add_iedge_row(0, 1, 0, 1, child=1, parent=0, child_chromosome=1, validate=flags)
         with pytest.raises(ValueError, match="chromosome IDs out of order"):
-            tables.add_iedge_row(
-                0, 1, 0, 1, child=1, parent=0, child_chromosome=0, validate=flags
-            )
-        tables.add_iedge_row(
-            0, 1, 0, 1, child=1, parent=0, child_chromosome=3, validate=flags
-        )
-        tables.add_iedge_row(
-            0, 1, 0, 1, child=2, parent=0, child_chromosome=0, validate=flags
-        )
+            tables.add_iedge_row(0, 1, 0, 1, child=1, parent=0, child_chromosome=0, validate=flags)
+        tables.add_iedge_row(0, 1, 0, 1, child=1, parent=0, child_chromosome=3, validate=flags)
+        tables.add_iedge_row(0, 1, 0, 1, child=2, parent=0, child_chromosome=0, validate=flags)
 
     def test_add_iedge_row_fail_child_secondary_order_left_asc(self):
         flags = ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC
@@ -601,9 +567,7 @@ class TestIedgesValidation:
         tables.nodes.add_row(time=1)
         tables.nodes.add_row(time=0)
         tables.add_iedge_row(0, 1, 0, 1, child=2, parent=1, validate=flags)
-        with pytest.raises(
-            ValueError, match="older than the previous iedge child time"
-        ):
+        with pytest.raises(ValueError, match="older than the previous iedge child time"):
             tables.add_iedge_row(0, 1, 0, 1, child=1, parent=0, validate=flags)
 
     def test_add_iedge_row_fail_secondary_order_child_id(self):
@@ -699,10 +663,7 @@ class TestStringRepresentations:
         html = nodes._repr_html_()
         if num_rows == 50:
             assert len(html.splitlines()) == num_rows + 11
-            assert (
-                "10 rows skipped (GeneticInheritanceGraphLibrary.set_print_options)"
-                in html.split("</tr>")[21]
-            )
+            assert "10 rows skipped (GeneticInheritanceGraphLibrary.set_print_options)" in html.split("</tr>")[21]
         else:
             assert len(html.splitlines()) == num_rows + 20
 
@@ -723,10 +684,7 @@ class TestIEdgeAttributes:
         assert getattr(tables.iedges, name).dtype == np.int64
         suffix = name.split("_")[-1]
         ts_order = gig._iedge_map_sorted_by_parent
-        assert np.all(
-            getattr(tables.iedges, name)[ts_order]
-            == getattr(simple_ts, "edges_" + suffix)
-        )
+        assert np.all(getattr(tables.iedges, name)[ts_order] == getattr(simple_ts, "edges_" + suffix))
 
 
 class TestIndividualAttributes:
