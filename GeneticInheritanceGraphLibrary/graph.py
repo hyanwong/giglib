@@ -367,7 +367,7 @@ class Graph:
         transmit information to the current samples. This is rather
         like running the Hudson algorithm on a fixed graph, but without
         counting up the number of samples under each node. This is
-        identical to the :meht:`Tables.sample_resolve` method, but returns
+        identical to the :meth:`Tables.sample_resolve` method, but returns
         a new GIG instead.
         """
         new_tables = self.tables.copy()
