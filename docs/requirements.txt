@@ -1,12 +1,12 @@
+portion
+networkx
 matplotlib
-six
 tskit
 jupyter-book
 sphinx-issues
 sphinx-argparse
 sphinxcontrib-bibtex
-humanize
 tqdm
 msprime
-ipywidgets
+pandas
 sphinx-book-theme #Unpinned to allow easy updating.
