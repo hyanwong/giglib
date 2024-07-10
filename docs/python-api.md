@@ -11,14 +11,14 @@ kernelspec:
   name: python3
 ---
 
-:::{currentmodule} GeneticInheritanceGraphLibrary
+:::{currentmodule} giglib
 :::
 
 (sec_python_api)=
 
 # Python API
 
-This page provides formal documentation for the {ref}`GeneticInheritanceGraphLibrary<sec_welcome>` Python API.
+This page provides formal documentation for the {ref}`giglib<sec_welcome>` Python API.
 
 
 ## The **Tables** class
@@ -31,7 +31,7 @@ conform to certain validity conditions before running. See
 :::
 
 ```{eval-rst}
-.. autoclass:: GeneticInheritanceGraphLibrary.Tables
+.. autoclass:: giglib.Tables
   :members:
 ```
 
@@ -53,27 +53,27 @@ Validity requirements for a GIG are described in {meth}`Tables.graph`.
 ### The **IEdgeTable** class
 
 ```{eval-rst}
-.. autoclass:: GeneticInheritanceGraphLibrary.tables.IEdgeTable
+.. autoclass:: giglib.tables.IEdgeTable
   :members:
 ```
 
 ### The **NodeTable** class
 
 ```{eval-rst}
-.. autoclass:: GeneticInheritanceGraphLibrary.tables.NodeTable
+.. autoclass:: giglib.tables.NodeTable
   :members:
 ```
 
 ### The **IndividualTable** class
 
 ```{eval-rst}
-.. autoclass:: GeneticInheritanceGraphLibrary.tables.IndividualTable
+.. autoclass:: giglib.tables.IndividualTable
   :members:
 ```
 
 ## The **Graph** class
 
 ```{eval-rst}
-.. autoclass:: GeneticInheritanceGraphLibrary.Graph
+.. autoclass:: giglib.Graph
   :members:
 ```

@@ -1,7 +1,7 @@
 import pytest
 
-import GeneticInheritanceGraphLibrary as gigl
-import GeneticInheritanceGraphLibrary.util as util
+import giglib as gigl
+import giglib.util as util
 
 # Tests for functions in util.py
 

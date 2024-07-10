@@ -8,7 +8,7 @@ requires = [
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "GeneticInheritanceGraphLibrary"
+name = "giglib"
 authors = [
     { name = "Yan Wong and Duncan Mbuli-Robertson", email = "yan.wong@bdi.ox.ac.uk" },
 ]
@@ -56,7 +56,7 @@ content-type = "text/markdown"
 
 [tool.setuptools]
 packages = [
-    "GeneticInheritanceGraphLibrary",
+    "giglib",
 ]
 include-package-data = true
 platforms = [
@@ -71,4 +71,4 @@ testpaths = [
 ]
 
 [tool.setuptools_scm]
-write_to = "GeneticInheritanceGraphLibrary/_version.py"
+write_to = "giglib/_version.py"

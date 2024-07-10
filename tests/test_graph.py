@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 import tskit
 
-import GeneticInheritanceGraphLibrary as gigl
-from GeneticInheritanceGraphLibrary.constants import Const
+import giglib as gigl
+from giglib.constants import Const
 
 
 class TestConstructor:
@@ -39,7 +39,7 @@ class TestConstructor:
     def test_from_bad(self):
         with pytest.raises(
             ValueError,
-            match="must be a GeneticInheritanceGraphLibrary.Tables",
+            match="must be a giglib.Tables",
         ):
             gigl.Graph("not a tree sequence")
 

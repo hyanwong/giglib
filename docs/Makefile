@@ -1,6 +1,6 @@
 PYPATH=$(shell pwd)/../
 GIGL_VERSION:=$(shell PYTHONPATH=${PYPATH} \
-   python -c 'import GeneticInheritanceGraphLibrary as gigl; print(gigl.__version__.split("+")[0])')
+   python -c 'import giglib as gigl; print(gigl.__version__.split("+")[0])')
 
 BUILDDIR      = _build
 

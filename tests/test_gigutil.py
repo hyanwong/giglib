@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import tskit
 
-import GeneticInheritanceGraphLibrary as gigl
+import giglib as gigl
 
 from . import sim
 

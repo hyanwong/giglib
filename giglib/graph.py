@@ -27,7 +27,7 @@ class Graph:
         the canonical way to do this is to use  {meth}`Tables.graph`
         """
         if not isinstance(tables, Tables):
-            raise ValueError("tables must be a GeneticInheritanceGraphLibrary.Tables object")
+            raise ValueError("tables must be a giglib.Tables object")
         self.tables = tables
         self._validate()
         self.tables.freeze()
@@ -73,7 +73,7 @@ class Graph:
         self.sample_ids = self.tables.sample_ids
 
         # TODO: should cache node spans here,
-        # see https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/27
+        # see https://github.com/hyanwong/giglib/issues/27
 
         if len(iedge_table) == 0:
             return

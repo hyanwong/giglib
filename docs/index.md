@@ -16,7 +16,7 @@ kernelspec:
 # Welcome to the Genetic Inheritance Graph Library
 
 This is the documentation for the
-[GeneticInheritanceGraphLibrary](https://github.com/hyanwong/GeneticInheritanceGraphLibrary),
+[Genetic Inheritance Graph Library](https://github.com/hyanwong/giglib),
 which stores inheritance patterns of genetic sequences
 that may have undergone genomic restructuring (i.e. it stores
 genetic ancestry with structural variation).

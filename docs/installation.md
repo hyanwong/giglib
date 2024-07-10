@@ -15,13 +15,13 @@ kernelspec:
 
 # Installation
 
-Python 3.8 or greater is required. As the current GeneticInheritanceGraphLibrary
+Python 3.8 or greater is required. As the current Genetic Inheritance Graph Library
 API is not stable, you are currently encouraged to install the latest version from
-[Github](https://github.com/hyanwong/GeneticInheritanceGraphLibrary), as follows
+[Github](https://github.com/hyanwong/giglib), as follows
 
 
 ```bash
-python -m pip install git+https://github.com/hyanwong/GeneticInheritanceGraphLibrary
+python -m pip install git+https://github.com/hyanwong/giglib
 ```
 
 After this, you should be able to test it in a Python session using something like the following
@@ -29,7 +29,7 @@ After this, you should be able to test it in a Python session using something li
 
 ```{code-cell}
 import msprime
-import GeneticInheritanceGraphLibrary as gigl  # 😁
+import giglib as gigl  # 😁
 
 ts = msprime.sim_ancestry(
     4, sequence_length=100, recombination_rate=0.01, random_seed=1
