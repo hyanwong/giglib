@@ -13,7 +13,7 @@ launch_buttons:
   binderhub_url: ""
 
 repository:
-  url: https://github.com/hyanwong/GeneticInheritanceGraphLibrary
+  url: https://github.com/hyanwong/giglib
   branch: main
   path_to_book: docs
 
@@ -26,8 +26,8 @@ html:
   use_edit_page_button: true
   # Do not edit this - the version placeholder is replaced by the
   # current version during a distribution build in the Makefile
-  extra_navbar: GeneticInheritancGraphLibrary __GIGL_VERSION__
-  extra_footer: GeneticInheritancGraphLibrary __GIGL_VERSION__
+  extra_navbar: giglib __GIGL_VERSION__
+  extra_footer: giglib __GIGL_VERSION__
 
 
 sphinx:
@@ -51,7 +51,7 @@ sphinx:
       - colon_fence
       - deflist
       - dollarmath
-      issues_github_path: hyanwong/GeneticInheritancGraphLibrary
+      issues_github_path: hyanwong/giglib
       todo_include_todos: true
       intersphinx_mapping:
         python: ["https://docs.python.org/3/", null]

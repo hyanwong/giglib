@@ -1,6 +1,6 @@
 import numpy as np
 
-import GeneticInheritanceGraphLibrary as gigl
+import giglib as gigl
 
 # Utilities for creating and editing gigs
 

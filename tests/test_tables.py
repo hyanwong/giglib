@@ -4,8 +4,8 @@ import pytest
 import tskit
 from matplotlib import pyplot as plt
 
-import GeneticInheritanceGraphLibrary as gigl
-from GeneticInheritanceGraphLibrary.constants import Const, ValidFlags
+import giglib as gigl
+from giglib.constants import Const, ValidFlags
 
 
 class TestCreation:
@@ -663,7 +663,7 @@ class TestStringRepresentations:
         html = nodes._repr_html_()
         if num_rows == 50:
             assert len(html.splitlines()) == num_rows + 11
-            assert "10 rows skipped (GeneticInheritanceGraphLibrary.set_print_options)" in html.split("</tr>")[21]
+            assert "10 rows skipped (giglib.set_print_options)" in html.split("</tr>")[21]
         else:
             assert len(html.splitlines()) == num_rows + 20
 

@@ -3,8 +3,8 @@ import numpy as np
 import pytest
 import tskit
 
-import GeneticInheritanceGraphLibrary as gigl
-from GeneticInheritanceGraphLibrary.constants import Const
+import giglib as gigl
+from giglib.constants import Const
 from tests.gigutil import add_iedge, make_nodes_table
 
 
@@ -139,7 +139,7 @@ def multi_chromosome_gig():
 def all_sv_types_no_re_gig():
     """
     Contains a single deletion, a single duplication, and a single inversion.
-    See https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/2
+    See https://github.com/hyanwong/giglib/issues/2
     """
     # time | flags
     node_data = [

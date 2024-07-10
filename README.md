@@ -1,4 +1,4 @@
-# GeneticInheritanceGraphLibrary
+# The Genetic Inheritance Graph Library (giglib)
 
 A basic repo for kicking around ideas for the "(Generalised) Genetic Inheritance Graph" structure, which should be able to
 capture genetic inheritance with genomic rearrangements, and hence describe inherited structural variation. This is
@@ -8,7 +8,7 @@ to a GIG (although such a gig will not contain structural variation)
 
 ```python
 import msprime
-import GeneticInheritanceGraphLibrary as gigl  # 😁
+import giglib as gigl  # 😁
 
 ts = msprime.sim_ancestry(
     4, sequence_length=100, recombination_rate=0.01, random_seed=1
@@ -48,7 +48,7 @@ Any transformed position is thus out by one. Or to put it another way, an invers
 by child_left=0, child_right=3, parent_left=3, parent_right=0 transforms the points
 0, 1, 2 to 2, 1, 0: although the *interval* 0, 3 is transformed to 0, 3., the *point* 0 is transformed
 to position 2, not position 3. See
-[here](https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/41#issuecomment-1858530867)
+[here](https://github.com/hyanwong/giglib/issues/41#issuecomment-1858530867)
 for more discussion.
 
 ### Duplications
@@ -77,7 +77,7 @@ A deletion simply occurs when no material from the parent is transmitted to any 
 
 ### Viz
 
-The [graphical interpretation](https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/2#issuecomment-1684164074)
+The [graphical interpretation](https://github.com/hyanwong/giglib/issues/2#issuecomment-1684164074)
 is something like this, elegantly drawn by [@duncanMR](https://github.com/duncanMR):
 
 <img src="https://github.com/hyanwong/GeneticInheritanceGraph/assets/5416474/0fff67b3-71e7-4ed5-895a-140a06f49940" alt="GIG" width="500"/>
@@ -90,20 +90,20 @@ breaks one of the fundamental principles behind ARGs in general and the _tskit_ 
 
 ## API differences
 
-The fundamental data structures and API provided by the GeneticInheritanceGraphLibrary as defined in
+The fundamental data structures and API provided by the Genetic Inheritance Graph Library as defined in
 this GitHub repository intentionally mirror that of _tskit_ (which makes it easy e.g. to initialise a GIG
 from an msprime-simulated tree sequence 🎉). Nevertheless, there are a number of terminological
 and implementation differences, an incomplete list of which are below:
 
-- **Iedges** As described above, intervals in a GIG as defined in the GeneticInheritanceGraphLibrary are stored
+- **Iedges** As described above, intervals in a GIG as defined by giglib are stored
   in the iedges table, which has a `parent_left` and `child_left` column rather than a simple `left`
   column as in _tskit_ (and similarly for `right`).
-- **Tables and Graphs** The GeneticInheritanceGraphLibrary has a `Tables` and `Graph` class, corresponding
+- **Tables and Graphs** giglib provides a `Tables` and `Graph` class, corresponding
   to `TableCollection` and `TreeSequence` classes in _tskit_. Thus to create a GIG from scratch,
   you do `gig = tables.graph()`
 - **Chromosomes** The API includes the possibility of having genetic material on different chromosomes.
   This is implemented using two extra columns in the iedges table (see
-  https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/11 for the rationale)
+  https://github.com/hyanwong/giglib/issues/11 for the rationale)
 - **Object access** Information stored in GIG tables can be accessed using square brackets, and
   the `len()` function should work, so the canonical usage looks like `gig.nodes[0]`, `len(gig.nodes)`,
   and `[u.id for u in gig.nodes]` rather than the equivalents in _tskit_ (`ts.node(0)`, `ts.num_nodes`,
@@ -122,7 +122,7 @@ and implementation differences, an incomplete list of which are below:
   For this to work, the tables need to conform to certain validity criteria.
   Substantial additional functionality has been incoporated into the tables objects, so that table rows
   (especially for iedges) can be validated on calling `table.add_row()`, according to certain validity flags
-  (see the [`ValidFlags` class](GeneticInheritanceGraphLibrary/constants.py) in `constants.py`).
+  (see the [`ValidFlags` class](giglib/constants.py) in `constants.py`).
   This allows use of the GIG structure during generation of the tables, without having the substantial
   overhead of continually having to freeze them into an immutable graph. This makes forward simulation
   feasible.
@@ -135,7 +135,7 @@ need to make a set of `Tables` and freeze them using the `.graph()` method (whic
 opportunity to cache and index important stuff):
 
 ```python
-import GeneticInheritanceGraphLibrary as gigl
+import giglib as gigl
 
 tables = gigl.Tables()
 tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
@@ -155,10 +155,10 @@ assert gig.iedges[0].is_inversion()
 
 Examples of code that runs simulations are provided in the test suite. Currently they are based on a relatively simple extension
 of the boilerplate forward-simulation code in https://tskit.dev/tutorials/forward_sims.html. The important
-difference is that the [find_mrca_regions](https://github.com/hyanwong/GeneticInheritanceGraphLibrary/blob/3385f5149f7028cb2b5bfd8c236774b926f79de9/GeneticInheritanceGraphLibrary/tables.py#L841)
+difference is that the [find_mrca_regions](https://github.com/hyanwong/giglib/blob/3385f5149f7028cb2b5bfd8c236774b926f79de9/giglib/tables.py#L841)
 method is used to locate breakpoints for recombination.
 
-For more details the [sim.py file](https://github.com/hyanwong/GeneticInheritanceGraphLibrary/blob/main/tests/sim.py)
+For more details the [sim.py file](https://github.com/hyanwong/giglib/blob/main/tests/sim.py)
 is a convenience wrapper that links out to other files containing simulation code.
 Currently only forward simulation code is provided. Nevertheless, it is conceptually
 general enough to form the basis of a pangenome simulator (this would however require
@@ -166,5 +166,5 @@ substantial effort in fixing reasonable parameters before realistic-looking pang
 could be created).
 
 For a hacky example of how to use the simulation code directly from the test suite, see
-https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/86#issuecomment-1970029273
-or https://github.com/hyanwong/GeneticInheritanceGraphLibrary/issues/82#issuecomment-1972153550.
+https://github.com/hyanwong/giglib/issues/86#issuecomment-1970029273
+or https://github.com/hyanwong/giglib/issues/82#issuecomment-1972153550.

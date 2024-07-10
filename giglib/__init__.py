@@ -5,7 +5,7 @@ if sys.version_info[0] < 3:  # pragma: no cover
     raise Exception("Python 3 only")
 
 try:
-    __version__ = version("GeneticInheritanceGraphLibrary")
+    __version__ = version("giglib")
 except PackageNotFoundError:
     __version__ = "unknown version"
 

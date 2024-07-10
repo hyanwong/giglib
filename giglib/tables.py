@@ -274,7 +274,7 @@ class IEdgeTable(BaseTable):
     :ref:`validity<sec_python_api_tables_validity>`, so that we can run algorithms
     directly on the tables rather than on a frozen GIG. For example, the
     :meth:`ids_for_child` method requires
-    :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_FOR_CHILD_ADJACENT` to be true.
+    :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_ADJACENT` to be true.
     """
 
     _RowClass = IEdgeTableRow
@@ -399,7 +399,7 @@ class IEdgeTable(BaseTable):
             :meth:`.Tables.add_iedge_row` which is a wrapper around this method
             that also allows validation of parent and child node times
 
-        :param int validate: A set of bitflags (as listed in :class:`~GeneticInheritanceGraphLibrary.ValidFlags`)
+        :param int validate: A set of bitflags (as listed in :class:`~giglib.ValidFlags`)
             specifying which iedge table validation checks
             should be performed when adding this data. If the existing data is valid, and
             the new data is added in a way that preserves the existing validity, then
@@ -408,8 +408,8 @@ class IEdgeTable(BaseTable):
             validation will not be performed: in this case the ``has_bitflag`` method
             will return False for certain flags, and some table algorithms will not run.
             For instance, using the :meth:`ids_for_child()` method is only valid if
-            :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_FOR_CHILD_ADJACENT` and
-            :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC`
+            :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_ADJACENT` and
+            :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC`
             are set, so if you wish to use that method you should add those flags to
             ``validate``. Defaults to ``None`` which is treated as ``0``, meaning that
             all ``IEDGE`_`` validation flags will be zeroed, no validation checks will
@@ -600,7 +600,7 @@ class IEdgeTable(BaseTable):
 
         .. note::
             The returned IDs are only guaranteed to be ordered by left position if
-            :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC` is set.
+            :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC` is set.
 
         :param int u: The child ID
         :param int chromosome: The chromosome number. If ``None`` (default), ruturn
@@ -632,7 +632,7 @@ class IEdgeTable(BaseTable):
         Return the maximum child position for a given child ID and chromosome.
         This should be equivalent np.max(child_right[child == u]), but faster
         because it relies on
-        :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_WITHIN_CHILD_SORTED`.
+        :data:`~giglib.ValidFlags.IEDGES_WITHIN_CHILD_SORTED`.
 
         If chromosome is not given, this will return the maximum child
         position in *any* chromosome.
@@ -662,7 +662,7 @@ class IEdgeTable(BaseTable):
         """
         Return the minimum child position for a given child ID and chromosome.
         This should be equivalent np.max(child_right[child == u]), but faster
-        because it relies on :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_WITHIN_CHILD_SORTED`.
+        because it relies on :data:`~giglib.ValidFlags.IEDGES_WITHIN_CHILD_SORTED`.
 
         If chromosome is not given, this will return the minimum child
         position in *any* chromosome.
@@ -1079,10 +1079,10 @@ class Tables:
         can be used to validate features of the nodes used (e.g. that the parent
         node time is older than the child node time).
 
-        :param int validate: A set of bitflags (as listed in :class:`~GeneticInheritanceGraphLibrary.ValidFlags`)
+        :param int validate: A set of bitflags (as listed in :class:`~giglib.ValidFlags`)
             specifying which iedge table validation checks to perform. In particular,
-            this can include the :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD` and
-            :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC` flags, which will
+            this can include the :data:`~giglib.ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD` and
+            :data:`~giglib.ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC` flags, which will
             check the node table for those properties. Other flags will be passed to
             :meth:`tables.IEdgeTable.add_row`.
         :param bool skip_validate: If True, assume the user has checked that this
@@ -1198,42 +1198,42 @@ class Tables:
               ``child_chromosome`` and ``parent_chromosome`` are provided, they also
               must be non-negative integers (otherwise a default chromosome ID of 0 is
               assumed). This corresponds to the flag
-              :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_INTEGERS`.
+              :data:`~giglib.ValidFlags.IEDGES_INTEGERS`.
             * The intervals must be valid (i.e. ``abs(child_left - child_right)`` is
               finite, nonzero, and equal to ``abs(parent_left - parent_right)``. This
-              corresponds to the flag :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_INTERVALS`.
+              corresponds to the flag :data:`~giglib.ValidFlags.IEDGES_INTERVALS`.
             * Each chromosomal position in a child is covered by only one interval (i.e.
               for any particular chromosome, intervals for a given child do not
               overlap). This corresponds to the flag
-              :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING`
+              :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING`
             * The ``child`` and ``parent`` IDs of an iedge must correspond to nodes in
               in the node table in which the parent is older (has a strictly greater
               time) than the child. This corresponds to the flag
-              :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD`
+              :data:`~giglib.ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD`
             * If an ``edge`` ID is provided for an iedge, and it is not ``NULL`` (-1),
               then other iedges with the same ``edge`` ID must have the same
               ``child`` and ``parent`` IDs. This corresponds to the flag
-              :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_SAME_PARENT_CHILD_FOR_EDGE`
+              :data:`~giglib.ValidFlags.IEDGES_SAME_PARENT_CHILD_FOR_EDGE`
             * For consistency and as an enforced convention, the ``child_left`` position
               for an iedge must be strictly less than the ``child_right`` position.
               This corresponds to the flag
-              :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_CHILD_INTERVAL_POSITIVE`
+              :data:`~giglib.ValidFlags.IEDGES_CHILD_INTERVAL_POSITIVE`
 
         To create a valid GIG, the iedges must also be sorted into a canonical order
         such that the following conditions are met (you can also accomplish this by
         calling :meth:`Tables.sort` on the tables first):
 
             * The iedges must be grouped by child ID. This corresponds to the flag
-              :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_FOR_CHILD_ADJACENT`
+              :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_ADJACENT`
             * Within each group of iedges with the same child ID, the iedges must be
               ordered by chromosome ID and then by left position. This corresponds to
-              the flags :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC` and
-              :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC`
+              the flags :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC` and
+              :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC`
             * The groups of iedges with the same child ID must be ordered
               by time of child node and then (if nodes have identical times) by
               child node ID. This corresponds to the flags
-              :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC` and
-              :data:`~GeneticInheritanceGraphLibrary.ValidFlags.IEDGES_SECONDARY_ORDER_CHILD_ID_ASC`.
+              :data:`~giglib.ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC` and
+              :data:`~giglib.ValidFlags.IEDGES_SECONDARY_ORDER_CHILD_ID_ASC`.
 
         .. note::
             The nodes are not required to be in any particular order (e.g. by time)

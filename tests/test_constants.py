@@ -1,4 +1,4 @@
-from GeneticInheritanceGraphLibrary.constants import ValidFlags
+from giglib.constants import ValidFlags
 
 
 class TestValidFlags:
