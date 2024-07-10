@@ -1,0 +1,72 @@
+name: Docs
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags:
+      - '*'
+
+env:
+  OWNER: hyanwong
+  REPO: giglib
+
+jobs:
+  build-docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cancel Previous Runs
+        uses: styfle/cancel-workflow-action@0.11.0
+        with:
+          access_token: ${{ github.token }}
+
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - uses: actions/cache@v3
+        id: venv-cache
+        with:
+          path: venv
+          key: docs-venv-v1-${{ hashFiles('docs/requirements.txt') }}
+
+      - name: Create venv and install deps
+        if: steps.venv-cache.outputs.cache-hit != 'true'
+        run: |
+          python -m venv venv
+          . venv/bin/activate
+          pip install --upgrade pip wheel
+          pip install -r docs/requirements.txt
+
+      - name: Build Docs
+        run: |
+          . venv/bin/activate
+          cd docs
+          make
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/_build/html
+  
+  deploy-docs:
+    needs: build-docs
+    if: github.ref == 'refs/heads/main'
+    permissions:
+      pages: write
+      id-token: write
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v3
