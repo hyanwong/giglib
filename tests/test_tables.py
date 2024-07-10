@@ -31,7 +31,8 @@ class TestCreation:
     @pytest.mark.parametrize("time", [0, 1])
     def test_simple_from_tree_sequence_with_timedelta(self, simple_ts, time):
         assert simple_ts.num_trees > 1
-        tables = gigl.Tables.from_tree_sequence(simple_ts, timedelta=time)
+        tables = gigl.Tables.from_tree_sequence(simple_ts)
+        tables.change_times(timedelta=time)
         assert tables.nodes[0].time == simple_ts.node(0).time + time
 
     def test_mutations_not_implemented_error(self, simple_ts_with_mutations):

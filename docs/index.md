@@ -23,6 +23,8 @@ genetic ancestry with structural variation).
 
 The library is a work-in-progress, and is not yet officially released.
 
+Please visit https://github.com/hyanwong/giglib to contribute to development.
+
 The rest of this documentation is organised into the following sections:
 
 ```{tableofcontents}

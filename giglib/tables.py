@@ -1136,8 +1136,11 @@ class Tables:
 
     def copy(self, omit_iedges=None):
         """
-        Return an unfrozen deep copy of the tables. If omit_iedges is True
-        do not copy the iedges table but use a blank one
+        Return an unfrozen deep copy of the tables.
+
+        :param bool omit_iedges: If True do not copy the iedges table, use an empty one.
+        :return: A deep copy of the tables
+        :rtype: giglib.Tables
         """
         copy = self.__class__()
         for name, cls in zip(self.table_classes._fields, self.table_classes):
@@ -1238,6 +1241,9 @@ class Tables:
         .. note::
             The nodes are not required to be in any particular order (e.g. by time)
 
+        :return: A genetic inheritance graph object
+        :rtype: giglib.Graph
+
         """
         from .graph import Graph
 
@@ -1247,6 +1253,8 @@ class Tables:
     def sample_ids(self):
         """
         Return the IDs of all samples in the nodes table
+
+        :rtype: numpy.ndarray
         """
         if len(self.nodes) == 0:
             return np.array([], dtype=np.int32)
@@ -1262,8 +1270,12 @@ class Tables:
     def decapitate(self, time):
         """
         Remove nodes that are older than a certain time, and edges that have those
-        as parents. Also remove individuals associated with those nodes. Return a
-        mapping of old node ids to new node ids.
+        as parents. Also remove individuals associated with those nodes.
+
+        :param float time: The time before which nodes should be removed
+        :return: An array mapping old node ids to new node ids (or -1 if removed)
+        :rtype: numpy.ndarray
+
         """
         individuals = IndividualTable()
         individual_map = {NULL: NULL}
@@ -1296,7 +1308,7 @@ class Tables:
         return node_map
 
     @classmethod
-    def from_tree_sequence(cls, ts, *, chromosome=None, timedelta=0, **kwargs):
+    def from_tree_sequence(cls, ts, *, chromosome=None, **kwargs):
         """
         Create a Tables object from a :class:`tskit:tskit.TreeSequence`. To create a GIG
         directly, use :func:`Graph.from_tree_sequence` which simply wraps this method.
@@ -1304,8 +1316,6 @@ class Tables:
         :param tskit.TreeSequence ts: The tree sequence on which to base the Tables
             object
         :param int chromosome: The chromosome number to use for all interval edges
-        :param float timedelta: A value to add to all node times (this is a hack until
-            we can set entire columns like in tskit, see #issues/19)
         :param kwargs: Other parameters passed to the Tables constructor
         :return: A Tables object representing the tree sequence
         :rtype: Tables
@@ -1330,7 +1340,6 @@ class Tables:
             raise NotImplementedError
         for row in ts_tables.nodes:
             obj = dataclasses.asdict(row)
-            obj["time"] += timedelta
             tables.nodes.append(obj)
         for row in ts_tables.edges:
             obj = dataclasses.asdict(row)

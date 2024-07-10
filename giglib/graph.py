@@ -312,8 +312,11 @@ class Graph:
         each iedge has the same child_left as parent_left and the same
         child_right as parent_right.
 
-        If sequence_length is not None, it will be used as the sequence length,
-        otherwise the sequence length will be the maximum position of any edge.
+        :param int sequence_length: The sequence length in the resulting
+            tree sequence (if ``None``, take the maximum position of any edge).
+        :return: A tree sequence
+        :rtype: tskit.TreeSequence
+
         """
         for ie in self.iedges:
             if ie.child_left != ie.parent_left or ie.child_right != ie.parent_right:
@@ -356,6 +359,10 @@ class Graph:
     def decapitate(self, time):
         """
         Return a new GIG with all nodes older than time removed.
+
+        :param float time: The cutoff time
+        :return: A new GIG object
+        :rtype: Graph
         """
         tables = self.tables.copy()  # placeholder for making these editable
         tables.decapitate(time)
@@ -369,6 +376,9 @@ class Graph:
         counting up the number of samples under each node. This is
         identical to the :meth:`Tables.sample_resolve` method, but returns
         a new GIG instead.
+
+        :return: A new GIG object
+        :rtype: Graph
         """
         new_tables = self.tables.copy()
         new_tables.sample_resolve()
