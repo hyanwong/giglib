@@ -23,7 +23,7 @@ In [`tskit`](https://tskit.dev) we use edge annotations to describe which pieces
 It should be possible to extend this to track the L & R in the edge *child*, and the L & R in the edge *parent* separately.
 The left and right values in each case refer to the coordinate system of the child and parent respectively.
 
-I'm calling an extended tree-sequence-like structure such as this, a GIG ("Generalised (or Genetic) Inheritance Graph"). For
+We call an extended tree-sequence-like structure such as this a GIG ("Generalised (or Genetic) Inheritance Graph"). For
 terminological clarity,
 we switch to using the term interval-edge (`iedge`) to refer to what is normally called an `edge` in a *tskit* Tree Sequence.
 
