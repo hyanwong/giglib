@@ -29,6 +29,8 @@ with its edge indexing etc, will port in any meaningful way to this new structur
 Nevertheless, basic operations such as simplification and finding MRCA genomes
 have already been (inefficently) implemented.
 
+## Structural variation
+
 ### Inversions
 
 The easiest example is an inversion. This would be an iedge like
