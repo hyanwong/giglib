@@ -13,10 +13,10 @@ kernelspec:
 
 (sec_welcome)=
 
-# Welcome to the Genetic Inheritance Graph Library
+# Welcome to *giglib*, the Genetic Inheritance Graph Library
 
 This is the documentation for the
-[Genetic Inheritance Graph Library](https://github.com/hyanwong/giglib),
+[Genetic Inheritance Graph Library (giglib)](https://github.com/hyanwong/giglib),
 which stores inheritance patterns of genetic sequences
 that may have undergone genomic restructuring (i.e. it stores
 genetic ancestry with structural variation).
