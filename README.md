@@ -1,6 +1,6 @@
 # The Genetic Inheritance Graph Library (giglib)
 
-A repo for templating ideas for the "(Generalised) Genetic Inheritance Graph" structure, which can
+A repository for templating ideas for the "(Generalised) Genetic Inheritance Graph" structure, which can
 capture genetic inheritance with genomic rearrangements, and hence describe inherited structural variation. This is
 not meant to be stable software, and the API is subject to change at any time, but for the moment you can
 try it out by converting a [succinct tree sequence](https://tskit.dev/tutorials/what_is.html)
