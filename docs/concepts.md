@@ -16,8 +16,9 @@ kernelspec:
 # Concepts
 
 Recombinant genealogies in the form of Ancestral Recombination Graphs (ARGs) can't
-encode complex genomic rearrangements that generate structural variation (SV).
-SV is increasingly seen as important both within and, especially, between species.
+encode complex genomic rearrangements that generate structural variation.
+Structural variants (SVs) are increasingly seen as important both within and, especially,
+between species.
 
 A (generalised) genetic inheritance graph (or GIG) extends the concept of an ARG
 so that “edge annotations” can specify different parent and child left/right coordinates.
