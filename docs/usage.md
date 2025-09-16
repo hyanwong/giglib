@@ -52,7 +52,7 @@ and implementation differences, an incomplete list of which are below:
   For this to work, the tables need to conform to certain validity criteria.
   Substantial additional functionality has been incoporated into the tables objects, so that table rows
   (especially for iedges) can be validated on calling `table.add_row()`, according to certain validity flags
-  (see the [`ValidFlags` class](giglib/constants.py) in `constants.py`).
+  (see the `ValidFlags` class in `constants.py`).
   This allows use of the GIG structure during generation of the tables, without having the substantial
   overhead of continually having to freeze them into an immutable graph. This makes forward simulation
   feasible.
