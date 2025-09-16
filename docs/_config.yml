@@ -1,7 +1,7 @@
 # Book settings
 # Learn more at https://jupyterbook.org/customize/config.html
 
-title: GIGL manual
+title: Giglib manual
 author: Yan Wong and Duncan Mbuli Robertson
 copyright: "2024"
 only_build_toc_files: true
