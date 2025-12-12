@@ -954,3 +954,14 @@ class TestMRCAdict:
         fig, ax = plt.subplots(1, figsize=(15, 5))
         mrcas._plot(highlight_position=110, ax=ax)
         # plt.savefig("test_gig_plot.png")  # uncomment to save a plot for inspection
+
+
+class TestSegment:
+    # test the Segment class used in various places
+    def test_segment_basic(self):
+        seg = gigl.tables.Segment(10, 20, 1)
+        assert seg.left == 10
+        assert seg.right == 20
+        assert seg.chromosome == 1
+        assert str(seg) == "Segment(left=10, right=20, chromosome=1)"
+        assert repr(seg) == "Segment(left=10, right=20, chromosome=1)"
