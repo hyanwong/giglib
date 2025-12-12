@@ -81,6 +81,7 @@ assert len(gig.samples) == 1
 assert gig.iedges[0].is_inversion()
 ```
 
+(sec_usage_simulations)=
 ### Simulations
 
 Examples of code that runs simulations are provided in the test suite. Currently they are based on a relatively simple extension
