@@ -20,6 +20,13 @@ kernelspec:
 
 This page provides formal documentation for the {ref}`giglib<sec_welcome>` Python API.
 
+## Helper classes
+
+```{eval-rst}
+.. autoclass:: giglib.Segment
+  :members:
+```
+
 
 ## The **Tables** class
 

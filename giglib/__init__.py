@@ -14,7 +14,10 @@ from .constants import (
     ValidFlags,  # noqa: F401
 )
 from .graph import Graph  # noqa: F401
-from .tables import Tables  # noqa: F401
+from .tables import (
+    Segment,  # noqa: F401
+    Tables,  # noqa: F401
+)
 from .util import set_print_options  # noqa: F401
 
 NULL = Const.NULL

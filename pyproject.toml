@@ -16,7 +16,6 @@ description = "A library to implement the concept of a Genetic Inheritance Graph
 classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
@@ -38,10 +37,11 @@ keywords = [
     "evolutionary tree",
     "genetic inheritance graph",
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = [
     "numpy",
-    "tskit>=0.5.6",
+    "portion",
+    "tskit>=1.0.0",
 ]
 dynamic = [
     "version",

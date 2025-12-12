@@ -2,7 +2,7 @@ portion
 networkx
 matplotlib
 tskit
-jupyter-book
+jupyter-book<2
 sphinx-issues
 sphinx-argparse
 sphinxcontrib-bibtex

@@ -91,3 +91,12 @@ A deletion simply occurs when no material from the parent is transmitted to any 
 {parent: P, child: C, child_left: 5, child_right: 10, parent_left: 15, parent_right: 20}
 ```
 
+## Simulations
+
+Giglib does not provide explicit functions for simulating genomes.
+Instead, it is intended to be a base library for those who want to build their own
+genealogical simulators. 
+
+Nevertheless, in the same way as for [tskit](https://tskit.dev),
+it is relatively easy to build a basic forward-time genealogical
+simulator using this library. See {ref}`sec_usage_simulations` for more.

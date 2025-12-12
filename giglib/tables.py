@@ -18,6 +18,13 @@ NULL = Const.NULL  # alias for tskit.NULL
 NODE_IS_SAMPLE = Const.NODE_IS_SAMPLE  # alias for tskit.NODE_IS_SAMPLE
 
 
+Segment = collections.namedtuple("Segment", "left, right, chromosome")
+Segment.__doc__ = """
+A segment of a chromosome, defined by its left (inclusive)
+and right (exclusive) positions and chromosome ID
+"""
+
+
 class IEdgeTableRow(
     collections.namedtuple(
         "IEdgeTableRow",
@@ -36,6 +43,11 @@ class IEdgeTableRow(
         ),
     )
 ):
+    """
+    A row in an IEdgeTable. This is a named tuple, so the fields can be accessed
+    by name as well as by index.
+    """
+
     @property
     def parent_span(self):
         return self.parent_right - self.parent_left
@@ -74,6 +86,20 @@ class IEdgeTableRow(
         The lowest child position on this edge
         """
         return min(self.child_right, self.child_left)
+
+    @property
+    def child_segment(self):
+        """
+        The segment of the child chromosome for this edge
+        """
+        return Segment(self.child_left, self.child_right, self.child_chromosome)
+
+    @property
+    def parent_segment(self):
+        """
+        The segment of the parent chromosome for this edge
+        """
+        return Segment(self.parent_left, self.parent_right, self.parent_chromosome)
 
 
 class NodeTableRow(
@@ -810,9 +836,9 @@ class MRCAdict(dict):
     A dictionary to store the results of the MRCA finder. This is a dict of dicts
     of the following form
             {
-                MRCA_node_ID1 : {(X, Y, CHRZ): (
-                    u = [(uA, uB, CHRuC), (uC, uD, CHRuE), ...],
-                    v = [(vA, vB, CHRvC), ...]
+                MRCA_node_ID1 : {segment_x: (
+                    u = [segment_u1, segment_u2, ...],
+                    v = [segment_v1, ...]
                 )},
                 MRCA_node_ID2 : ...,
                 ...
@@ -831,8 +857,6 @@ class MRCAdict(dict):
 
     # Convenience tuples
     MRCAintervals = collections.namedtuple("MRCAintervals", "u, v")  # store in the dict
-    # Each interval (used as a key and as items in the list)
-    MRCAinterval = collections.namedtuple("MRCAinterval", "left, right, chromosome")
     # Store equivalent positions in u & v and if one is inverted relative to the other
     MRCApos = collections.namedtuple("MRCApos", "u, chr_u, v, chr_v, opposite_orientations")
 
@@ -1047,6 +1071,16 @@ class Tables:
         if self.time_units != other.time_units:
             return False
         return True
+
+    def _repr_html_(self):
+        """
+        Called e.g. by jupyter notebooks to render tables
+        """
+        html = ""
+        for name in self.table_classes._fields:
+            html += f"<h3>{name}</h3>"
+            html += getattr(self, name)._repr_html_()
+        return html
 
     def _validate_add_iedge_row(self, vflags, child, parent):
         try:
@@ -1600,7 +1634,7 @@ class Tables:
                         if child not in result:
                             result[child] = {}
                         for mrca_interval, uv_details in coalesced.items():
-                            key = MRCAdict.MRCAinterval(mrca_interval.lower, mrca_interval.upper, chrom)
+                            key = Segment(mrca_interval.lower, mrca_interval.upper, chrom)
                             if key not in result[child]:
                                 result[child][key] = MRCAdict.MRCAintervals([], [])
                             for uv_list, details in zip(result[child][key], uv_details):
@@ -1612,13 +1646,13 @@ class Tables:
                                         inverted_relative_to_original,
                                     ) = uv_key
                                     if inverted_relative_to_original:
-                                        uv_interval = MRCAdict.MRCAinterval(
+                                        uv_interval = Segment(
                                             offset - mrca_interval.lower,
                                             offset - mrca_interval.upper,
                                             orig_chr,
                                         )
                                     else:
-                                        uv_interval = MRCAdict.MRCAinterval(
+                                        uv_interval = Segment(
                                             mrca_interval.lower - offset,
                                             mrca_interval.upper - offset,
                                             orig_chr,
