@@ -429,7 +429,7 @@ class IEdgeTable(BaseTable):
             specifying which iedge table validation checks
             should be performed when adding this data. If the existing data is valid, and
             the new data is added in a way that preserves the existing validity, then
-            calling :math:`has_bitflag` for the flags in this set will return
+            calling :meth:`has_bitflag` for the flags in this set will return
             True. If any of the bits in ``iedges_validation`` are ``0``, that particular
             validation will not be performed: in this case the ``has_bitflag`` method
             will return False for certain flags, and some table algorithms will not run.
