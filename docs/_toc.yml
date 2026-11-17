@@ -11,4 +11,7 @@ chapters:
 - file: api
   sections:
   - file: python-api
+- file: design
+  sections:
+  - file: design/mutations
 #- file: CHANGELOG
