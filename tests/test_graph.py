@@ -33,9 +33,7 @@ class TestConstructor:
         assert len(gig.nodes) == 3
         assert len(gig.iedges) == 0
         assert len(gig.tables.sample_nodes()) == 1
-        # Cached values should be defined but empty
-        assert len(gig._id_range_for_parent) == 0
-        assert gig._iedge_map_sorted_by_parent.shape == (0,)
+        assert len(gig.iedges_for_parent(1)) == 0
 
     def test_from_bad(self):
         with pytest.raises(
@@ -626,9 +624,11 @@ class TestIEdge:
     def test_edge_accessors(self, simple_ts, name):
         gig = gigl.Graph.from_tree_sequence(simple_ts)
         suffix = name.split("_")[-1]
-
-        ie = gig.iedges[gig._iedge_map_sorted_by_parent[0]]  # tskit order
-        assert getattr(ie, name) == getattr(simple_ts.edge(0), suffix)
+        # The first tskit edge has the lowest parent time, then parent ID
+        edge = simple_ts.edge(0)
+        matches = [ie for ie in gig.iedges_for_parent(edge.parent) if ie.child == edge.child]
+        (ie,) = (ie for ie in matches if ie.child_left == edge.left)
+        assert getattr(ie, name) == getattr(edge, suffix)
 
     def test_span(self, all_sv_types_no_re_gig):
         for ie in all_sv_types_no_re_gig.iedges:
