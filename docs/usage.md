@@ -47,8 +47,11 @@ compatibility with _tskit_. In particular:
   to `0`. Where a method returns a collection, or a value that can be combined over chromosomes
   (e.g. `iedges_for_child`, `mutations_for_node`, `ids_for_child` or `max_pos`), it defaults to
   `None`, meaning all chromosomes. Named tuples follow the same order, e.g.
-  `Segment(left, right, chromosome)`, `MutationTableRow(node, position, chromosome, ...)`, and
-  iedges, whose `child_chromosome` and `parent_chromosome` fields follow the coordinates.
+  {class}`~giglib.Position` `(position, chromosome)`, {class}`~giglib.Segment`
+  `(left, right, chromosome)`, `MutationTableRow(node, position, chromosome, ...)`, and iedges,
+  whose `child_chromosome` and `parent_chromosome` fields follow the coordinates. An orientation
+  (e.g. whether one genome is inverted relative to another) belongs to a pair of positions, so is
+  stored alongside them, rather than in a `Position`.
 - **tskit-style names** Some _tskit_ names that do not exist in _giglib_ (e.g. `gig.num_nodes`,
   `gig.samples()`, `gig.node(u)`) are provided for convenience, but emit a `giglib.TskitNameWarning`
   suggesting the _giglib_ equivalent (e.g. `len(gig.nodes)`). These warnings can be silenced in the

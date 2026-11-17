@@ -423,7 +423,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
                 raise ValueError(
                     "Could not find a pair of matching regions in the same orientation" f"after {tries} tries"
                 )
-        return np.array([pos.u, pos.v], dtype=np.int64), (pos.chr_u, pos.chr_v)
+        return np.array([pos.u.position, pos.v.position], dtype=np.int64), (pos.u.chromosome, pos.v.chromosome)
 
     def add_inheritance_paths(self, parent_nodes, child, _):
         mum, dad = parent_nodes

@@ -1082,11 +1082,12 @@ class TestFindMrcas:
         for _ in range(20):
             # in 20 replicates we should definitely have both 0 and 1
             breaks = mrcas.random_match_pos(rng)
-            assert len(breaks) >= 3
+            assert isinstance(breaks.u, gigl.Position)
+            assert isinstance(breaks.v, gigl.Position)
             assert not breaks.opposite_orientations
             assert breaks.u == breaks.v
             all_breaks.add(breaks.u)
-        assert all_breaks == {0, 1}
+        assert all_breaks == {(0, 0), (1, 0)}
 
 
 class TestMRCAdict:
@@ -1116,6 +1117,35 @@ class TestSegment:
         assert seg.chromosome == 1
         assert str(seg) == "Segment(left=10, right=20, chromosome=1)"
         assert repr(seg) == "Segment(left=10, right=20, chromosome=1)"
+
+
+class TestPosition:
+    # Like Segment, the chromosome comes after the position
+    def test_position_basic(self):
+        pos = gigl.Position(10, 1)
+        assert pos.position == 10
+        assert pos.chromosome == 1
+        assert pos == (10, 1)
+        assert repr(pos) == "Position(position=10, chromosome=1)"
+
+    def test_random_match_pos_chromosomes(self):
+        # u (node 0) and v (node 1) inherit from node 2: u on chromosome 1, and v
+        # on chromosome 0, inverted
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(1)
+        tables.add_iedge_row(0, 10, 0, 10, child=0, parent=2, child_chromosome=1, parent_chromosome=1)
+        tables.add_iedge_row(0, 10, 10, 0, child=1, parent=2, child_chromosome=0, parent_chromosome=1)
+        tables.sort()
+        mrcas = tables.graph().find_mrca_regions(0, 1, u_chromosomes=[1], v_chromosomes=[0])
+        rng = np.random.default_rng(1)
+        for _ in range(10):
+            match = mrcas.random_match_pos(rng)
+            assert match.u.chromosome == 1
+            assert match.v.chromosome == 0
+            assert match.opposite_orientations
+            assert match.u.position + match.v.position == 9
 
 
 class TestDecapitate:

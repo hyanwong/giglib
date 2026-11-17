@@ -116,8 +116,8 @@ class DTWF_one_break_no_rec_inversions_test(sim.DTWF_one_break_no_rec_inversions
         comparable_pts = mrcas.random_match_pos(self.rng)
         # Don't bother with inversions: testing doesn't use them
         return (
-            np.array([comparable_pts.u, comparable_pts.v], dtype=np.int64),
-            (comparable_pts.chr_u, comparable_pts.chr_v),
+            np.array([comparable_pts.u.position, comparable_pts.v.position], dtype=np.int64),
+            (comparable_pts.u.chromosome, comparable_pts.v.chromosome),
         )
 
 
