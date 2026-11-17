@@ -148,10 +148,10 @@ class TestSimpleSims:
         gig = gig.sample_resolve()
         for u in gig.tables.sample_nodes():
             assert set(gig.chromosomes(u)) == {0, 1}
-            assert gig.sequence_length(u, 0) == gig.max_pos(u, 0) == 100
-            assert gig.sequence_length(u, 1) == gig.max_pos(u, 1) == 50
-            assert gig.sequence_length(u, 2) == 0
-            assert gig.max_pos(u, 2) is None
+            assert gig.sequence_length(u, chromosome=0) == gig.max_pos(u, chromosome=0) == 100
+            assert gig.sequence_length(u, chromosome=1) == gig.max_pos(u, chromosome=1) == 50
+            assert gig.sequence_length(u, chromosome=2) == 0
+            assert gig.max_pos(u, chromosome=2) is None
 
     def test_run_more(self):
         simulator = sim.DTWF_no_recombination()

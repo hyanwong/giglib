@@ -39,6 +39,16 @@ compatibility with _tskit_. In particular:
 - **Same names on both layers** As far as possible, the same query has the same name on `Graph`
   and `Tables` objects, so the object you call it on determines whether you get objects or IDs.
 - **Lenient inputs** Methods on a `Graph` that take a node accept either a node ID or a `Node` object.
+- **Positions and chromosomes** A position always comes before the chromosome it refers to, and
+  the chromosome is always given by keyword, e.g. `gig.allele_at(u, 100, chromosome=1)`,
+  `gig.haplotype(u, chromosome=1, left=0, right=50)` or
+  `tables.mutations.add_row(u, 100, "A", chromosome=1)`. Where a method returns a single value or
+  sequence for a node (e.g. `allele_at`, `haplotype` or `sequence_length`), `chromosome` defaults
+  to `0`. Where a method returns a collection, or a value that can be combined over chromosomes
+  (e.g. `iedges_for_child`, `mutations_for_node`, `ids_for_child` or `max_pos`), it defaults to
+  `None`, meaning all chromosomes. Named tuples follow the same order, e.g.
+  `Segment(left, right, chromosome)`, `MutationTableRow(node, position, chromosome, ...)`, and
+  iedges, whose `child_chromosome` and `parent_chromosome` fields follow the coordinates.
 - **tskit-style names** Some _tskit_ names that do not exist in _giglib_ (e.g. `gig.num_nodes`,
   `gig.samples()`, `gig.node(u)`) are provided for convenience, but emit a `giglib.TskitNameWarning`
   suggesting the _giglib_ equivalent (e.g. `len(gig.nodes)`). These warnings can be silenced in the

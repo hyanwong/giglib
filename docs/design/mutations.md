@@ -50,8 +50,8 @@ are not stored in the tables.
 | Column | Meaning |
 |---|---|
 | `node` | The node the mutation lies above |
-| `chromosome` | The chromosome, in `node`'s genome |
 | `position` | The (integer) position, in `node`'s coordinates for that chromosome |
+| `chromosome` | The chromosome, in `node`'s genome |
 | `time` | The time of the mutation, or unknown (see below) |
 | `derived_state` | The allele produced by the mutation |
 | `metadata` | Arbitrary metadata |
