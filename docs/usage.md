@@ -115,6 +115,8 @@ compatibility with _tskit_. In particular:
 
 ## Examples
 
+See also {ref}`sec_examples` for longer, runnable examples, such as a simple forward simulation.
+
 As with a _tskit_ tree sequence, a GIG is immmutable, so to create one from scratch you
 need to make a set of `Tables` and freeze them using the `.graph()` method (which gives
 opportunity to cache and index important stuff):
