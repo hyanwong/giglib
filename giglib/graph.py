@@ -567,6 +567,13 @@ class Graph:
         warn_tskit_name("individual(i)", "gig.individuals[i]")
         return self.individuals[i]
 
+    def edges(self):
+        """
+        Not part of the giglib API (emits a :class:`~giglib.TskitNameWarning`): use ``gig.iedges``
+        """
+        warn_tskit_name("edges()", "gig.iedges")
+        return self.iedges
+
     def iedges_for_parent(self, u, *, chromosome=None):
         """
         Return a sequence-like view of the :class:`~giglib.graph.IEdge` objects with parent ``u``,

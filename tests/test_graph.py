@@ -370,6 +370,25 @@ class TestTskitNames:
         with pytest.warns(gigl.TskitNameWarning, match=r"gig\.individuals\[i\]"):
             assert gig.individual(0) == gig.individuals[0]
 
+    def test_edges(self, all_sv_types_1re_gig):
+        gig = all_sv_types_1re_gig
+        with pytest.warns(gigl.TskitNameWarning, match=r"gig\.edges\(\) .* try gig\.iedges"):
+            edges = gig.edges()
+        assert len(edges) == len(gig.iedges)
+        assert list(edges.ids) == list(gig.iedges.ids)
+
+    def test_tables_edges(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0)
+        with pytest.warns(gigl.TskitNameWarning, match=r"tables\.edges .* try tables\.iedges"):
+            edges = tables.edges
+        assert edges is tables.iedges
+        # Still works (and warns) once the tables are frozen in a graph
+        gig = tables.graph()
+        with pytest.warns(gigl.TskitNameWarning):
+            assert gig.tables.edges is gig.tables.iedges
+
 
 class TestTskit:
     """

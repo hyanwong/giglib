@@ -20,6 +20,7 @@ from .util import (
     complement_allele,
     is_unknown_time,
     truncate_rows,
+    warn_tskit_name,
 )
 
 NULL = Const.NULL  # alias for tskit.NULL
@@ -916,9 +917,16 @@ class NodeTable(BaseExtraTable):
 
     def add_row(self, time, *, flags=None, individual=None, metadata=None) -> int:
         """
-        The canonical way to add data to an NodeTable
+        The canonical way to add data to a NodeTable
 
-        :param int flags: The flags for this node
+        :param float time: The time of the node
+        :param int flags: The flags for this node, e.g. ``giglib.NODE_IS_SAMPLE``
+            (default: ``None``, treated as 0). This and the other arguments must be
+            given by keyword, e.g. ``nodes.add_row(0, flags=NODE_IS_SAMPLE)``, partly
+            because the equivalent in tskit takes ``flags`` before ``time``.
+        :param int individual: The ID of the individual to which this node belongs
+            (default: ``None``, treated as ``NULL``, i.e. no individual)
+        :param metadata: Any metadata for this node (default: ``None``)
         :return: The row ID of the newly added row
 
         Example:
@@ -1604,6 +1612,15 @@ class Tables:
     def _sort_mutations(self):
         if len(self.mutations) > 0:
             self.mutations._reorder(self._mutation_sort_order())
+
+    @property
+    def edges(self):
+        """
+        Not part of the giglib API (emits a :class:`~giglib.TskitNameWarning`): use
+        ``tables.iedges``
+        """
+        warn_tskit_name("edges", "tables.iedges", obj="tables", tskit_obj="tables")
+        return self.iedges
 
     def graph(self):
         """

@@ -58,9 +58,10 @@ compatibility with _tskit_. In particular:
   (e.g. whether one genome is inverted relative to another) belongs to a pair of positions, so is
   stored alongside them, rather than in a `Position`.
 - **tskit-style names** Some _tskit_ names that do not exist in _giglib_ (e.g. `gig.num_nodes`,
-  `gig.samples()`, `gig.node(u)`) are provided for convenience, but emit a `giglib.TskitNameWarning`
-  suggesting the _giglib_ equivalent (e.g. `len(gig.nodes)`). These warnings can be silenced in the
-  usual way, e.g. `warnings.simplefilter("ignore", giglib.TskitNameWarning)`.
+  `gig.samples()`, `gig.node(u)`, `gig.edges()` and `tables.edges`) are provided for convenience,
+  but emit a `giglib.TskitNameWarning` suggesting the _giglib_ equivalent (e.g. `len(gig.nodes)`).
+  These warnings can be silenced in the usual way, e.g.
+  `warnings.simplefilter("ignore", giglib.TskitNameWarning)`.
 
 ## API differences
 
