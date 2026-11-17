@@ -742,18 +742,18 @@ class TestMutations:
         assert not root_mutation.is_time_known()
         assert view[0].is_time_known()
 
-    def test_edited_columns_reindexed(self):
-        # Editing a column directly must not leave a stale index in the graph
+    @pytest.mark.parametrize("column", ["node", "chromosome", "position", "time"])
+    def test_columns_read_only(self, column):
+        # Editing a column directly would leave a stale index, so is refused
         tables = gigl.Tables()
         tables.nodes.add_row(0)
         tables.nodes.add_row(0)
-        tables.mutations.add_row(0, 0, "A")
-        tables.mutations.node[0] = 1
+        tables.mutations.add_row(0, 0, "A", time=0)
+        with pytest.raises(ValueError, match="read-only"):
+            getattr(tables.mutations, column)[0] = 1
         gig = tables.graph()
-        assert len(gig.mutations_for_node(0)) == 0
-        assert len(gig.mutations_for_node(1)) == 1
-        assert gig.allele_at(0, 0) is None
-        assert gig.allele_at(1, 0) == "A"
+        assert len(gig.mutations_for_node(0)) == 1
+        assert gig.allele_at(0, 0) == "A"
 
     def test_ids_match_tables_layer(self):
         tables = self.make_tables()

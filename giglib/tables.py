@@ -998,19 +998,19 @@ class MutationTable(BaseExtraTable):
     # define each property by hand, for speed
     @property
     def node(self):
-        return self._data["node"]
+        return self._column("node")
 
     @property
     def chromosome(self):
-        return self._data["chromosome"]
+        return self._column("chromosome")
 
     @property
     def position(self):
-        return self._data["position"]
+        return self._column("position")
 
     @property
     def time(self) -> npt.NDArray[np.float64]:
-        return self._data["time"]
+        return self._column("time")
 
     @property
     def derived_state(self):
