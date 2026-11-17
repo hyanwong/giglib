@@ -770,21 +770,14 @@ class TestNodeTable:
         assert new_nodes.time.dtype == np.float64
         assert np.all(new_nodes.time == [1.0, 2.0, 4.0])
 
-    @pytest.mark.skip("Old implemention: not yet redone")
+    @pytest.mark.skip("add_rows() not yet reimplemented: see docs/design/storage.md")
     def test_add_rows(self):
-        # test if e.g. we can broadcast
+        # Adding many rows in one call, broadcasting scalar values
         nodes = gigl.tables.NodeTable()
-        nodes.add_row(time=123)
-        ret = nodes.add_rows(np.arange(10).reshape(2, 5), flags=0, individual=gigl.NULL)
-        assert len(nodes.time.shape) == 1
-        assert np.all(ret == np.arange(10).reshape(2, 5) + 1)
-        assert nodes.time.shape[0] == 11
-        assert np.all(nodes.time == np.insert(np.arange(10), 0, 123))
-        for i, n in enumerate(nodes):
-            if i == 0:
-                assert n.time == 123
-            else:
-                assert n.time == i - 1
+        ids = nodes.add_rows(time=[1, 2, 3], flags=0)
+        assert np.all(ids == [0, 1, 2])
+        assert np.all(nodes.time == [1, 2, 3])
+        assert np.all(nodes.flags == 0)
 
 
 class TestStringRepresentations:

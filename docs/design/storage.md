@@ -146,6 +146,10 @@ independent of the storage.
   cannot be exposed as numpy arrays.
 - **Adding rows is Python-speed** (about 3 µs per iedge, including optional validation), which
   limits forward simulations ({issue}`86`).
+- **No bulk addition of rows.** An `add_rows()` method, which added many rows in one call
+  (broadcasting values such as `flags=0`), was dropped when the tables were converted to numpy
+  arrays in March 2024, and has not been reimplemented. A skipped test (`test_add_rows` in
+  `tests/test_tables.py`) records the intended behaviour.
 - **Row and `Graph` objects are created on every access.**
 - **The parent index only exists on a `Graph`.**
 - **Sequence lengths are not stored**, but derived from the iedges, so a node with no iedges
@@ -162,6 +166,7 @@ possibly C, see {issue}`138`), with a Python API on top. It should be able to:
 
 - **Append rows fast,** with the incremental index and validity checks described above, since
   forward simulations add rows and run algorithms in alternation.
+- **Append many rows at once,** from numpy arrays, growing the storage once.
 - **Expose columns to Python without copying,** as read-only numpy arrays.
 - **Store ragged columns** as a single data array plus offsets, as _tskit_ does.
 - **Support interval queries efficiently,** e.g. finding the iedges above a node that overlap an
@@ -179,4 +184,9 @@ one table at a time, using the behaviour tests to check each step, and rewriting
   for iedges and chromosomes, or to write a bespoke core from scratch?
 - Should the indexes currently built when a `Graph` is created (e.g. the parent index) be
   maintained by the tables instead?
+- Should bulk addition (`add_rows()`) be added to the current numpy storage, or wait for the
+  core? For nodes and individuals it is simple (grow once, assign whole columns), but iedges
+  need validation and index updates that are currently written one row at a time: should
+  `add_rows()` validate the new rows as a block, or only offer the guarantees that can be
+  checked cheaply?
 - How should metadata be handled (e.g. schemas, as in _tskit_)?
