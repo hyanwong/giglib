@@ -1128,6 +1128,34 @@ class TestPosition:
         assert pos == (10, 1)
         assert repr(pos) == "Position(position=10, chromosome=1)"
 
+    @pytest.mark.parametrize(("cls", "values"), [("Position", (10, 1)), ("Segment", (10, 20, 1))])
+    def test_still_a_tuple(self, cls, values):
+        obj = getattr(gigl, cls)(*values)
+        assert isinstance(obj, tuple)
+        assert obj == values
+        assert hash(obj) == hash(values)
+        assert tuple(obj) == values  # iterating gives values, not field names
+        assert obj[0] == values[0]
+        assert obj[-1] == values[-1]
+        assert obj[:2] == values[:2]
+        assert dict(obj) == dict(zip(obj._fields, values))
+        assert obj["chromosome"] == values[-1]
+        with pytest.raises(AttributeError):
+            obj["not_a_field"]
+
+    def test_unpack_as_keywords(self):
+        # Field names match argument names, so can be passed with **
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.add_iedge_row(0, 5, 0, 5, child=1, parent=0, child_chromosome=1, parent_chromosome=1)
+        for position, base in enumerate("ACGTA"):
+            tables.mutations.add_row(0, **gigl.Position(position, 1), derived_state=base)
+        tables.sort()
+        gig = tables.graph()
+        assert gig.allele_at(1, **gigl.Position(3, 1)) == "T"
+        assert gig.haplotype(1, **gigl.Segment(1, 4, 1)) == "CGT"
+
     def test_random_match_pos_chromosomes(self):
         # u (node 0) and v (node 1) inherit from node 2: u on chromosome 1, and v
         # on chromosome 0, inverted

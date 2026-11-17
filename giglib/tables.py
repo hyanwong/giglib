@@ -26,17 +26,45 @@ NULL = Const.NULL  # alias for tskit.NULL
 NODE_IS_SAMPLE = Const.NODE_IS_SAMPLE  # alias for tskit.NODE_IS_SAMPLE
 
 
-Segment = collections.namedtuple("Segment", "left, right, chromosome")
-Segment.__doc__ = """
-A segment of a chromosome, defined by its left (inclusive)
-and right (exclusive) positions and chromosome ID
-"""
+class _UnpackableAsKeywords:
+    """
+    A mixin for named tuples, allowing them to be unpacked as keyword arguments
+    using ``**``, e.g. ``gig.allele_at(u, **position)``. This works because the
+    field names match the argument names used throughout the API. Otherwise, these
+    behave exactly as named tuples: iterating gives the values (not the field names),
+    and indexing with an integer or slice works as normal.
+    """
 
-Position = collections.namedtuple("Position", "position, chromosome")
-Position.__doc__ = """
-A single position on a chromosome, in the coordinates of a particular node.
-Like :class:`Segment`, the chromosome ID comes after the position.
-"""
+    __slots__ = ()
+
+    def keys(self):
+        return self._fields
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            return getattr(self, key)
+        return super().__getitem__(key)
+
+
+class Segment(_UnpackableAsKeywords, collections.namedtuple("Segment", "left, right, chromosome")):
+    """
+    A segment of a chromosome, defined by its left (inclusive) and right (exclusive)
+    positions and chromosome ID. This is a named tuple, which can also be unpacked as
+    keyword arguments, e.g. ``gig.haplotype(u, **segment)``.
+    """
+
+    __slots__ = ()
+
+
+class Position(_UnpackableAsKeywords, collections.namedtuple("Position", "position, chromosome")):
+    """
+    A single position on a chromosome, in the coordinates of a particular node.
+    Like :class:`Segment`, the chromosome ID comes after the position. This is a
+    named tuple, which can also be unpacked as keyword arguments, e.g.
+    ``gig.allele_at(u, **position)``.
+    """
+
+    __slots__ = ()
 
 
 class IEdgeTableRow(
@@ -1173,12 +1201,12 @@ class MRCAdict(dict):
             inverted relative to the other then ``.opposite_orientations`` is ``True``.
         :rtype: MRCApos
         """
-        tot_len = sum(x[1] - x[0] for v in self.values() for x in v.keys())
+        tot_len = sum(x.right - x.left for v in self.values() for x in v.keys())
         # Pick a single breakpoint
         loc = rng.integers(tot_len)  # breakpoint is before this base
         for mrca_intervals in self.values():
             for x in mrca_intervals.keys():
-                if loc < x[1] - x[0]:
+                if loc < x.right - x.left:
                     u_matches, v_matches = mrca_intervals[x]
                     assert len(u_matches) != 0
                     assert len(v_matches) != 0
@@ -1217,7 +1245,7 @@ class MRCAdict(dict):
                             return self.MRCApos(Position(u0 - loc - 1, uCHR), Position(v0 + loc, vCHR), True)
                         else:
                             return self.MRCApos(Position(u0 - loc - 1, uCHR), Position(v0 - loc - 1, vCHR), False)
-                loc -= x[1] - x[0]
+                loc -= x.right - x.left
 
     def _plot(
         self,

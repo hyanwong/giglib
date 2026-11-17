@@ -49,7 +49,9 @@ compatibility with _tskit_. In particular:
   `None`, meaning all chromosomes. Named tuples follow the same order, e.g.
   {class}`~giglib.Position` `(position, chromosome)`, {class}`~giglib.Segment`
   `(left, right, chromosome)`, `MutationTableRow(node, position, chromosome, ...)`, and iedges,
-  whose `child_chromosome` and `parent_chromosome` fields follow the coordinates. An orientation
+  whose `child_chromosome` and `parent_chromosome` fields follow the coordinates. Since the field
+  names match the argument names, a `Position` or `Segment` can be passed using `**`, e.g.
+  `gig.allele_at(u, **position)` or `gig.haplotype(u, **segment)`. An orientation
   (e.g. whether one genome is inverted relative to another) belongs to a pair of positions, so is
   stored alongside them, rather than in a `Position`.
 - **tskit-style names** Some _tskit_ names that do not exist in _giglib_ (e.g. `gig.num_nodes`,
