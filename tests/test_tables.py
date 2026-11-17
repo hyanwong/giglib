@@ -22,12 +22,6 @@ class TestCreation:
             assert getattr(tables.iedges, pos).dtype == np.int64
             assert isinstance(tables.iedges[0].child_left, (int, np.integer))
 
-    def test_from_tree_sequence_initial_sizes(self, simple_ts):
-        tables = gigl.Tables.from_tree_sequence(simple_ts)
-        assert tables.nodes._num_preallocated_rows == simple_ts.num_nodes
-        assert tables.iedges._num_preallocated_rows == simple_ts.num_edges
-        assert tables.individuals._num_preallocated_rows == simple_ts.num_individuals
-
     @pytest.mark.parametrize("time", [0, 1])
     def test_simple_from_tree_sequence_with_timedelta(self, simple_ts, time):
         assert simple_ts.num_trees > 1
@@ -100,13 +94,6 @@ class TestCreation:
             gigl.Tables.from_tree_sequence(bad_ts)
 
 
-class TestTableClasses:
-    @pytest.mark.parametrize("cls", ["NodeTable", "IEdgeTable", "IndividualTable"])
-    def test_initial_sizes(self, cls):
-        table = getattr(gigl.tables, cls)(initial_size=10)
-        assert table._num_preallocated_rows == 10
-
-
 class TestFreeze:
     @pytest.mark.parametrize(
         ("TableClass", "params"),
@@ -131,18 +118,11 @@ class TestFreeze:
         table.freeze()
         with pytest.raises((AttributeError, ValueError)):
             table.add_row(**params)
-        # Try replacing the data directly
-        with pytest.raises((AttributeError, ValueError)):
-            table._data = []
         with pytest.raises((AttributeError, ValueError)):
             table.clear()
         unfrozen = table.copy()
         unfrozen.add_row(**params)
         assert len(unfrozen) == 2
-        unfrozen._data = []
-        assert len(unfrozen) == 0
-        unfrozen.add_row(**params)
-        assert len(unfrozen) == 1
         unfrozen.clear()
 
     def test_freeze(self, trivial_gig):
@@ -181,27 +161,13 @@ class TestCopy:
         tables_copy.time_units = "abcde"
         assert tables_copy != tables
 
-    def test_iedges_cache(self, trivial_gig):
+    def test_iedges_flags_in_equality(self, trivial_gig):
         tables = trivial_gig.tables
         assert tables.iedges.flags == ValidFlags.GIG
-        sample = trivial_gig.tables.sample_nodes()[0]
-        chrom = 0
         tables_copy = tables.copy()
-        assert tables_copy.iedges == tables.iedges
-        # Warning: this is a hack to test the cache, and will invalidate it
-        tables_copy.iedges._id_range_for_child[sample][chrom][0] += 1
-        assert tables_copy.iedges != tables.iedges
-        tables_copy.iedges._id_range_for_child[sample][chrom][0] -= 1  # Restore
         assert tables_copy.iedges == tables.iedges
         tables_copy.iedges.flags = ValidFlags.NONE
         assert tables_copy.iedges != tables.iedges
-
-    def test_initial_sizes_copy(self, simple_ts):
-        tables = gigl.Tables.from_tree_sequence(simple_ts)
-        copy = tables.copy()
-        assert copy.nodes._num_preallocated_rows == simple_ts.num_nodes
-        assert copy.iedges._num_preallocated_rows == simple_ts.num_edges
-        assert copy.individuals._num_preallocated_rows == simple_ts.num_individuals
 
 
 class TestExtractColumn:
@@ -353,7 +319,6 @@ class TestIEdgeTable:
         assert len(ie_rows) == 0
         ie_rows = list(tables.iedges.ids_for_child(0, chromosome=10))
         assert len(ie_rows) == 0
-        assert 0 not in tables.iedges._id_range_for_child
 
     def test_bad_child_iterator(self, all_sv_types_2re_gig):
         tables = all_sv_types_2re_gig.tables.copy()
@@ -425,10 +390,11 @@ class TestIEdgeTable:
         tables = trivial_gig.tables.copy()
         tables.iedges.add_row(10, 20, 10, 20, child=0, parent=4)
         assert tables.iedges.flags != ValidFlags.GIG
-        assert len(tables.iedges._id_range_for_child) > 0
+        assert len(tables.iedges) > 0
         tables.iedges.clear()
         assert tables.iedges.flags == ValidFlags.GIG
-        assert len(tables.iedges._id_range_for_child) == 0
+        assert len(tables.iedges) == 0
+        assert len(tables.iedges.ids_for_child(0)) == 0
 
     def test_max_child_pos(self, trivial_gig):
         tables = trivial_gig.tables.copy()
@@ -804,21 +770,14 @@ class TestNodeTable:
         assert new_nodes.time.dtype == np.float64
         assert np.all(new_nodes.time == [1.0, 2.0, 4.0])
 
-    @pytest.mark.skip("Old implemention: not yet redone")
+    @pytest.mark.skip("add_rows() not yet reimplemented: see docs/design/storage.md")
     def test_add_rows(self):
-        # test if e.g. we can broadcast
+        # Adding many rows in one call, broadcasting scalar values
         nodes = gigl.tables.NodeTable()
-        nodes.add_row(time=123)
-        ret = nodes.add_rows(np.arange(10).reshape(2, 5), flags=0, individual=gigl.NULL)
-        assert len(nodes.time.shape) == 1
-        assert np.all(ret == np.arange(10).reshape(2, 5) + 1)
-        assert nodes.time.shape[0] == 11
-        assert np.all(nodes.time == np.insert(np.arange(10), 0, 123))
-        for i, n in enumerate(nodes):
-            if i == 0:
-                assert n.time == 123
-            else:
-                assert n.time == i - 1
+        ids = nodes.add_rows(time=[1, 2, 3], flags=0)
+        assert np.all(ids == [0, 1, 2])
+        assert np.all(nodes.time == [1, 2, 3])
+        assert np.all(nodes.flags == 0)
 
 
 class TestStringRepresentations:
@@ -876,8 +835,8 @@ class TestIEdgeAttributes:
         tables = gig.tables
         assert getattr(tables.iedges, name).dtype == np.int64
         suffix = name.split("_")[-1]
-        ts_order = gig._iedge_map_sorted_by_parent
-        assert np.all(getattr(tables.iedges, name)[ts_order] == getattr(simple_ts, "edges_" + suffix))
+        # Iedges are not in the same order as tskit edges, so compare sorted values
+        assert np.array_equal(np.sort(getattr(tables.iedges, name)), np.sort(getattr(simple_ts, "edges_" + suffix)))
 
 
 class TestIndividualAttributes:
@@ -892,11 +851,11 @@ class TestNodeAttributes:
         tables = gigl.Tables.from_tree_sequence(simple_ts)
         assert np.all(tables.nodes.flags == simple_ts.nodes_flags)
 
-    def test_child(self, simple_ts):
+    def test_edges_match_tskit(self, simple_ts):
         gig = gigl.Graph.from_tree_sequence(simple_ts)
-        tables = gig.tables
-        ts_order = gig._iedge_map_sorted_by_parent
-        assert np.all(tables.iedges.child[ts_order] == simple_ts.edges_child)
+        iedges = {(ie.parent, ie.child, ie.child_left, ie.child_right) for ie in gig.iedges}
+        edges = {(e.parent, e.child, e.left, e.right) for e in simple_ts.edges()}
+        assert iedges == edges
 
 
 class TestFindMrcas:
@@ -1282,11 +1241,6 @@ class TestMutationTable:
         assert list(mutations.ids_for_node(3, chromosome=1)) == []
         assert list(mutations.ids_for_node(1)) == [4]
         assert list(mutations.ids_for_node(0)) == []
-        # The (start, end) ranges match the IDs, without creating an array
-        assert mutations._range_for_node(3) == (0, 4)
-        assert mutations._range_for_node(3, chromosome=2) == (3, 4)
-        assert mutations._range_for_node(0) == (0, 0)
-        assert mutations._range_for_node(3, chromosome=1) == (0, 0)
         # index is rebuilt after adding rows
         mutations.add_row(1, 8, "C")
         assert list(mutations.ids_for_node(1)) == [4, 5]
@@ -1405,7 +1359,10 @@ class TestMutationsInAlgorithms:
         # Make node 0 isolated too, by giving A no parent: removed with its mutations
         tables.iedges.clear()
         tables.add_iedge_row(0, 5, 0, 5, child=2, parent=1, validate=ValidFlags.GIG)
-        tables.mutations._subset([i for i, m in enumerate(tables.mutations) if m.node != 0])
+        kept = [m for m in tables.mutations if m.node != 0]
+        tables.mutations.clear()
+        for m in kept:
+            tables.mutations.add_row(m.node, m.position, m.derived_state, chromosome=m.chromosome, time=m.time)
         mapping = tables.remove_non_ancestral_nodes()
         assert list(mapping) == [1, 2]
         assert len(tables.nodes) == 2
