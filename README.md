@@ -1,14 +1,21 @@
 # The Genetic Inheritance Graph Library (giglib)
 
-**Like [tskit](https://tskit.dev), but for genomes that rearrange.**
+**Genetic ancestry for genomes that rearrange.**
 
-A tree sequence assumes that every genome shares one coordinate system, so position 1000 means
-the same thing in every sample. That breaks down as soon as there are inversions, duplications,
-deletions, or transposable elements. A **genetic inheritance graph** (GIG) drops that assumption:
-each edge records the inherited interval in the *child's* coordinates **and** in the *parent's*
-coordinates. This lets a GIG store genetic ancestry that includes structural variation.
+Two kinds of graph are increasingly used to describe genetic variation, but each tells only half
+the story. [Ancestral recombination graphs](https://tskit.dev/tutorials/args.html) (ARGs) record
+how genomes are related through inheritance and recombination, but assume that all genomes line
+up base for base. Pangenome graphs capture structural variation between genomes, such as
+inversions, duplications, and deletions, but not the genealogy that produced it. A **genetic
+inheritance graph** (GIG) combines the two: it records which pieces of DNA each genome
+inherited from which ancestor, even when that DNA has been rearranged along the way.
 
-If you know tskit, you already know most of giglib.
+**If you use [tskit](https://tskit.dev), think of giglib as tskit for genomes that rearrange.** A tree
+sequence assumes that every genome shares one coordinate system, so position 1000 means the same
+thing in every sample. That breaks down as soon as there are inversions, duplications, deletions,
+or transposable elements. A GIG drops that assumption: each edge records the inherited interval
+in the *child's* coordinates **and** in the *parent's* coordinates. If you know tskit, you already
+know most of giglib.
 
 📖 **[Documentation](https://hyanwong.github.io/giglib/)** · This is a proof of concept: the API may change at any time.
 
