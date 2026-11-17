@@ -5,6 +5,7 @@ chapters:
 - file: installation
 - file: usage
 - file: examples
+- file: validation
 #  sections:
 #  - file: basic_use
 #  - file: simulators

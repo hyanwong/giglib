@@ -74,6 +74,7 @@ class ValidFlags(IntFlag):
     #: not algorithmically necessary, it helps to creates a canonical iedge ordering.
     IEDGES_SECONDARY_ORDER_CHILD_ID_ASC = np.dtype("uint32").type(1 << 10)
 
+    #: All the iedge requirements
     IEDGES_ALL = (
         IEDGES_INTEGERS
         | IEDGES_INTERVALS
@@ -88,14 +89,15 @@ class ValidFlags(IntFlag):
         | IEDGES_SECONDARY_ORDER_CHILD_ID_ASC
     )
 
+    #: All the requirements of a valid GIG, as needed to create a :class:`~giglib.Graph`
+    #: (currently the same as :data:`IEDGES_ALL`). See :ref:`sec_validation`.
     GIG = IEDGES_ALL
 
     # COMBINATIONS OF FLAGS
 
-    # These are the requirements that do not simply involve the iedge table
-    # (e.g. they also involve knowing node table information). We need to include the
-    # secondary order sorting by child ID here because we can't check whether this is
-    # satisfied without knowing whether a row is at the same timepoint as a previous one
+    #: The requirements that do not simply involve the iedge table, but also need the
+    #: times in the node table. This includes the secondary ordering by child ID, as
+    #: checking it requires knowing whether a row is at the same time as the previous one.
     IEDGES_COMBO_NODE_TABLE = (
         IEDGES_PARENT_OLDER_THAN_CHILD | IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC | IEDGES_SECONDARY_ORDER_CHILD_ID_ASC
     )

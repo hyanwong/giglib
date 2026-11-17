@@ -808,6 +808,140 @@ class TestFromTreeSequenceFlags:
         assert tables.iedges.flags == ValidFlags.GIG
 
 
+class TestValidate:
+    """
+    Tables.validate() checks requirements that are not already guaranteed, and sets
+    their flags
+    """
+
+    @staticmethod
+    def valid_tables():
+        # Valid as a GIG, but added without validation, so no iedge flags are set
+        tables = gigl.Tables()
+        tables.nodes.add_row(2)  # 0
+        tables.nodes.add_row(1)  # 1
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # 2
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # 3
+        tables.iedges.add_row(1, 0, child_right=10, edge=0)
+        tables.iedges.add_row(2, 1, child_right=4, edge=1)
+        tables.iedges.add_row(2, 0, child_left=4, child_right=10, parent_left=10, parent_right=4)
+        tables.iedges.add_row(3, 1, child_right=10, child_chromosome=1, parent_chromosome=0)
+        tables.iedges.unset_bitflag(ValidFlags.IEDGES_ALL)
+        return tables
+
+    def test_sets_flags(self):
+        tables = self.valid_tables()
+        assert tables.iedges.flags == 0
+        tables.validate()
+        assert tables.iedges.flags == ValidFlags.GIG
+        tables.graph()
+
+    def test_subset(self):
+        tables = self.valid_tables()
+        tables.validate(ValidFlags.IEDGES_INTERVALS | ValidFlags.IEDGES_FOR_CHILD_ADJACENT)
+        assert tables.iedges.flags == ValidFlags.IEDGES_INTERVALS | ValidFlags.IEDGES_FOR_CHILD_ADJACENT
+
+    def test_empty(self):
+        tables = gigl.Tables()
+        tables.iedges.unset_bitflag(ValidFlags.IEDGES_ALL)
+        tables.validate()
+        assert tables.iedges.flags == ValidFlags.GIG
+
+    def test_from_tree_sequence_rechecks(self):
+        ts = msprime.sim_ancestry(5, sequence_length=100, recombination_rate=0.01, random_seed=1)
+        tables = gigl.Tables.from_tree_sequence(ts)
+        tables.validate(recheck=True)
+
+    def test_trusts_set_flags_unless_rechecked(self):
+        tables = self.valid_tables()
+        tables.nodes.add_row(5)  # 4
+        tables.iedges.add_row(0, 4, child_right=10)  # breaks the child time ordering
+        tables.iedges.set_bitflag(ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC)  # a false claim
+        tables.validate(ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC)  # trusted, so not checked
+        with pytest.raises(ValueError, match="not sorted by child time"):
+            tables.validate(ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC, recheck=True)
+
+    def test_frozen(self):
+        gig = self.valid_tables().graph()
+        gig.tables.validate()  # all flags set, so nothing to do
+        gig.tables.validate(recheck=True)  # everything rechecked, and no flags need setting
+
+    @pytest.mark.parametrize(
+        ("flag", "make_invalid", "match"),
+        [
+            (ValidFlags.IEDGES_INTEGERS, lambda t: t.iedges.add_row(2, 0, child_left=-1, child_right=0), "negative"),
+            (ValidFlags.IEDGES_INTEGERS, lambda t: t.iedges.add_row(2, 9, child_left=10, child_right=11), "num nodes"),
+            (
+                ValidFlags.IEDGES_INTERVALS,
+                lambda t: t.iedges.add_row(2, 0, child_left=10, child_right=11, parent_left=0, parent_right=2),
+                "spans",
+            ),
+            (
+                ValidFlags.IEDGES_CHILD_INTERVAL_POSITIVE,
+                lambda t: t.iedges.add_row(2, 0, child_left=12, child_right=11, parent_left=0, parent_right=1),
+                "child_left >= child_right",
+            ),
+            (
+                ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD,
+                lambda t: t.iedges.add_row(0, 2, child_left=10, child_right=11),
+                "not older than child",
+            ),
+            (
+                ValidFlags.IEDGES_SAME_PARENT_CHILD_FOR_EDGE,
+                lambda t: t.iedges.add_row(3, 0, child_left=10, child_right=11, edge=1),
+                "same edge ID",
+            ),
+            (
+                ValidFlags.IEDGES_FOR_CHILD_ADJACENT,
+                lambda t: t.iedges.add_row(1, 0, child_left=10, child_right=11),
+                "not adjacent",
+            ),
+            (
+                ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC,
+                lambda t: t.iedges.add_row(3, 1, child_right=1),
+                "sorted by chromosome",
+            ),
+            (
+                ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC,
+                lambda t: t.iedges.add_row(3, 1, child_right=1, child_chromosome=1, parent_chromosome=0),
+                "sorted by left pos",
+            ),
+            (
+                ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING,
+                lambda t: t.iedges.add_row(
+                    3, 0, child_left=5, child_right=11, child_chromosome=1, parent_left=0, parent_right=6
+                ),
+                "multiple or duplicate parents",
+            ),
+            (
+                ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC,
+                lambda t: t.iedges.add_row(1, 0, child_left=10, child_right=11),
+                "not sorted by child time, descending",
+            ),
+            (
+                ValidFlags.IEDGES_SECONDARY_ORDER_CHILD_ID_ASC,
+                lambda t: t.iedges.add_row(2, 0, child_left=10, child_right=11),
+                "then ID",
+            ),
+        ],
+    )
+    def test_each_requirement(self, flag, make_invalid, match):
+        tables = self.valid_tables()
+        tables.validate(ValidFlags.GIG & ~flag)  # everything else is still valid
+        make_invalid(tables)
+        tables.iedges.unset_bitflag(ValidFlags.IEDGES_ALL)
+        with pytest.raises(ValueError, match=match):
+            tables.validate(flag)
+        assert not tables.iedges.has_all_bitflags(flag)
+
+    def test_graph_checks_edge_ids(self):
+        # Previously, creating a Graph set this flag without checking it
+        tables = self.valid_tables()
+        tables.iedges.add_row(3, 0, child_left=10, child_right=11, edge=1)
+        with pytest.raises(ValueError, match="same edge ID"):
+            tables.graph()
+
+
 class TestZeroInitialSize:
     # Tables preallocated with no rows (e.g. converted from a tree sequence with no
     # edges) must still be able to grow
