@@ -1241,11 +1241,6 @@ class TestMutationTable:
         assert list(mutations.ids_for_node(3, chromosome=1)) == []
         assert list(mutations.ids_for_node(1)) == [4]
         assert list(mutations.ids_for_node(0)) == []
-        # The (start, end) ranges match the IDs, without creating an array
-        assert mutations._range_for_node(3) == (0, 4)
-        assert mutations._range_for_node(3, chromosome=2) == (3, 4)
-        assert mutations._range_for_node(0) == (0, 0)
-        assert mutations._range_for_node(3, chromosome=1) == (0, 0)
         # index is rebuilt after adding rows
         mutations.add_row(1, 8, "C")
         assert list(mutations.ids_for_node(1)) == [4, 5]
@@ -1364,7 +1359,10 @@ class TestMutationsInAlgorithms:
         # Make node 0 isolated too, by giving A no parent: removed with its mutations
         tables.iedges.clear()
         tables.add_iedge_row(0, 5, 0, 5, child=2, parent=1, validate=ValidFlags.GIG)
-        tables.mutations._subset([i for i, m in enumerate(tables.mutations) if m.node != 0])
+        kept = [m for m in tables.mutations if m.node != 0]
+        tables.mutations.clear()
+        for m in kept:
+            tables.mutations.add_row(m.node, m.position, m.derived_state, chromosome=m.chromosome, time=m.time)
         mapping = tables.remove_non_ancestral_nodes()
         assert list(mapping) == [1, 2]
         assert len(tables.nodes) == 2

@@ -18,7 +18,7 @@ import giglib as gigl
 
 
 class TestPreallocation:
-    @pytest.mark.parametrize("cls", ["NodeTable", "IEdgeTable", "IndividualTable"])
+    @pytest.mark.parametrize("cls", ["NodeTable", "IEdgeTable", "IndividualTable", "MutationTable"])
     def test_initial_sizes(self, cls):
         table = getattr(gigl.tables, cls)(initial_size=10)
         assert table._num_preallocated_rows == 10
@@ -87,6 +87,22 @@ class TestIEdgeIndex:
         assert len(tables.iedges._id_range_for_child) > 0
         tables.iedges.clear()
         assert len(tables.iedges._id_range_for_child) == 0
+
+
+class TestMutationIndex:
+    def test_range_for_node(self):
+        # The (start, end) ranges match ids_for_node(), without creating an array
+        mutations = gigl.Tables().mutations
+        for node, chrom, pos in [(3, 0, 1), (3, 0, 1), (3, 0, 4), (3, 2, 0), (1, 0, 7)]:
+            mutations.add_row(node, pos, "A", chromosome=chrom)
+        assert mutations._range_for_node(3) == (0, 4)
+        assert mutations._range_for_node(3, chromosome=2) == (3, 4)
+        assert mutations._range_for_node(0) == (0, 0)
+        assert mutations._range_for_node(3, chromosome=1) == (0, 0)
+        for node, chrom in [(3, None), (3, 2), (1, None), (0, None), (3, 1)]:
+            start, end = mutations._range_for_node(node, chromosome=chrom)
+            kwargs = {} if chrom is None else {"chromosome": chrom}
+            assert list(range(start, end)) == list(mutations.ids_for_node(node, **kwargs))
 
 
 class TestGraphParentIndex:

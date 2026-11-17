@@ -42,8 +42,10 @@ The storage has been rewritten several times, mainly for speed in forward simula
    cheap and columns are numpy arrays without copying. Initial sizes can be given when
    creating tables (e.g. when converting from _tskit_, where they are known), and chromosome
    columns use `int16` to save space. Sorting became in-place (April 2024).
-4. **Read-only columns** (November 2026, {pr}`151`). Column accessors return read-only views, so that
-   indexes and validity flags cannot be silently invalidated by editing a column (see below).
+4. **Mutations and read-only columns** (November 2026). A mutations table was added
+   ({pr}`148`), with an index of the mutations for each node. Column accessors were then
+   made to return read-only views ({pr}`151`, and {pr}`150` for mutations), so that indexes
+   and validity flags cannot be silently invalidated by editing a column (see below).
 
 ## Current implementation
 
@@ -62,9 +64,8 @@ some exceptions (e.g. `float64` for times, `uint32` for flags, and `int16` for c
 - **Row access.** `table[i]` creates a row object (a named tuple) from row `i`. This is
   convenient, but much slower than reading columns, so performance-critical code should use
   columns.
-- **Column access** ({pr}`151`). Column properties (e.g. `tables.iedges.child`) return
-  read-only views of
-  `_data`. To keep this cheap, read-only views of each whole column of `_datastore` are created
+- **Column access.** Column properties (e.g. `tables.iedges.child`) return read-only views
+  of `_data`. To keep this cheap, read-only views of each whole column of `_datastore` are created
   only when `_datastore` is *replaced* (detected in `BaseTable.__setattr__`), and each access
   slices one of these to the length of the table. This takes about 0.12 µs per access,
   compared with about 0.07 µs for a writable view.
@@ -85,10 +86,13 @@ Tables and graphs maintain indexes, to avoid scanning whole tables:
   dict of `{chromosome: [start, end]}` row ranges. It is updated as each row is added (this is
   only meaningful if iedges are grouped by child, which the validity flags record), and rebuilt
   by `Tables.sort()`. It is used by `ids_for_child()` and many algorithms.
-- **Mutations for each node** (`MutationTable._id_range_for_node`, added with the mutations
-  table in {pr}`148`): the equivalent for mutations, with a single internal flag recording whether mutations are grouped by node and
-  ordered by chromosome then position. As a safeguard, it is also rebuilt when a `Graph` is
-  created.
+- **Mutations for each node** (`MutationTable._id_range_for_node`): the equivalent for
+  mutations. It is updated as each row is added, with an internal flag
+  (`_node_ranges_valid`) recording whether mutations are still grouped by node, and ordered
+  by chromosome then position within each node. It is rebuilt when rows are reordered or
+  removed (e.g. by sorting), when copying, and (as a safeguard against edits through the
+  internal arrays) when a `Graph` is created. It is used by `ids_for_node()`, and when
+  decoding alleles (via `_range_for_node()`, which avoids creating an array of IDs).
 - **Iedges for each parent** (`Graph._iedge_map_sorted_by_parent` and
   `Graph._id_range_for_parent`): a permutation of the iedges sorted by parent, and the ranges
   for each parent and chromosome. These are only built when a `Graph` is created, so there is
