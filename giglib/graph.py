@@ -513,9 +513,13 @@ class GIGItemIterator:
 
     def __getitem__(self, index):
         if self._ids is None:
-            if index < 0:
-                index += len(self.table)
-            return self.cls(**self.table[index]._asdict(), id=index)
+            # The index is the ID, so must be normalised and bounds-checked here:
+            # otherwise numpy would wrap a too-negative index round to the end.
+            n = len(self.table)
+            i = index + n if index < 0 else index
+            if not 0 <= i < n:
+                raise IndexError(f"index {index} is out of range for {n} items")
+            return self.cls(**self.table[i]._asdict(), id=i)
         else:
             true_id = self._ids[index]
             return self.cls(**self.table[true_id]._asdict(), id=true_id)

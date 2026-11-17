@@ -307,6 +307,30 @@ class TestMethods:
         assert list(flagged_gig.nodes.ids) == list(range(len(flagged_gig.nodes)))
         assert flagged_gig.nodes[-1].id == len(flagged_gig.nodes) - 1
 
+    @pytest.mark.parametrize("filtered", [False, True])
+    def test_view_index_bounds(self, flagged_gig, filtered):
+        def make_view():
+            return flagged_gig.filter_nodes(time=(0, 2)) if filtered else flagged_gig.nodes
+
+        # Use fresh views throughout: accessing .ids on an unfiltered view
+        # creates an ID array, which changes the indexing code path
+        n = len(make_view())
+        assert n > 1
+        for bad in (n, n + 1, -n - 1, -2 * n):
+            with pytest.raises(IndexError):
+                make_view()[bad]
+        ids = make_view().ids
+        for i in range(-n, n):
+            assert make_view()[i].id == ids[i]
+
+    def test_iedges_index_bounds(self, multi_chromosome_gig):
+        iedges = multi_chromosome_gig.iedges
+        n = len(iedges)
+        assert iedges[-n].id == 0
+        assert iedges[-1].id == n - 1
+        with pytest.raises(IndexError):
+            iedges[-n - 1]
+
     def test_node_objects_as_arguments(self, multi_chromosome_gig):
         gig = multi_chromosome_gig
         u = gig.nodes[1]
