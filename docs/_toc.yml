@@ -12,6 +12,7 @@ chapters:
 - file: api
   sections:
   - file: python-api
+  - file: tools
 - file: design
   sections:
   - file: design/mutations

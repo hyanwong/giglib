@@ -15,4 +15,5 @@ kernelspec:
 
 # APIs
 
-There is currently only a {ref}`Python API <sec_python_api>` 
+There is currently only a {ref}`Python API <sec_python_api>`. Some experimental extras,
+which are not part of the core API, are described in {ref}`sec_tools`. 

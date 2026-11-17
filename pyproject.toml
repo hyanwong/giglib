@@ -57,6 +57,7 @@ content-type = "text/markdown"
 [tool.setuptools]
 packages = [
     "giglib",
+    "giglib.tools",
 ]
 include-package-data = true
 platforms = [
