@@ -39,6 +39,9 @@ compatibility with _tskit_. In particular:
 - **Same names on both layers** As far as possible, the same query has the same name on `Graph`
   and `Tables` objects, so the object you call it on determines whether you get objects or IDs.
 - **Lenient inputs** Methods on a `Graph` that take a node accept either a node ID or a `Node` object.
+- **Nodes by keyword** Where a row refers to more than one node, the nodes are given by keyword,
+  e.g. `tables.iedges.add_row(0, 100, child=1, parent=0)`, so they cannot be swapped by mistake.
+  (_tskit_'s `edges.add_row(left, right, parent, child)` is easy to get the wrong way round.)
 - **Positions and chromosomes** A position always comes before the chromosome it refers to, and
   the chromosome is always given by keyword, e.g. `gig.allele_at(u, 100, chromosome=1)`,
   `gig.haplotype(u, chromosome=1, left=0, right=50)` or
@@ -66,7 +69,9 @@ compatibility with _tskit_. In particular:
   column as in _tskit_ (and similarly for `right`). We use the term `iedge` rather than simply `edge`
   to indicate that this is a denormalised table that contains an interval (`i`) as well as the
   parent and child coordinates that represent an `edge` in the graph. That means a single graph edge
-  can be represented by multiple disjoint intervals in the `iedges` table.
+  can be represented by multiple disjoint intervals in the `iedges` table. If the parent
+  coordinates are the same as the child's (i.e. the interval is not moved or inverted), they can
+  be omitted, e.g. `tables.iedges.add_row(0, 100, child=1, parent=0)`.
 - **Tables and Graphs** giglib provides a `Tables` and `Graph` class, corresponding
   to `TableCollection` and `TreeSequence` classes in _tskit_. Thus to create a GIG from scratch,
   you do `gig = tables.graph()`

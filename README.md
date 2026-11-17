@@ -49,7 +49,7 @@ extra, inverted copy of the last 50 bases:
 tables = gigl.Tables()
 parent = tables.nodes.add_row(time=1)
 child = tables.nodes.add_row(time=0, flags=gigl.NODE_IS_SAMPLE)
-tables.iedges.add_row(child=child, parent=parent, child_left=0, child_right=100, parent_left=0, parent_right=100)
+tables.iedges.add_row(0, 100, child=child, parent=parent)  # parent coordinates default to the child's
 tables.iedges.add_row(child=child, parent=parent, child_left=100, child_right=150, parent_left=100, parent_right=50)
 gig = tables.graph()
 
