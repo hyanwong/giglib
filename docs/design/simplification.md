@@ -137,14 +137,19 @@ of regions. Which is faster to compute, and gives smaller tables, needs measurin
 
 ## Mutations
 
-If simplification only removes nodes (or regions of nodes) that are unary, a mutation above a
-removed region has exactly one descendant copy, so it can move down to the corresponding position
-in the child, through the composed iedge. Its derived state is complemented if the path to the
-child includes an odd number of inversions. A region with several copies is a coalescence or a
-duplication, so its node is kept, and its mutations stay where they are.
+Mutations are above nodes, not on iedges. If simplification only removes nodes (or regions of
+nodes) that are unary, a mutation above a removed region of a node `u` has exactly one descendant
+copy, in a child `c`. So it can move to the node `c`, at the corresponding position (found
+through the iedge from `c` to `u`). Its derived state is complemented if that iedge is an
+inversion. Its time stays valid: it was between the times of `u` and `u`'s parent `p`, `c` is
+younger than `u`, and after composing iedges, `c`'s parent in that region is `p`. A region with
+several copies is a coalescence or a duplication, so its node is kept, and its mutations stay
+above it.
 
-The homology table does not need mutations: it is only used to find equivalent positions, so
-mutations stay on the real iedges.
+The homology table does not affect mutations, which stay above their nodes in the real graph.
+The time of a mutation is only constrained by the real iedges (it must be between the times of its
+node and of that node's parent), not by the homology table's iedges, which skip intermediate
+ancestors, and so would allow a much wider range of times.
 
 ## The homology table
 
