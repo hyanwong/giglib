@@ -384,24 +384,34 @@ class IEdgeTable(BaseTable):
             return False
         return super().__eq__(other)
 
-    def set_bitflag(self, flag):
+    def set_bitflag(self, flags):
         """
-        Mark the given :class:`~giglib.ValidFlags` as guaranteed for this table
-        """
-        self.flags |= flag
+        Mark the given validity flags as guaranteed for this table.
 
-    def unset_bitflag(self, flag):
+        :param int flags: One or more :class:`~giglib.ValidFlags`, combined using ``|``
         """
-        Mark the given :class:`~giglib.ValidFlags` as no longer guaranteed for this table
-        """
-        self.flags &= ~flag
+        self.flags |= flags
 
-    def has_bitflag(self, flag):
+    def unset_bitflag(self, flags):
         """
-        Return ``True`` if any of the bits in ``flag`` (one or more
-        :class:`~giglib.ValidFlags`) are guaranteed for this table
+        Mark the given validity flags as no longer guaranteed for this table.
+
+        :param int flags: One or more :class:`~giglib.ValidFlags`, combined using ``|``
         """
-        return bool(self.flags & flag)
+        self.flags &= ~flags
+
+    def has_all_bitflags(self, flags):
+        """
+        Check whether this table is guaranteed to satisfy *all* of the given validity
+        flags. For example,
+        ``iedges.has_all_bitflags(ValidFlags.IEDGES_FOR_CHILD_ADJACENT | ValidFlags.IEDGES_INTERVALS)``
+        returns ``True`` only if both flags are set. Passing ``0`` (no flags) returns ``True``.
+
+        :param int flags: One or more :class:`~giglib.ValidFlags`, combined using ``|``
+        :return: ``True`` if every bit in ``flags`` is set for this table, otherwise ``False``
+        :rtype: bool
+        """
+        return (self.flags & flags) == flags
 
     def _increment_id_range_for_child(self, child, child_chromosome, rownum):
         # Update internal data structures
@@ -439,10 +449,10 @@ class IEdgeTable(BaseTable):
             specifying which iedge table validation checks
             should be performed when adding this data. If the existing data is valid, and
             the new data is added in a way that preserves the existing validity, then
-            calling :meth:`has_bitflag` for the flags in this set will return
-            True. If any of the bits in ``iedges_validation`` are ``0``, that particular
-            validation will not be performed: in this case the ``has_bitflag`` method
-            will return False for certain flags, and some table algorithms will not run.
+            calling :meth:`has_all_bitflags` with the flags in this set will return
+            True. If any of the bits in ``validate`` are ``0``, that particular
+            validation will not be performed: in this case :meth:`has_all_bitflags`
+            will return False for those flags, and some table algorithms will not run.
             For instance, using the :meth:`ids_for_child()` method is only valid if
             :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_ADJACENT` and
             :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC`
@@ -543,7 +553,7 @@ class IEdgeTable(BaseTable):
         if vflags & ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING:
             # This is easy to check if previous edges for a child+chromosome are
             # adjacent and ordered by left position, but hard in the general case
-            if self.has_bitflag(ValidFlags.IEDGES_WITHIN_CHILD_SORTED):
+            if self.has_all_bitflags(ValidFlags.IEDGES_WITHIN_CHILD_SORTED):
                 if same_child and prev_iedge.child_chromosome == chrom:
                     if prev_iedge.child_right > row.child_left:
                         raise ValueError(
@@ -646,7 +656,7 @@ class IEdgeTable(BaseTable):
         :raises ValueError: If the iedges for a child are not adjacent in the table,
             or not ordered by chromosome
         """
-        if not self.has_bitflag(
+        if not self.has_all_bitflags(
             ValidFlags.IEDGES_FOR_CHILD_ADJACENT | ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
         ):
             raise ValueError(
@@ -679,7 +689,9 @@ class IEdgeTable(BaseTable):
             This does not look at edges for which this node is a parent,
             so e.g. root nodes may not have a maximum position defined
         """
-        if not self.has_bitflag(ValidFlags.IEDGES_WITHIN_CHILD_SORTED | ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING):
+        if not self.has_all_bitflags(
+            ValidFlags.IEDGES_WITHIN_CHILD_SORTED | ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING
+        ):
             raise ValueError(
                 "Cannot use this method unless iedges for a child are adjacent, "
                 "nonoverlapping, and ordered by chromosome then position"
@@ -709,7 +721,9 @@ class IEdgeTable(BaseTable):
             This does not look at edges for which this node is a parent,
             so e.g. root nodes may not have a minimum position defined
         """
-        if not self.has_bitflag(ValidFlags.IEDGES_WITHIN_CHILD_SORTED | ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING):
+        if not self.has_all_bitflags(
+            ValidFlags.IEDGES_WITHIN_CHILD_SORTED | ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING
+        ):
             raise ValueError(
                 "Cannot use this method unless iedges for a child are adjacent, "
                 "nonoverlapping, and ordered by chromosome then position"
@@ -749,7 +763,7 @@ class IEdgeTable(BaseTable):
             (only ROOTWARDS currently implemented)
         """
         # Requires edges to be sane
-        if not self.has_bitflag(ValidFlags.IEDGES_INTERVALS):
+        if not self.has_all_bitflags(ValidFlags.IEDGES_INTERVALS):
             raise ValueError("Cannot use the method unless iedges have valid intervals")
         ie = self[iedge_id]
         for x in interval:
@@ -1434,6 +1448,15 @@ class Tables:
             obj = dataclasses.asdict(row)
             tables.individuals.append(obj)
         tables.sort()
+        # A valid tree sequence guarantees these properties of its edges (the
+        # sort above guarantees the canonical iedge ordering flags)
+        tables.iedges.set_bitflag(
+            ValidFlags.IEDGES_INTERVALS
+            | ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING
+            | ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD
+            | ValidFlags.IEDGES_SAME_PARENT_CHILD_FOR_EDGE
+            | ValidFlags.IEDGES_CHILD_INTERVAL_POSITIVE
+        )
         return tables
 
     def sample_resolve(self, sort=True):
@@ -1468,7 +1491,7 @@ class Tables:
         #    `.simplify(filter_nodes=False, keep_unary=True)`, because it does not
         #    squash adjacent edges together. It should therefore preserve
         #    "recombination diamonds". This could be useful for some applications,
-        if not self.iedges.has_bitflag(ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD):
+        if not self.iedges.has_all_bitflags(ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD):
             raise ValueError("Can only run if children younger than parents")
 
         stack = {c: collections.defaultdict(P.interval.Interval) for c in reversed(np.argsort(self.nodes.time))}
@@ -1524,7 +1547,7 @@ class Tables:
         Subset the node table to remove any nonsample nodes that are not referenced
         in the iedges table
         """
-        if not self.iedges.has_bitflag(ValidFlags.IEDGES_INTEGERS):
+        if not self.iedges.has_all_bitflags(ValidFlags.IEDGES_INTEGERS):
             raise ValueError("Requires edges to contain non-negative child & parent ids")
         keep_nodes = np.zeros(len(self.nodes), dtype=bool)
         keep_nodes[self.iedges.child] = True
@@ -1610,7 +1633,7 @@ class Tables:
         if u == v:
             raise ValueError("u and v must be different nodes")
 
-        if not self.iedges.has_bitflag(ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD):
+        if not self.iedges.has_all_bitflags(ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD):
             raise ValueError("Must guarantee each iedge has child younger than parent")
 
         if time_cutoff is None:
