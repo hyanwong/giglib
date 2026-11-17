@@ -206,8 +206,12 @@ class Graph:
         """
         tables = self.tables
         mutations = tables.mutations
-        # Columns can be edited directly, which would leave the index stale, so rebuild
-        # it here, before the tables are frozen
+        # Rebuild the node index before the tables are frozen, so that a Graph can never
+        # use a stale index. Public column accessors are intended to be read-only (see
+        # BaseTable._column), so columns should only change through methods that keep the
+        # index up to date. But the index would still go stale if the underlying ``_data``
+        # array were edited directly (as some library code does), so this check is
+        # retained as a cheap safeguard: it costs little compared to the validation below.
         mutations._rebuild_index()
         n = len(mutations)
         if n == 0:
