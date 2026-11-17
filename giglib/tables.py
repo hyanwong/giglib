@@ -1683,6 +1683,8 @@ class Tables:
                     ie.parent_right,
                     child=node_map[ie.child],
                     parent=node_map[ie.parent],
+                    child_chromosome=ie.child_chromosome,
+                    parent_chromosome=ie.parent_chromosome,
                 )
         self.nodes = nodes
         self.iedges = iedges

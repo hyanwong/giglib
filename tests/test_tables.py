@@ -1543,3 +1543,21 @@ class TestDecapitateWithMutations:
         gig = self.three_generation_tables().graph()
         new_gig = gig.decapitate(10)
         assert new_gig.tables.mutations == gig.tables.mutations
+
+    def test_iedge_chromosomes_kept(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(3)
+        tables.nodes.add_row(2)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.add_iedge_row(0, 10, 0, 10, child=1, parent=0, child_chromosome=1, parent_chromosome=1)
+        tables.add_iedge_row(0, 10, 0, 10, child=2, parent=1, child_chromosome=1, parent_chromosome=1)
+        tables.mutations.add_row(0, 4, "A", chromosome=1)
+        tables.sort()
+        gig = tables.graph()
+        for time in (2.5, 10):
+            new_gig = gig.decapitate(time)
+            node_map = gig.tables.copy().decapitate(time)
+            assert len(new_gig.iedges) > 0
+            assert np.all(new_gig.tables.iedges.child_chromosome == 1)
+            assert np.all(new_gig.tables.iedges.parent_chromosome == 1)
+            assert new_gig.allele_at(node_map[2], 4, chromosome=1) == "A"
