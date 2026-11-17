@@ -110,6 +110,8 @@ bases in its sequence.
 
 Alleles inherited through an inversion are read from the opposite strand, so are complemented
 (e.g. `A` → `T`, or `ATTG` → `CAAT`) when decoded, using the map in `tables.allele_complements`.
+Alleles that cannot be complemented using the map (e.g. `0`, `1`, or any other character not in
+the map) are left unchanged.
 
 See {ref}`sec_design_mutations` for the full design, and the reasons behind it.
 

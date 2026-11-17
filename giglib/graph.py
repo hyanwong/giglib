@@ -206,6 +206,9 @@ class Graph:
         """
         tables = self.tables
         mutations = tables.mutations
+        # Columns can be edited directly, which would leave the index stale, so rebuild
+        # it here, before the tables are frozen
+        mutations._rebuild_index()
         n = len(mutations)
         if n == 0:
             return
@@ -306,9 +309,8 @@ class Graph:
             # Resolve positions with mutations above v. The last mutation at a position
             # is the most recent, so determines the allele inherited from v.
             resolved = []
-            ids = mutations.ids_for_node(v, c)
-            if len(ids) > 0:
-                start, end = ids[0], ids[-1] + 1
+            start, end = mutations._range_for_node(v, c)
+            if end > start:
                 j = start + np.searchsorted(mut_position[start:end], a, side="left")
                 hi = start + np.searchsorted(mut_position[start:end], b, side="left")
                 while j < hi:
@@ -349,8 +351,15 @@ class Graph:
         Return the sequence of alleles in node ``u``'s genome, as a string. Each
         position takes the allele of the most recent mutation above it (traced up
         through the iedges, and complemented across inversions using
-        ``tables.allele_complements``). Positions with no mutation above them are
-        missing data. See :ref:`sec_design_mutations`.
+        ``tables.allele_complements``: alleles that cannot be complemented using the
+        map, such as ``"0"`` or ``"1"``, are left unchanged). Positions with no mutation
+        above them are missing data. See :ref:`sec_design_mutations`.
+
+        For a GIG converted from a tree sequence ``ts`` without a reference sequence,
+        ``haplotype(u, right=int(ts.sequence_length))`` for a sample ``u`` matches the
+        corresponding sequence from :meth:`tskit:tskit.TreeSequence.alignments`. Note
+        that ``right`` should be given explicitly, as the default is the length of
+        ``u``'s genome implied by its iedges, which may be shorter.
 
         If any alleles have more or less than one character (e.g. representing small
         indels), the length of the returned string will differ from ``right - left``.
@@ -377,7 +386,8 @@ class Graph:
         """
         Return the allele at a position in node ``u``'s genome, given by the most recent
         mutation above that position (complemented across inversions using
-        ``tables.allele_complements``). See :ref:`sec_design_mutations`.
+        ``tables.allele_complements``, with alleles that cannot be complemented using
+        the map left unchanged). See :ref:`sec_design_mutations`.
 
         :param int u: The node (or a :class:`~giglib.graph.Node` object)
         :param int position: The position, in ``u``'s coordinates

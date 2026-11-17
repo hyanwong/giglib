@@ -1066,6 +1066,14 @@ class MutationTable(BaseExtraTable):
         :raises ValueError: If the mutations for a node are not adjacent in the table,
             or are not ordered by chromosome then position (use :meth:`~giglib.Tables.sort`)
         """
+        return np.arange(*self._range_for_node(u, chromosome))
+
+    def _range_for_node(self, u, chromosome=None):
+        """
+        Return the (start, end) range of IDs of the mutations above node ``u`` (on the
+        given chromosome, if not ``None``), without creating an array of IDs. The range
+        is (0, 0) if there are no such mutations.
+        """
         if not self._node_ranges_valid:
             raise ValueError(
                 "Mutations for the same node must be adjacent in the table, and ordered by "
@@ -1074,10 +1082,10 @@ class MutationTable(BaseExtraTable):
         ranges = self._id_range_for_node.get(u, {})
         if chromosome is None:
             if len(ranges) == 0:
-                return np.arange(0)
+                return (0, 0)
             # chromosome ranges are adjacent and in increasing chromosome order
-            return np.arange(next(iter(ranges.values()))[0], next(reversed(ranges.values()))[1])
-        return np.arange(*ranges.get(chromosome, (0, 0)))
+            return (next(iter(ranges.values()))[0], next(reversed(ranges.values()))[1])
+        return tuple(ranges.get(chromosome, (0, 0)))
 
 
 class MRCAdict(dict):
@@ -1647,6 +1655,10 @@ class Tables:
         with unknown time above each root of the local tree at that position. Isolated
         nodes (roots with no children) get no such mutation, so their state is missing
         data, matching the default treatment of isolated samples in tskit.
+
+        Any reference sequence in the tree sequence is not converted. So unlike
+        :meth:`tskit:tskit.TreeSequence.alignments`, haplotypes from the GIG have missing
+        data (rather than reference bases) at positions without sites.
 
         :param tskit.TreeSequence ts: The tree sequence on which to base the Tables
             object. Site positions must be integers.

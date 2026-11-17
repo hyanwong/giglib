@@ -742,6 +742,19 @@ class TestMutations:
         assert not root_mutation.is_time_known()
         assert view[0].is_time_known()
 
+    def test_edited_columns_reindexed(self):
+        # Editing a column directly must not leave a stale index in the graph
+        tables = gigl.Tables()
+        tables.nodes.add_row(0)
+        tables.nodes.add_row(0)
+        tables.mutations.add_row(0, 0, "A")
+        tables.mutations.node[0] = 1
+        gig = tables.graph()
+        assert len(gig.mutations_for_node(0)) == 0
+        assert len(gig.mutations_for_node(1)) == 1
+        assert gig.allele_at(0, 0) is None
+        assert gig.allele_at(1, 0) == "A"
+
     def test_ids_match_tables_layer(self):
         tables = self.make_tables()
         tables.mutations.add_row(1, 2, "G")
@@ -923,6 +936,37 @@ class TestHaplotypesVsTskit:
         assert "N" * 10 in next(ts.alignments())
         self.assert_haplotypes_match(ts)
 
+    @staticmethod
+    def short_span_ts():
+        # Sample 0's only edge ends at 5, before the end of the tree sequence (10)
+        tables = tskit.TableCollection(sequence_length=10)
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        tables.nodes.add_row(time=1)
+        tables.edges.add_row(0, 5, 2, 0)
+        tables.edges.add_row(0, 10, 2, 1)
+        tables.sites.add_row(position=2, ancestral_state="A")
+        tables.sites.add_row(position=7, ancestral_state="C")
+        tables.sort()
+        return tables.tree_sequence()
+
+    def test_shorter_node_span(self):
+        ts = self.short_span_ts()
+        gig = gigl.Graph.from_tree_sequence(ts)
+        alignment = next(ts.alignments())
+        assert alignment == "NNANNNNNNN"
+        assert gig.haplotype(0) == "NNANN"  # stops at the end of the node's edges
+        assert gig.haplotype(0, right=int(ts.sequence_length)) == alignment
+
+    def test_reference_sequence_not_converted(self):
+        tables = self.short_span_ts().dump_tables()
+        tables.reference_sequence.data = "GGGGGGGGGG"
+        ts = tables.tree_sequence()
+        gig = gigl.Graph.from_tree_sequence(ts)
+        # tskit uses the reference at positions without sites; giglib has missing data
+        assert list(ts.alignments())[1] == "GGAGGGGCGG"
+        assert gig.haplotype(1) == "NNANNNNCNN"
+
     def test_internal_nodes(self):
         ts = msprime.sim_ancestry(3, sequence_length=50, recombination_rate=0.02, random_seed=8)
         ts = _all_nodes_as_samples(msprime.sim_mutations(ts, rate=0.1, random_seed=8))
@@ -1043,6 +1087,7 @@ class TestInversions:
     @pytest.mark.parametrize(
         ("state", "expected"),
         [
+            ("X", "X"),  # not in the map: left unchanged, without a warning
             ("A", "T"),
             ("C", "G"),
             ("R", "Y"),

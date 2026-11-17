@@ -203,8 +203,17 @@ gig.haplotype(u, chromosome=0, *, left=0, right=None, missing_data_character="N"
 ```
 
 returns the alleles at a range of positions as a string (see {issue}`113`), with missing data
-shown as `N`. For tree sequences converted from _tskit_, this matches the output of
-{meth}`tskit:tskit.TreeSequence.alignments`. Natural extensions are `gig.alleles_at(u, positions)`
+shown as `N`. For a sample in a tree sequence converted from _tskit_, this matches the
+corresponding output of {meth}`tskit:tskit.TreeSequence.alignments`, with two caveats:
+
+- `right` must be given as the tree sequence's length. By default, `haplotype()` stops at the
+  end of the node's genome as implied by its iedges, which may be shorter (e.g. if a sample's
+  edges end before the end of the tree sequence).
+- The tree sequence must not have a reference sequence. Reference sequences are not converted,
+  so where `alignments()` would use reference bases (at positions without sites),
+  `haplotype()` returns missing data.
+
+Natural extensions are `gig.alleles_at(u, positions)`
 for many positions at once, and versions accepting a position object ({issue}`141`).
 
 (sec_design_mutations_strands)=
@@ -251,6 +260,10 @@ When an allele is traced across an inversion, the rules are applied in this orde
 The default map contains the IUPAC nucleotide codes (including ambiguity codes, e.g. `R` ↔ `Y`)
 plus `-` ↔ `-`. If `A`, `C`, `G` and `T` are used as abstract labels, set the map to `{}` to turn
 complementing off.
+
+Note that rule 3 also applies to single-character alleles that are not in the map (e.g. `X`, or
+`0` and `1`): these are left unchanged without any warning, so not every allele inherited through
+an inversion is complemented.
 
 When a {class}`~giglib.Graph` is created, a warning is issued if it contains at least one
 inversion *and* any multi-character allele that falls under rule 3 (i.e. that is not in the map,

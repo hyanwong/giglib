@@ -1197,6 +1197,11 @@ class TestMutationTable:
         assert list(mutations.ids_for_node(3, chromosome=1)) == []
         assert list(mutations.ids_for_node(1)) == [4]
         assert list(mutations.ids_for_node(0)) == []
+        # The (start, end) ranges match the IDs, without creating an array
+        assert mutations._range_for_node(3) == (0, 4)
+        assert mutations._range_for_node(3, chromosome=2) == (3, 4)
+        assert mutations._range_for_node(0) == (0, 0)
+        assert mutations._range_for_node(3, chromosome=1) == (0, 0)
         # index is rebuilt after adding rows
         mutations.add_row(1, 8, "C")
         assert list(mutations.ids_for_node(1)) == [4, 5]
