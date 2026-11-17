@@ -1071,8 +1071,16 @@ class MutationTable(BaseExtraTable):
         """
         Reorder the rows of the table using an array of row indexes
         """
-        self._datastore[0 : len(self)] = self._data[order]
-        self._extra_data = [self._extra_data[i] for i in order]
+        self._subset(order)
+
+    def _subset(self, ids):
+        """
+        Replace the rows of the table with the rows with the given IDs, in that order
+        """
+        ids = np.asarray(ids, dtype=np.int64)
+        self._datastore[0 : len(ids)] = self._data[ids]  # indexing makes a copy
+        self._data = self._datastore[0 : len(ids)]
+        self._extra_data = [self._extra_data[i] for i in ids]
         self._rebuild_index()
 
     def ids_for_node(self, u, chromosome=None):
@@ -1764,9 +1772,12 @@ class Tables:
         for each node, ordered by node time (oldest first). When considering a
         node, we pop the (youngest) node off the end of the stack, which
         ensures that we have collected all the intervals with that node as a
-        parent, before passing inheritance information upwards
+        parent, before passing inheritance information upwards.
+
+        Nodes are not removed, so mutations stay above the same nodes. Mutations at
+        positions that are not inherited by any sample are removed (mutations above
+        sample nodes are always kept).
         """
-        self._check_no_mutations("sample_resolve")
         # == Implementation details ==
         # A. Rather than representing the intervals for a node as a list of
         #    (left, right) tuples, the "portion" library is used, allowing multiple
@@ -1791,8 +1802,11 @@ class Tables:
         stack = {c: collections.defaultdict(P.interval.Interval) for c in reversed(np.argsort(self.nodes.time))}
         old_iedges = self.iedges
         self.iedges = IEdgeTable()  # Make a new one
+        # The regions of each (non-sample) node inherited by samples, for filtering mutations
+        ancestral_regions = {}
         while len(stack):
             child, chromosomes = stack.popitem()
+            ancestral_regions[child] = chromosomes
             # An internal sample might have some material passed-up from its children
             # here, but we can replace that with everything passed up to parents
             if self.nodes[child].is_sample():
@@ -1833,15 +1847,35 @@ class Tables:
                                     child_chromosome=child_chr,
                                     parent_chromosome=parent_chr,
                                 )
+        self._remove_non_ancestral_mutations(ancestral_regions)
         if sort:
             self.sort()
+
+    def _remove_non_ancestral_mutations(self, ancestral_regions):
+        """
+        Remove mutations that are not in the regions of their nodes that are inherited
+        by samples. Mutations above sample nodes are always kept.
+        """
+        mutations = self.mutations
+        if len(mutations) == 0:
+            return
+        is_sample = (self.nodes.flags & NODE_IS_SAMPLE) != 0
+        keep = [
+            i
+            for i, (u, chrom, x) in enumerate(
+                zip(mutations.node.tolist(), mutations.chromosome.tolist(), mutations.position.tolist())
+            )
+            if is_sample[u] or x in ancestral_regions.get(u, {}).get(chrom, P.empty())
+        ]
+        if len(keep) < len(mutations):
+            mutations._subset(keep)
 
     def remove_non_ancestral_nodes(self):
         """
         Subset the node table to remove any nonsample nodes that are not referenced
-        in the iedges table
+        in the iedges table. Mutations above removed nodes are also removed, and the
+        node IDs of the remaining mutations are updated.
         """
-        self._check_no_mutations("remove_non_ancestral_nodes")
         if not self.iedges.has_all_bitflags(ValidFlags.IEDGES_INTEGERS):
             raise ValueError("Requires edges to contain non-negative child & parent ids")
         keep_nodes = np.zeros(len(self.nodes), dtype=bool)
@@ -1864,6 +1898,13 @@ class Tables:
         # must change the built-in indexes. However, edges are in the samme order,
         # so just chnage the keys
         iedges._id_range_for_child = {inv_mapping[child]: data for child, data in iedges._id_range_for_child.items()}
+
+        mutations = self.mutations
+        if len(mutations) > 0:
+            mutations._subset(np.flatnonzero(keep_nodes[mutations.node]))
+            # The mapping preserves the order of node IDs, so the sort order is unchanged
+            mutations._data["node"] = inv_mapping[mutations.node]
+            mutations._rebuild_index()
 
         return mapping
 

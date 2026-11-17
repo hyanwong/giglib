@@ -1341,14 +1341,91 @@ class TestMutationTable:
         assert tables.mutations.time[0] == 11.5
         assert gigl.is_unknown_time(tables.mutations.time[1])
 
-    @pytest.mark.parametrize("method", ["decapitate", "sample_resolve", "remove_non_ancestral_nodes"])
-    def test_not_implemented_with_mutations(self, method):
+    def test_decapitate_not_implemented_with_mutations(self):
         tables = gigl.Tables()
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.mutations.add_row(0, 0, "A")
-        args = (1,) if method == "decapitate" else ()
         with pytest.raises(NotImplementedError, match="mutations"):
-            getattr(tables, method)(*args)
+            tables.decapitate(1)
+
+
+class TestMutationsInAlgorithms:
+    @staticmethod
+    def partly_ancestral_tables():
+        """
+        Root R (node 0, time 2) passes [0, 10) to A (node 1, time 1), which passes
+        only [0, 5) to the sample S (node 2, time 0). So only [0, 5) of A and R is
+        inherited by the sample.
+        """
+        tables = gigl.Tables()
+        tables.nodes.add_row(2)
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.add_iedge_row(0, 10, 0, 10, child=1, parent=0, validate=ValidFlags.GIG)
+        tables.add_iedge_row(0, 5, 0, 5, child=2, parent=1, validate=ValidFlags.GIG)
+        # (node, position, state)
+        for node, pos, state in [(0, 2, "A"), (0, 8, "C"), (1, 3, "G"), (1, 7, "T"), (2, 4, "T"), (2, 9, "A")]:
+            tables.mutations.add_row(node, pos, state)
+        tables.sort()
+        return tables
+
+    def test_sample_resolve(self):
+        tables = self.partly_ancestral_tables()
+        before = tables.copy().graph().haplotype(2, right=10)
+        tables.sample_resolve()
+        # mutations at R:8 and A:7 are not inherited by the sample; S:9 is on a sample
+        assert [(m.node, m.position) for m in tables.mutations] == [(0, 2), (1, 3), (2, 4), (2, 9)]
+        assert tables.graph().haplotype(2, right=10) == before == "NNAGTNNNNA"
+
+    def test_sample_resolve_on_graph(self):
+        gig = self.partly_ancestral_tables().graph()
+        new_gig = gig.sample_resolve()
+        assert len(gig.mutations) == 6
+        assert len(new_gig.mutations) == 4
+
+    @pytest.mark.parametrize("seed", [1, 2])
+    def test_sample_resolve_keeps_haplotypes(self, seed):
+        ts = msprime.sim_ancestry(
+            4, sequence_length=100, recombination_rate=0.01, record_full_arg=True, random_seed=seed
+        )
+        ts = msprime.sim_mutations(ts, rate=0.05, random_seed=seed)
+        # Stop half the samples being samples, so that some of the ancestry (and
+        # mutations) is no longer inherited by any sample
+        tables = ts.dump_tables()
+        flags = tables.nodes.flags
+        flags[ts.samples()[::2]] = 0
+        tables.nodes.flags = flags
+        gig = gigl.Graph.from_tree_sequence(tables.tree_sequence())
+        new_gig = gig.sample_resolve()
+        assert len(new_gig.iedges) < len(gig.iedges)
+        assert len(new_gig.mutations) < len(gig.mutations)
+        for u in gig.sample_nodes():
+            assert new_gig.haplotype(u, right=100) == gig.haplotype(u, right=100)
+
+    def test_remove_non_ancestral_nodes(self):
+        tables = self.partly_ancestral_tables()
+        # Add an isolated node (3) with a mutation, which will be removed
+        tables.nodes.add_row(0.5)
+        tables.mutations.add_row(3, 1, "C")
+        tables.sort()
+        before = tables.copy().graph().haplotype(2, right=10)
+        # Make node 0 isolated too, by giving A no parent: removed with its mutations
+        tables.iedges.clear()
+        tables.add_iedge_row(0, 5, 0, 5, child=2, parent=1, validate=ValidFlags.GIG)
+        tables.mutations._subset([i for i, m in enumerate(tables.mutations) if m.node != 0])
+        mapping = tables.remove_non_ancestral_nodes()
+        assert list(mapping) == [1, 2]
+        assert len(tables.nodes) == 2
+        # Nodes 1 and 2 are now nodes 0 and 1; node 3's mutation is removed
+        assert [(m.node, m.position, m.derived_state) for m in tables.mutations] == [
+            (0, 3, "G"),
+            (0, 7, "T"),
+            (1, 4, "T"),
+            (1, 9, "A"),
+        ]
+        assert list(tables.mutations.ids_for_node(1)) == [2, 3]
+        gig = tables.graph()
+        assert gig.haplotype(1, right=10) == before.replace("A", "N", 1)  # lost R's mutation at 2
 
     def test_row_equality_with_unknown_times(self):
         mutations = gigl.Tables().mutations
