@@ -946,13 +946,16 @@ class IEdgeTable(BaseTable):
 
     def chromosomes_as_child(self, u):
         """
-        Iterate over the chromosome numbers for a node ID ``u``, when
-        this node is considered as a child.
-        This will only iterate over the chromosomes which correspond to
-        edges above the node ``u``: if ``u`` had chromosomes which are not
-        traced by any edge, these will not be reported.
+        Return the chromosome IDs of node ``u`` that it inherits from its parents,
+        i.e. those with iedges above ``u``, as a tuple in ascending order. Chromosomes
+        of ``u`` which are not traced by any iedge above it (e.g. all the chromosomes
+        of a root) are not included.
+
+        :param int u: The node ID
+        :return: The chromosome IDs, in ascending order
+        :rtype: tuple(int)
         """
-        return self._id_range_for_child.get(u, {}).keys()
+        return tuple(sorted(self._id_range_for_child.get(u, {})))
 
     def transform_interval(self, iedge_id, interval, direction):
         """
