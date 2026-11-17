@@ -35,11 +35,10 @@ import giglib as gigl
 def sim_wright_fisher(N, G, random_seed=None):
     rng = np.random.default_rng(random_seed)
     tables = gigl.Tables()
-    flags = gigl.NODE_IS_SAMPLE
-    parent_ids = [tables.nodes.add_row(G, flags=flags) for _ in range(N)]
+    parent_ids = [tables.nodes.add_row(G, flags=gigl.NODE_IS_SAMPLE) for _ in range(N)]
 
     for g in reversed(range(G)):
-        child_ids = [tables.nodes.add_row(g, flags=flags) for _ in range(N)]
+        child_ids = [tables.nodes.add_row(g, flags=gigl.NODE_IS_SAMPLE) for _ in range(N)]
         for child in child_ids:
             tables.iedges.add_row(child, rng.choice(parent_ids))
         parent_ids = child_ids
@@ -88,11 +87,10 @@ recombinations, without any structural variation.
 def sim_wright_fisher_recombination(N, G, L, random_seed=None):
     rng = np.random.default_rng(random_seed)
     tables = gigl.Tables()
-    flags = gigl.NODE_IS_SAMPLE
-    parent_ids = [tables.nodes.add_row(G, flags=flags) for _ in range(N)]
+    parent_ids = [tables.nodes.add_row(G, flags=gigl.NODE_IS_SAMPLE) for _ in range(N)]
 
     for g in reversed(range(G)):
-        child_ids = [tables.nodes.add_row(g, flags=flags) for _ in range(N)]
+        child_ids = [tables.nodes.add_row(g, flags=gigl.NODE_IS_SAMPLE) for _ in range(N)]
         for child in child_ids:
             left_parent, right_parent = rng.choice(parent_ids, size=2, replace=False)
             breakpoint = rng.integers(1, L)
