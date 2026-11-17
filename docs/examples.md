@@ -60,9 +60,9 @@ through the generations by following the iedges above it:
 
 ```{code-cell}
 u = gig.sample_nodes(time=0)[0]
-lineage = [int(u.id)]
+lineage = [u.id]
 while len(iedges := gig.iedges_for_child(lineage[-1])) > 0:
-    lineage.append(int(iedges[0].parent))
+    lineage.append(iedges[0].parent)
 print("Lineage of node", u.id, ":", lineage)
 ```
 
