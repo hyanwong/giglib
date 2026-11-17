@@ -110,28 +110,37 @@ class _IEdgeMethods:
     @property
     def parent_max(self):
         """
-        The highest parent position on this edge (inversions can have left > right)
+        The upper (exclusive) bound of the parent interval, i.e. one more than the
+        highest parent position inherited through this iedge. This is
+        ``max(parent_left, parent_right)``, as for an inversion, ``parent_left >
+        parent_right``. For example, an inverted iedge with ``parent_left=10`` and
+        ``parent_right=0`` inherits parent positions 0 to 9, so ``parent_max`` is 10.
         """
         return max(self.parent_right, self.parent_left)
 
     @property
     def parent_min(self):
         """
-        The lowest parent position on this edge (inversions can have left > right)
+        The lower (inclusive) bound of the parent interval, i.e. the lowest parent
+        position inherited through this iedge. This is ``min(parent_left,
+        parent_right)``, as for an inversion, ``parent_left > parent_right``.
         """
         return min(self.parent_right, self.parent_left)
 
     @property
     def child_max(self):
         """
-        The highest child position on this edge
+        The upper (exclusive) bound of the child interval, i.e. one more than the
+        highest child position covered by this iedge. For a valid iedge, this is
+        ``child_right``.
         """
         return max(self.child_right, self.child_left)
 
     @property
     def child_min(self):
         """
-        The lowest child position on this edge
+        The lower (inclusive) bound of the child interval, i.e. the lowest child
+        position covered by this iedge. For a valid iedge, this is ``child_left``.
         """
         return min(self.child_right, self.child_left)
 
