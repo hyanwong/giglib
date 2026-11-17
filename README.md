@@ -16,6 +16,11 @@ or transposable elements. A GIG drops that assumption: each edge records the inh
 in the *child's* coordinates **and** in the *parent's* coordinates. If you know tskit, you already
 know most of giglib.
 
+<img src="https://github.com/hyanwong/GeneticInheritanceGraph/assets/5416474/0fff67b3-71e7-4ed5-895a-140a06f49940" alt="A genetic inheritance graph with a duplication, a deletion and an inversion" width="500"/>
+
+*A small GIG with a duplication, a deletion and an inversion. Bands show how each inherited
+interval maps from parent to child coordinates. Drawn by [@duncanMR](https://github.com/duncanMR).*
+
 📖 **[Documentation](https://hyanwong.github.io/giglib/)** · This is a proof of concept: the API may change at any time.
 
 ## Try it
