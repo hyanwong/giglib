@@ -24,7 +24,7 @@ def test_importable():
 
 def test_packaged():
     # The packages are listed explicitly, so a subpackage is left out of wheels unless listed
-    root = pathlib.Path(__file__).parent.parent
+    root = pathlib.Path(__file__).parent.parent.parent
     with open(root / "pyproject.toml", "rb") as f:
         config = tomllib.load(f)
     assert "giglib.tools" in config["tool"]["setuptools"]["packages"]
