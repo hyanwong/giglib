@@ -95,6 +95,9 @@ compatibility with _tskit_. In particular:
   This allows use of the GIG structure during generation of the tables, without having the substantial
   overhead of continually having to freeze them into an immutable graph. This makes forward simulation
   feasible.
+- **Mutations, but no sites** Each mutation records its position in the coordinates of the node it
+  lies above, so there is no sites table, and ancestral states are given by mutations above roots
+  (see {ref}`sec_usage_mutations` below).
 - **Other stuff** More differences should be noted here!
 
 ## Examples
@@ -120,6 +123,93 @@ assert len(gig.sample_nodes()) == 1
 assert list(gig.sample_nodes().ids) == [0]
 assert gig.iedges[0].is_inversion()
 ```
+
+(sec_usage_mutations)=
+### Mutations
+
+Mutations are converted when creating a GIG from a tree sequence. Since there is no sites table,
+each site's ancestral state becomes an extra mutation (with unknown time) above each root of the
+local tree at that site. The alleles of a node are decoded by tracing each position up through
+the iedges to the most recent mutation above it, so the haplotypes of the samples are the same
+as those from _tskit_:
+
+```python
+import msprime
+import giglib as gigl
+
+ts = msprime.sim_ancestry(3, sequence_length=50, recombination_rate=0.01, random_seed=2)
+ts = msprime.sim_mutations(ts, rate=0.02, random_seed=2)
+gig = gigl.Graph.from_tree_sequence(ts)
+print(ts.num_sites, "sites and", ts.num_mutations, "mutations in the tree sequence")
+print(len(gig.mutations), "mutations in the GIG")  # also has one ancestral state per root per site
+for u, alignment in zip(ts.samples(), ts.alignments()):
+    assert gig.haplotype(u) == alignment
+# 4 sites and 4 mutations in the tree sequence
+# 8 mutations in the GIG
+```
+
+Positions with no mutations above them have no known allele, so are shown as missing data (`N`).
+This matches `ts.alignments()` without a reference sequence (giglib does not yet support
+reference sequences).
+
+The coordinates of a mutation are those of the node it lies above, so rearrangements are
+handled automatically. Here a child carries a duplicated copy of the first 5 bases of its
+parent's genome, so a mutation above the parent is inherited twice, while a mutation above the
+child affects only one copy:
+
+```python
+tables = gigl.Tables()
+root = tables.nodes.add_row(time=2)
+parent = tables.nodes.add_row(time=1)
+child = tables.nodes.add_row(time=0, flags=gigl.NODE_IS_SAMPLE)
+tables.add_iedge_row(0, 10, 0, 10, child=parent, parent=root)
+tables.add_iedge_row(0, 10, 0, 10, child=child, parent=parent)
+tables.add_iedge_row(10, 15, 0, 5, child=child, parent=parent)  # a duplicated copy of 0-5
+for position, base in enumerate("ACGTACGTAC"):
+    tables.mutations.add_row(root, position, base)  # ancestral states (with unknown times)
+tables.mutations.add_row(parent, 2, "T", time=1.5)
+tables.mutations.add_row(child, 13, "G", time=0.5)
+tables.sort()
+gig = tables.graph()
+
+print(gig.haplotype(root))  # ACGTACGTAC
+print(gig.haplotype(parent))  # ACTTACGTAC
+print(gig.haplotype(child))  # ACTTACGTACACTGA
+print(gig.allele_at(child, 12))  # T
+```
+
+As elsewhere in the API, the `Graph` returns objects, and the tables return IDs:
+`gig.mutations_for_node(child)` gives `Mutation` objects, while
+`gig.tables.mutations.ids_for_node(child)` gives an array of mutation IDs. Mutation times may be
+{data}`~giglib.UNKNOWN_TIME` (use {func}`~giglib.is_unknown_time` or `mutation.is_time_known()`
+to check). Where several mutations above a node are at the same position, the order in the table
+decides which is the most recent.
+
+Some details to be aware of:
+
+- **Inversions** Alleles inherited through an inversion are read from the other strand, so are
+  complemented when decoded (e.g. `A` becomes `T`). Alleles that can't be complemented, such as
+  `0` and `1`, are left unchanged. The complements used are in `tables.allele_complements`.
+- **Multi-base alleles** A mutation is at a single position, but its derived state can be several
+  bases long (e.g. a small insertion). This is allowed, with fewer guarantees, but it is better to
+  represent indels using iedges with different parent and child coordinates.
+- **Sequence length** A node's length comes from its iedges, so a node with no iedges has length 0.
+  Pass `right=` to `gig.haplotype()` to decode such a node.
+- **Algorithms** `sample_resolve()` and `remove_non_ancestral_nodes()` keep the mutations needed by
+  the remaining nodes. By default, `decapitate()` adds mutations (with unknown times) where needed,
+  so that the haplotypes of the remaining nodes are unchanged. With `discard_old_mutations=True`, old
+  mutations are simply removed, as in _tskit_, so alleles may become missing:
+
+  ```python
+  print(gig.decapitate(1.5).haplotype(1))  # the child is now node 1: ACTTACGTACACTGA
+  print(gig.decapitate(1.5, discard_old_mutations=True).haplotype(1))  # NNNNNNNNNNNNNGN
+  ```
+
+- **Converting to _tskit_** `gig.to_tree_sequence()` only works for GIGs without rearrangements,
+  on a single chromosome, where all roots at each site agree on the ancestral state. It is mainly
+  intended for testing.
+
+For the full design, and the reasons behind it, see {ref}`sec_design_mutations`.
 
 (sec_usage_simulations)=
 ### Simulations

@@ -36,8 +36,10 @@ import msprime
 import giglib as gigl  # 😁
 
 ts = msprime.sim_ancestry(4, sequence_length=100, recombination_rate=0.01, random_seed=1)
+ts = msprime.sim_mutations(ts, rate=0.01, random_seed=1)
 gig = gigl.Graph.from_tree_sequence(ts)
-print(len(gig.nodes), "nodes,", len(gig.iedges), "iedges,", len(gig.sample_nodes()), "samples")
+print(len(gig.nodes), "nodes,", len(gig.iedges), "iedges,", len(gig.mutations), "mutations")
+assert gig.haplotype(0) == next(ts.alignments())  # the same sequence as tskit gives
 
 ts_again = gig.to_tree_sequence()  # ...and back again
 ```
@@ -51,6 +53,7 @@ parent = tables.nodes.add_row(time=1)
 child = tables.nodes.add_row(time=0, flags=gigl.NODE_IS_SAMPLE)
 tables.iedges.add_row(child=child, parent=parent, child_left=0, child_right=100, parent_left=0, parent_right=100)
 tables.iedges.add_row(child=child, parent=parent, child_left=100, child_right=150, parent_left=100, parent_right=50)
+tables.mutations.add_row(parent, 60, "A")  # an A at position 60 of the parent's genome
 gig = tables.graph()
 
 for ie in gig.iedges_for_child(child):
@@ -58,12 +61,17 @@ for ie in gig.iedges_for_child(child):
           "(inverted)" if ie.is_inversion() else "")
 # child 0-100 <- parent 0-100
 # child 100-150 <- parent 100-50 (inverted)
+
+print(gig.allele_at(child, 60), gig.allele_at(child, 139))
+# A T
 ```
 
 The child's genome is now 150 bases long, while its parent's is 100. giglib can still trace
-ancestry through the rearrangement. For example, `gig.find_mrca_regions(u, v)` finds which
-regions of two genomes share a common ancestor, and where those regions sit in each genome. That
-is enough to build forward simulations with structural variants and recombination: see the
+ancestry through the rearrangement, so the parent's `A` appears twice in the child: at position
+60, and at position 139, where the inverted copy is read from the other strand, making it a `T`.
+Similarly, `gig.find_mrca_regions(u, v)` finds which regions of two genomes share a common
+ancestor, and where those regions sit in each genome. That is enough to build forward
+simulations with structural variants and recombination: see the
 [Usage](https://hyanwong.github.io/giglib/usage.html#simulations) page.
 
 ## Design principles
@@ -96,6 +104,9 @@ is enough to build forward simulations with structural variants and recombinatio
 | `ts.node(u)`, `ts.num_nodes` | `gig.nodes[u]`, `len(gig.nodes)` |
 | `ts.samples()` | `gig.sample_nodes()` (`Node` objects) or `gig.sample_nodes().ids` (IDs) |
 | `ts.tables.nodes.time` | `gig.tables.nodes.time` |
+| `ts.sites()`, `ts.mutations()` | `gig.mutations` (no sites table: see below) |
+| `site.ancestral_state` | A mutation above a root |
+| `ts.alignments()` | `gig.haplotype(u)` (for one node) |
 | `ts.simplify()` | `gig.sample_resolve()` (a basic version, so far) |
 
 Where tskit and internal consistency conflict, giglib chooses consistency. A few rules keep the
@@ -115,11 +126,14 @@ equivalent.
   same local genealogy, breaking the one-sample-one-tip assumption behind ARGs. So there is no
   `ts.trees()` equivalent: algorithms instead work directly on the graph, by tracing intervals up
   through the iedges.
-- **No sites or mutations.** In tskit a site is a position in the shared coordinate system, so a
-  global sites table doesn't make sense for a GIG. The plan is to store each mutation's position
-  in the coordinates of the node it occurs above, without a separate sites table (see
-  [#5](https://github.com/hyanwong/giglib/issues/5)). Until then, tree sequences must be converted
-  without their sites and mutations.
+- **No sites table.** In tskit a site is a position in the shared coordinate system, so a global
+  sites table doesn't make sense for a GIG. Instead, each mutation stores its position in the
+  coordinates of the node it lies above, and ancestral states are mutations above roots. There is
+  no `ts.variants()` equivalent or reference sequence yet: alleles are decoded one node at a time,
+  with `gig.haplotype(u)` or `gig.allele_at(u, position)` (see
+  [Mutations](https://hyanwong.github.io/giglib/usage.html#mutations)).
+- **Simplification that removes nodes.** `gig.sample_resolve()` removes the parts of iedges that
+  don't lead to samples, but keeps every node, so it isn't yet a full `simplify()`.
 
 For the full story, see [Concepts](https://hyanwong.github.io/giglib/concepts.html) (how
 rearrangements are encoded) and [Usage](https://hyanwong.github.io/giglib/usage.html) (all the
@@ -128,5 +142,5 @@ differences from tskit).
 ## Get involved
 
 giglib is an experiment in what an ARG library for structural variation could look like, and
-there are plenty of open questions, from how to store mutations to how to define local trees. Ideas,
+there are plenty of open questions, from how to simplify a GIG to how to define local trees. Ideas,
 use cases and pull requests are very welcome: see the [issues](https://github.com/hyanwong/giglib/issues).
