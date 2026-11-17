@@ -417,6 +417,69 @@ class TestIEdgeTable:
         assert tables.iedges.min_pos_as_child(unconnected_node) is None
 
 
+class TestBitflags:
+    """
+    Tests for setting and checking the validity flags on an iedge table
+    """
+
+    ADJ = ValidFlags.IEDGES_FOR_CHILD_ADJACENT
+    CHR = ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
+    INTS = ValidFlags.IEDGES_INTEGERS
+
+    def test_has_all_bitflags(self):
+        iedges = gigl.Tables().iedges
+        iedges.flags = self.ADJ | self.INTS
+        assert iedges.has_all_bitflags(self.ADJ) is True
+        assert iedges.has_all_bitflags(self.ADJ | self.INTS) is True
+        # Only one of the two flags is set: must be False
+        assert iedges.has_all_bitflags(self.ADJ | self.CHR) is False
+        assert iedges.has_all_bitflags(self.CHR) is False
+        assert iedges.has_all_bitflags(ValidFlags.NONE) is True
+
+    def test_set_unset_bitflag(self):
+        iedges = gigl.Tables().iedges
+        iedges.flags = ValidFlags.NONE
+        iedges.set_bitflag(self.ADJ | self.CHR)
+        assert iedges.has_all_bitflags(self.ADJ | self.CHR)
+        iedges.unset_bitflag(self.CHR | self.INTS)
+        assert iedges.flags == self.ADJ
+
+    def test_ids_for_child_requires_all_flags(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(time=1)
+        tables.nodes.add_row(time=0)
+        tables.add_iedge_row(0, 1, 0, 1, child=1, parent=0)
+        tables.iedges.flags = self.ADJ  # not guaranteed sorted by chromosome
+        with pytest.raises(ValueError, match="ordered by chromosome"):
+            tables.iedges.ids_for_child(1)
+        tables.iedges.set_bitflag(self.CHR)
+        assert list(tables.iedges.ids_for_child(1)) == [0]
+
+    def test_max_min_pos_require_all_flags(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(time=1)
+        tables.nodes.add_row(time=0)
+        tables.add_iedge_row(0, 1, 0, 1, child=1, parent=0)
+        tables.iedges.flags = ValidFlags.IEDGES_WITHIN_CHILD_SORTED  # overlap not checked
+        for method in (tables.iedges.max_pos_as_child, tables.iedges.min_pos_as_child):
+            with pytest.raises(ValueError, match="nonoverlapping"):
+                method(1)
+
+    def test_nonoverlap_validation_requires_sorted(self):
+        # Overlap can only be checked against the previous iedge if all the
+        # within-child sorting flags are set
+        tables = gigl.Tables()
+        tables.nodes.add_row(time=1)
+        tables.nodes.add_row(time=0)
+        tables.iedges.flags = self.ADJ  # only one of the 3 sorting flags
+        with pytest.raises(ValueError, match="guaranteed to be sorted"):
+            tables.add_iedge_row(0, 1, 0, 1, child=1, parent=0, validate=ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING)
+
+    def test_from_tree_sequence_flags(self, simple_ts):
+        tables = gigl.Tables.from_tree_sequence(simple_ts)
+        assert tables.iedges.has_all_bitflags(ValidFlags.IEDGES_ALL)
+
+
 class TestIedgesValidation:
     """
     Tests for the validation of iedge tables during iedges.add_row()
