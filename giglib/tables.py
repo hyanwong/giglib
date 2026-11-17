@@ -333,7 +333,8 @@ class BaseTable:
         try:
             self._datastore = np.empty_like(
                 self._datastore,
-                shape=min(2 * len(self._datastore), len(self._datastore) + self.max_resize),
+                # Double and add one, so that a table preallocated with 0 rows can grow
+                shape=min(2 * len(self._datastore) + 1, len(self._datastore) + self.max_resize),
             )
         except MemoryError:
             # should try dumping the table to disk here, I suppose?

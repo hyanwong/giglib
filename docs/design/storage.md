@@ -59,8 +59,9 @@ some exceptions (e.g. `float64` for times, `uint32` for flags, and `int16` for c
 - **Preallocation and growth.** `_datastore` is preallocated (64 rows by default, or the size
   given in `initial_sizes`). `_data` is a view of its first `len(table)` rows. Adding a row
   writes into the next free row of `_datastore` and extends the `_data` view. When
-  `_datastore` is full, it is replaced by one twice the size (or at most 2<sup>18</sup> rows
-  larger), and the existing rows are copied across.
+  `_datastore` is full, it is replaced by one twice the size plus one row (so that a table
+  preallocated with 0 rows can grow), or at most 2<sup>18</sup> rows larger, and the existing
+  rows are copied across.
 - **Row access.** `table[i]` creates a row object (a named tuple) from row `i`. This is
   convenient, but much slower than reading columns, so performance-critical code should use
   columns.
