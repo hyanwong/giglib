@@ -18,7 +18,7 @@ class TestConstructor:
         tables = gigl.Tables()
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.nodes.add_row(1, flags=0)
-        tables.iedges.add_row(0, 1, 1, 0, child=0, parent=1)
+        tables.iedges.add_row(0, 1, child_left=0, child_right=1, parent_left=1, parent_right=0)
         gig = tables.graph()
         assert len(gig.nodes) == 2
         assert len(gig.iedges) == 1
@@ -46,7 +46,7 @@ class TestConstructor:
         tables = gigl.Tables()
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.nodes.add_row(1, flags=gigl.NODE_IS_SAMPLE)
-        tables.iedges.add_row(0, 1, 1, 0, child=0, parent=0)
+        tables.iedges.add_row(0, 0, child_left=0, child_right=1, parent_left=1, parent_right=0)
         with pytest.raises(ValueError, match="0 not older than child 0"):
             tables.graph()
 
@@ -54,7 +54,7 @@ class TestConstructor:
         tables = gigl.Tables()
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.nodes.add_row(1, flags=gigl.NODE_IS_SAMPLE)
-        tables.iedges.add_row(0, 1, 1, 0, child=-1, parent=1)
+        tables.iedges.add_row(-1, 1, child_left=0, child_right=1, parent_left=1, parent_right=0)
         with pytest.raises(ValueError, match="negative"):
             tables.graph()
 
@@ -62,7 +62,7 @@ class TestConstructor:
         tables = gigl.Tables()
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.nodes.add_row(1, flags=gigl.NODE_IS_SAMPLE)
-        tables.iedges.add_row(0, 1, 1, 0, child=0, parent=10)
+        tables.iedges.add_row(0, 10, child_left=0, child_right=1, parent_left=1, parent_right=0)
         with pytest.raises(ValueError, match="ID >= num nodes"):
             tables.graph()
 
@@ -70,13 +70,13 @@ class TestConstructor:
         tables = gigl.Tables()
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.nodes.add_row(1, flags=gigl.NODE_IS_SAMPLE)
-        tables.iedges.add_row(0, 1, 2, 0, child=0, parent=1)
+        tables.iedges.add_row(0, 1, child_left=0, child_right=1, parent_left=2, parent_right=0)
         with pytest.raises(ValueError, match="spans"):
             tables.graph()
         tables.iedges.clear()
         assert len(tables.iedges) == 0
         # test something more standard than an inversion
-        tables.iedges.add_row(1, 2, 0, 2, child=0, parent=1)
+        tables.iedges.add_row(0, 1, child_left=1, child_right=2, parent_left=0, parent_right=2)
         with pytest.raises(ValueError, match="spans"):
             tables.graph()
 
@@ -84,7 +84,7 @@ class TestConstructor:
         tables = gigl.Tables()
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.nodes.add_row(1, flags=0)
-        tables.iedges.add_row(0, 0, 0, 1, child=0, parent=1)
+        tables.iedges.add_row(0, 1, child_left=0, child_right=0, parent_left=0, parent_right=1)
         with pytest.raises(ValueError, match="spans"):
             tables.graph()
 
@@ -93,9 +93,9 @@ class TestConstructor:
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.nodes.add_row(1)
-        tables.iedges.add_row(0, 1, 0, 1, child=0, parent=2)
-        tables.iedges.add_row(1, 2, 0, 1, child=1, parent=2)
-        tables.iedges.add_row(2, 3, 0, 1, child=0, parent=2)
+        tables.iedges.add_row(0, 2, child_right=1)
+        tables.iedges.add_row(1, 2, child_left=1, child_right=2, parent_left=0, parent_right=1)
+        tables.iedges.add_row(0, 2, child_left=2, child_right=3, parent_left=0, parent_right=1)
         with pytest.raises(ValueError, match="not sorted by child"):
             tables.graph()
 
@@ -104,8 +104,8 @@ class TestConstructor:
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.nodes.add_row(1)
         tables.nodes.add_row(2)
-        tables.iedges.add_row(0, 1, 1, 0, child=0, parent=2)
-        tables.iedges.add_row(0, 1, 1, 0, child=1, parent=2)
+        tables.iedges.add_row(0, 2, child_left=0, child_right=1, parent_left=1, parent_right=0)
+        tables.iedges.add_row(1, 2, child_left=0, child_right=1, parent_left=1, parent_right=0)
         with pytest.raises(ValueError, match="not sorted by child time, descending"):
             tables.graph()
 
@@ -114,8 +114,8 @@ class TestConstructor:
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.nodes.add_row(1)
         tables.nodes.add_row(2)
-        tables.iedges.add_row(0, 2, 0, 2, child=0, parent=1)
-        tables.iedges.add_row(1, 3, 1, 3, child=0, parent=1)
+        tables.iedges.add_row(0, 1, child_right=2)
+        tables.iedges.add_row(0, 1, child_left=1, child_right=3)
         with pytest.raises(ValueError, match="multiple or duplicate parents"):
             tables.graph()
 
@@ -124,8 +124,8 @@ class TestConstructor:
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.nodes.add_row(1)
         tables.nodes.add_row(2)
-        tables.iedges.add_row(0, 2, 0, 2, child=0, parent=1)
-        tables.iedges.add_row(1, 3, 1, 3, child=0, parent=2)
+        tables.iedges.add_row(0, 1, child_right=2)
+        tables.iedges.add_row(0, 2, child_left=1, child_right=3)
         with pytest.raises(ValueError, match="multiple or duplicate parents"):
             tables.graph()
 
@@ -459,8 +459,8 @@ class TestSampleResolving:
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.nodes.add_row(1)
         tables.nodes.add_row(2)
-        tables.iedges.add_row(0, 100, 0, 100, child=1, parent=2)
-        tables.iedges.add_row(1, 2, 2, 1, child=0, parent=1)
+        tables.iedges.add_row(1, 2, child_right=100)
+        tables.iedges.add_row(0, 1, child_left=1, child_right=2, parent_left=2, parent_right=1)
         gig = tables.graph()
         assert gig.iedges[0].parent == 2
         assert gig.iedges[0].parent_left == 0
@@ -476,8 +476,8 @@ class TestSampleResolving:
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.nodes.add_row(1)
         tables.nodes.add_row(2)
-        tables.iedges.add_row(0, 100, 100, 0, child=1, parent=2)
-        tables.iedges.add_row(2, 5, 5, 2, child=0, parent=1)
+        tables.iedges.add_row(1, 2, child_left=0, child_right=100, parent_left=100, parent_right=0)
+        tables.iedges.add_row(0, 1, child_left=2, child_right=5, parent_left=5, parent_right=2)
         gig = tables.graph()
         new_gig = gig.sample_resolve()
         assert len(new_gig.iedges) == 2
@@ -625,9 +625,10 @@ class TestIEdge:
     Test the wrapper around a single iedge
     """
 
-    def basic_edge(self, *args):
+    def basic_edge(self, *coords):
+        # coords are (child_left, child_right, parent_left, parent_right)
         return gigl.graph.IEdge(
-            *args,
+            **dict(zip(("child_left", "child_right", "parent_left", "parent_right"), coords)),
             child=0,
             parent=1,
             edge=-1,
@@ -725,10 +726,10 @@ class TestMutations:
         tables = gigl.Tables()
         for t, f in ((0, gigl.NODE_IS_SAMPLE), (0, gigl.NODE_IS_SAMPLE), (1, 0), (2, 0)):
             tables.nodes.add_row(t, flags=f)
-        tables.add_iedge_row(0, 10, 0, 10, child=0, parent=2)
-        tables.add_iedge_row(0, 5, 0, 5, child=1, parent=2)
-        tables.add_iedge_row(5, 10, 5, 10, child=1, parent=3)
-        tables.add_iedge_row(0, 10, 0, 10, child=2, parent=3)
+        tables.add_iedge_row(0, 2, child_right=10)
+        tables.add_iedge_row(1, 2, child_right=5)
+        tables.add_iedge_row(1, 3, child_left=5, child_right=10)
+        tables.add_iedge_row(2, 3, child_right=10)
         tables.sort()
         return tables
 
@@ -998,7 +999,7 @@ class TestHaplotypes:
         tables.nodes.add_row(1)
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         for cl, cr, pl, pr in iedges:
-            tables.add_iedge_row(cl, cr, pl, pr, child=1, parent=0)
+            tables.add_iedge_row(1, 0, child_left=cl, child_right=cr, parent_left=pl, parent_right=pr)
         for pos, state in root_mutations:
             tables.mutations.add_row(0, pos, state)
         tables.sort()
@@ -1133,7 +1134,7 @@ class TestInversions:
     def test_double_inversion(self):
         tables = TestHaplotypes.two_node_tables((0, 4, 4, 0), root_mutations=list(enumerate("ACGG")))
         tables.nodes.add_row(-1, flags=gigl.NODE_IS_SAMPLE)  # grandchild, node 2
-        tables.add_iedge_row(0, 4, 4, 0, child=2, parent=1)
+        tables.add_iedge_row(2, 1, child_left=0, child_right=4, parent_left=4, parent_right=0)
         tables.sort()
         gig = tables.graph()
         assert gig.haplotype(1) == "CCGT"
@@ -1260,7 +1261,7 @@ class TestToTreeSequenceWithMutations:
         for t in (0, 0, 1, 0, 0, 1):
             tables.nodes.add_row(t, flags=gigl.NODE_IS_SAMPLE if t == 0 else 0)
         for child, parent in ((0, 2), (1, 2), (3, 5), (4, 5)):
-            tables.add_iedge_row(0, 10, 0, 10, child=child, parent=parent)
+            tables.add_iedge_row(child, parent, child_right=10)
         tables.sort()
         return tables
 

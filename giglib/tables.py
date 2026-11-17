@@ -73,12 +73,12 @@ class IEdgeTableRow(
         "IEdgeTableRow",
         ", ".join(
             [
+                "child",
+                "parent",
                 "child_left",
                 "child_right",
                 "parent_left",
                 "parent_right",
-                "child",
-                "parent",
                 "child_chromosome",
                 "parent_chromosome",
                 "edge",
@@ -516,13 +516,13 @@ class IEdgeTable(BaseTable):
 
     def add_row(
         self,
-        child_left,
+        child,
+        parent,
+        *,
+        child_left=0,
         child_right,
         parent_left=None,
         parent_right=None,
-        *,
-        child,
-        parent,
         child_chromosome=0,
         parent_chromosome=0,
         edge=NULL,
@@ -537,10 +537,13 @@ class IEdgeTable(BaseTable):
             :meth:`.Tables.add_iedge_row` which is a wrapper around this method
             that also allows validation of parent and child node times
 
+        :param int child: The ID of the child node
+        :param int parent: The ID of the parent node
         :param int child_left: The left (inclusive) position of the interval, in the
-            child's coordinates
+            child's coordinates (default 0). This and the other coordinates must be
+            given by keyword.
         :param int child_right: The right (exclusive) position of the interval, in the
-            child's coordinates
+            child's coordinates (required)
         :param int parent_left: The position in the parent's coordinates corresponding
             to ``child_left``. If ``parent_left > parent_right``, the interval is
             inverted. If ``parent_left`` and ``parent_right`` are both ``None``
@@ -549,8 +552,6 @@ class IEdgeTable(BaseTable):
             inverted. Either both or neither must be given.
         :param int parent_right: The position in the parent's coordinates corresponding
             to ``child_right`` (see ``parent_left``)
-        :param int child: The ID of the child node (must be given by keyword)
-        :param int parent: The ID of the parent node (must be given by keyword)
         :param int child_chromosome: The chromosome in the child's genome (default 0)
         :param int parent_chromosome: The chromosome in the parent's genome (default 0)
         :param int edge: An optional edge ID (default: ``NULL``, i.e. -1)
@@ -589,11 +590,17 @@ class IEdgeTable(BaseTable):
 
         .. code-block::
 
-            # Inherit positions 0 to 100 unchanged
-            new_id = iedges.add_row(0, 100, child=c, parent=p)
-            # Inherit an inverted copy of parent positions 50 to 100
+            # Child c inherits positions 0 to 100 of parent p unchanged
+            new_id = iedges.add_row(c, p, child_right=100)
+            # Child c inherits an inverted copy of parent positions 50 to 100
             new_id = iedges.add_row(
-                100, 150, 100, 50, child=c, parent=p, validate=ValidFlags.IEDGES_INTERVALS
+                c,
+                p,
+                child_left=100,
+                child_right=150,
+                parent_left=100,
+                parent_right=50,
+                validate=ValidFlags.IEDGES_INTERVALS,
             )
         """
         if parent_left is None and parent_right is None:
@@ -605,12 +612,12 @@ class IEdgeTable(BaseTable):
         if len(self._datastore) == num_rows:
             self._expand_datastore()
         self._datastore[num_rows] = (
+            child,
+            parent,
             child_left,
             child_right,
             parent_left,
             parent_right,
-            child,
-            parent,
             child_chromosome,
             parent_chromosome,
             edge,
@@ -626,12 +633,12 @@ class IEdgeTable(BaseTable):
             if validate & ValidFlags.IEDGES_INTEGERS:
                 for i, val in enumerate(
                     (
-                        child_left,  # 0
-                        child_right,  # 1
-                        parent_left,  # 2
-                        parent_right,  # 3
-                        child,  # 4
-                        parent,  # 5
+                        child,  # 0
+                        parent,  # 1
+                        child_left,  # 2
+                        child_right,  # 3
+                        parent_left,  # 4
+                        parent_right,  # 5
                         child_chromosome,  # 6
                         parent_chromosome,  # 7
                         edge,  # 8
@@ -1471,19 +1478,22 @@ class Tables:
                 if (prev_child_time == child_time) and (prev_child_id > child):
                     raise ValueError("Added iedge has lower child ID than the previous one")
 
-    def add_iedge_row(self, *args, validate=None, skip_validate=None, **kwargs):
+    def add_iedge_row(self, child, parent, *, validate=None, skip_validate=None, **kwargs):
         """
         Similar to the :meth:`~tables.IEdgeTable.add_row` method of the
         :class:`~tables.IEdgeTable` stored in this set of tables, but also (optionally)
         can be used to validate features of the nodes used (e.g. that the parent
         node time is older than the child node time).
 
+        :param int child: The ID of the child node
+        :param int parent: The ID of the parent node
         :param int validate: A set of bitflags (as listed in :class:`~giglib.ValidFlags`)
             specifying which iedge table validation checks to perform. In particular,
             this can include the :data:`~giglib.ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD` and
             :data:`~giglib.ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC` flags, which will
             check the node table for those properties. Other flags will be passed to
-            :meth:`tables.IEdgeTable.add_row`.
+            :meth:`tables.IEdgeTable.add_row`, along with any other (keyword) arguments,
+            such as the coordinates, e.g. ``tables.add_iedge_row(1, 0, child_right=100)``.
         :param bool skip_validate: If True, assume the user has checked that this
             operation will pass the validation tests implied by the ``validate`` flags.
             This means that the validation routines will not be run, but the tables
@@ -1501,10 +1511,11 @@ class Tables:
         node_validate = validate & ValidFlags.IEDGES_COMBO_NODE_TABLE
         store_node_validation = self.iedges.flags & node_validate
         if (not skip_validate) and bool(node_validate):
-            self._validate_add_iedge_row(validate, kwargs["child"], kwargs["parent"])
+            self._validate_add_iedge_row(validate, child, parent)
         # Only pass the validation flags that can be checked to the lower level
         self.iedges.add_row(
-            *args,
+            child,
+            parent,
             **kwargs,
             validate=validate & ValidFlags.IEDGES_COMBO_STANDALONE,
             skip_validate=skip_validate,
@@ -1759,12 +1770,12 @@ class Tables:
         for ie in self.iedges:
             if node_map[ie.parent] != NULL and node_map[ie.child] != NULL:
                 iedges.add_row(
-                    ie.child_left,
-                    ie.child_right,
-                    ie.parent_left,
-                    ie.parent_right,
-                    child=node_map[ie.child],
-                    parent=node_map[ie.parent],
+                    node_map[ie.child],
+                    node_map[ie.parent],
+                    child_left=ie.child_left,
+                    child_right=ie.child_right,
+                    parent_left=ie.parent_left,
+                    parent_right=ie.parent_right,
                     child_chromosome=ie.child_chromosome,
                     parent_chromosome=ie.parent_chromosome,
                 )
@@ -2019,11 +2030,12 @@ class Tables:
                                     stack[parent][parent_chr] |= P.closedopen(*p)
                                 # Add the trimmed interval to the new edge table
                                 self.add_iedge_row(
-                                    c.lower,
-                                    c.upper,
-                                    *p,
-                                    child=child,
-                                    parent=parent,
+                                    child,
+                                    parent,
+                                    child_left=c.lower,
+                                    child_right=c.upper,
+                                    parent_left=p[0],
+                                    parent_right=p[1],
                                     child_chromosome=child_chr,
                                     parent_chromosome=parent_chr,
                                 )

@@ -262,30 +262,27 @@ class TestDTWF_one_break_no_rec_inversions_slow:
                 assert ie.child_right > 200  # check seed gives breakpoint a bit along
 
                 new_tables.add_iedge_row(
-                    0,
-                    self.inversion.left,
-                    0,
-                    self.inversion.left,
-                    child=inverted_child_id,
-                    parent=ie.parent,
+                    inverted_child_id,
+                    ie.parent,
+                    child_right=self.inversion.left,
                     **self.simulator.add_iedge_params(),
                 )
                 new_tables.add_iedge_row(
-                    self.inversion.left,
-                    self.inversion.right,
-                    self.inversion.right,
-                    self.inversion.left,
-                    child=inverted_child_id,
-                    parent=ie.parent,
+                    inverted_child_id,
+                    ie.parent,
+                    child_left=self.inversion.left,
+                    child_right=self.inversion.right,
+                    parent_left=self.inversion.right,
+                    parent_right=self.inversion.left,
                     **self.simulator.add_iedge_params(),
                 )
                 new_tables.add_iedge_row(
-                    self.inversion.right,
-                    ie.child_right,
-                    self.inversion.right,
-                    ie.parent_right,
-                    child=inverted_child_id,
-                    parent=ie.parent,
+                    inverted_child_id,
+                    ie.parent,
+                    child_left=self.inversion.right,
+                    child_right=ie.child_right,
+                    parent_left=self.inversion.right,
+                    parent_right=ie.parent_right,
                     **self.simulator.add_iedge_params(),
                 )
             else:

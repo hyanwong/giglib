@@ -83,7 +83,7 @@ class TestIEdgeIndex:
 
     def test_cleared(self, trivial_gig):
         tables = trivial_gig.tables.copy()
-        tables.iedges.add_row(10, 20, 10, 20, child=0, parent=4)
+        tables.iedges.add_row(0, 4, child_left=10, child_right=20)
         assert len(tables.iedges._id_range_for_child) > 0
         tables.iedges.clear()
         assert len(tables.iedges._id_range_for_child) == 0
