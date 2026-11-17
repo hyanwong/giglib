@@ -799,6 +799,32 @@ class TestIedgesValidation:
         tables.add_iedge_row(2, 1, child_right=1, validate=flags)
 
 
+class TestZeroInitialSize:
+    # Tables preallocated with no rows (e.g. converted from a tree sequence with no
+    # edges) must still be able to grow
+    @pytest.mark.parametrize("name", ["nodes", "iedges", "individuals", "mutations"])
+    def test_add_rows(self, name):
+        tables = gigl.Tables(initial_sizes={name: 0})
+        add_row = {
+            "nodes": lambda: tables.nodes.add_row(0),
+            "iedges": lambda: tables.iedges.add_row(1, 0),
+            "individuals": lambda: tables.individuals.add_row(),
+            "mutations": lambda: tables.mutations.add_row(0, 0, "A"),
+        }[name]
+        for _ in range(3):
+            add_row()
+        assert len(getattr(tables, name)) == 3
+
+    def test_from_tree_sequence_without_edges(self):
+        ts = tskit.TableCollection(sequence_length=10)
+        ts.nodes.add_row(time=1)
+        ts.nodes.add_row(time=0, flags=tskit.NODE_IS_SAMPLE)
+        tables = gigl.Tables.from_tree_sequence(ts.tree_sequence())
+        assert len(tables.iedges) == 0
+        tables.iedges.add_row(1, 0, child_right=10)
+        assert len(tables.iedges) == 1
+
+
 class TestNodeTable:
     def test_times(self):
         nodes = gigl.tables.NodeTable()
