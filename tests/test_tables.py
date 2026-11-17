@@ -1156,6 +1156,15 @@ class TestPosition:
         assert gig.allele_at(1, **gigl.Position(3, 1)) == "T"
         assert gig.haplotype(1, **gigl.Segment(1, 4, 1)) == "CGT"
 
+    def test_random_match_pos_plain_tuple_keys(self):
+        # The keys are documented as (left, right, chromosome) tuples, so plain tuples work
+        mrcas = gigl.tables.MRCAdict({2: {(0, 10, 0): gigl.tables.MRCAdict.MRCAintervals([(0, 10, 0)], [(20, 30, 1)])}})
+        match = mrcas.random_match_pos(np.random.default_rng(1))
+        assert match.u.chromosome == 0
+        assert match.v.chromosome == 1
+        assert match.v.position - match.u.position == 20
+        assert not match.opposite_orientations
+
     def test_random_match_pos_chromosomes(self):
         # u (node 0) and v (node 1) inherit from node 2: u on chromosome 1, and v
         # on chromosome 0, inverted

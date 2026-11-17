@@ -1163,9 +1163,10 @@ class MRCAdict(dict):
                 MRCA_node_ID2 : ...,
                 ...
             }
-    In each inner dict, the key (X, Y, CHRZ) gives an interval (with X < Y) in the MRCA
-    node for chromosome Z, and the value is an ``MRCAintervals`` tuple which gives the
-    corresponding intervals and chromosome numbers in u and v. In the example above there
+    In each inner dict, the key is a :class:`Segment` ``(X, Y, CHRZ)`` giving an interval
+    (with X < Y) in the MRCA node for chromosome Z (a plain tuple of the same form can also
+    be used), and the value is an ``MRCAintervals`` tuple which gives the corresponding
+    intervals and chromosome numbers in u and v. In the example above there
     is a list of two corresponding intervals in u: (uA, uB, CHRuC) and (uC, uD, CHRuE)
     representing a duplication of the MRCA interval into u.
     If uA > uB then that interval in u is inverted relative to that in the MRCA node.
@@ -1201,12 +1202,15 @@ class MRCAdict(dict):
             inverted relative to the other then ``.opposite_orientations`` is ``True``.
         :rtype: MRCApos
         """
-        tot_len = sum(x.right - x.left for v in self.values() for x in v.keys())
+        # Keys are Segments, but unpack them as tuples, so plain (left, right, chromosome)
+        # tuples also work (and unpacking is faster than indexing a Segment)
+        tot_len = sum(right - left for v in self.values() for left, right, _ in v.keys())
         # Pick a single breakpoint
         loc = rng.integers(tot_len)  # breakpoint is before this base
         for mrca_intervals in self.values():
             for x in mrca_intervals.keys():
-                if loc < x.right - x.left:
+                left, right, _ = x
+                if loc < right - left:
                     u_matches, v_matches = mrca_intervals[x]
                     assert len(u_matches) != 0
                     assert len(v_matches) != 0
@@ -1245,7 +1249,7 @@ class MRCAdict(dict):
                             return self.MRCApos(Position(u0 - loc - 1, uCHR), Position(v0 + loc, vCHR), True)
                         else:
                             return self.MRCApos(Position(u0 - loc - 1, uCHR), Position(v0 - loc - 1, vCHR), False)
-                loc -= x.right - x.left
+                loc -= right - left
 
     def _plot(
         self,
