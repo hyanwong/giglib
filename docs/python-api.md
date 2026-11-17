@@ -104,14 +104,19 @@ Validity requirements for a GIG are described in {meth}`Tables.graph`.
 ```{eval-rst}
 .. autoclass:: giglib.tables.IEdgeTableRow
   :members:
+  :inherited-members: tuple
 
 .. autoclass:: giglib.tables.NodeTableRow
   :members:
+  :inherited-members: tuple
 
 .. autoclass:: giglib.tables.IndividualTableRow
   :members:
+  :inherited-members: tuple
 
 .. autoclass:: giglib.tables.MutationTableRow
+  :members:
+  :inherited-members: tuple
 ```
 
 ## The **Graph** class
@@ -130,15 +135,19 @@ and iteration.
 ```{eval-rst}
 .. autoclass:: giglib.graph.Node
   :members:
+  :inherited-members: tuple
 
 .. autoclass:: giglib.graph.IEdge
   :members:
+  :inherited-members: tuple
 
 .. autoclass:: giglib.graph.Individual
   :members:
+  :inherited-members: tuple
 
 .. autoclass:: giglib.graph.Mutation
   :members:
+  :inherited-members: tuple
 
 .. autoclass:: giglib.graph.GIGItemIterator
 ```

@@ -12,7 +12,16 @@ import numpy as np
 import tskit
 
 from .constants import Const, ValidFlags
-from .tables import IEdgeTableRow, IndividualTableRow, MutationTableRow, NodeTableRow, Tables
+from .tables import (
+    IEdgeTableRow,
+    IndividualTableRow,
+    MutationTableRow,
+    NodeTableRow,
+    Tables,
+    _IEdgeMethods,
+    _MutationMethods,
+    _NodeMethods,
+)
 from .util import as_id, complement_allele, is_unknown_time, warn_tskit_name
 
 
@@ -897,63 +906,32 @@ class GIGItemIterator:
                 yield self.cls(*self.table[i], i)
 
 
-class IEdge(namedtuple("IEdge", (*IEdgeTableRow._fields, "id"))):
+class IEdge(_IEdgeMethods, namedtuple("IEdge", (*IEdgeTableRow._fields, "id"))):
     """
-    A single interval edge in a Graph. Similar to an edge table row
-    but with an ID and various other useful methods that rely on
-    the graph being a consistent GIG (e.g. that abs(parent_span) == abs(child_span))
+    A single interval edge in a Graph. This has the same fields and properties as an
+    :class:`~giglib.tables.IEdgeTableRow`, and also has an ID. Since the iedges in a
+    graph are guaranteed to be valid (e.g. the child and parent intervals have the
+    same length), it also has properties and methods that rely on validity, such as
+    :attr:`span` and :meth:`transform_position`, which are not available on table rows.
     """
 
     @property
     def span(self):
+        """
+        The length of the inherited interval, which is the same in the child and the
+        parent (i.e. ``child_right - child_left``, or ``abs(parent_span)``)
+        """
         return self.child_right - self.child_left
-
-    @property
-    def parent_max(self):
-        """
-        The highest parent position on this edge (inversions can have left > right)
-        """
-        return max(self.parent_right, self.parent_left)
-
-    @property
-    def parent_min(self):
-        """
-        The lowest parent position on this edge (inversions can have left > right)
-        """
-        return min(self.parent_right, self.parent_left)
-
-    @property
-    def child_max(self):
-        """
-        The highest child position on this edge
-        """
-        return self.child_right
-
-    @property
-    def child_min(self):
-        """
-        The lowest child position on this edge
-        """
-        return self.child_left
-
-    def is_inversion(self):
-        return self.parent_right < self.parent_left
-
-    def is_simple_inversion(self):
-        """
-        Is this an in-situ inversion, where parent and child coords are simply swapped
-        """
-        return self.parent_left == self.child_right and self.parent_right == self.child_left
 
     def transform_position(self, x, direction):
         """
-        Transform a position from child coordinates to parent coordinates.
-        If this is an inversion then an edge such as [0, 10) -> (10, 0]
-        means that position 9 gets transformed to 0, and position 10 is
-        not transformed at all. This means subtracting 1 from the returned
+        Transform a position from child coordinates to parent coordinates
+        (``direction=Const.ROOTWARDS``), or from parent to child coordinates
+        (``direction=Const.LEAFWARDS``). If this is an inversion then an edge such as
+        [0, 10) -> (10, 0] means that position 9 gets transformed to 0, and position
+        10 is not transformed at all. This means subtracting 1 from the returned
         (transformed) position.
         """
-
         if direction == Const.ROOTWARDS:
             if x < self.child_left or x >= self.child_right:
                 raise ValueError(f"Position {x} not in child interval for {self}")
@@ -974,33 +952,18 @@ class IEdge(namedtuple("IEdge", (*IEdgeTableRow._fields, "id"))):
         raise ValueError(f"Direction must be Const.ROOTWARDS or Const.LEAFWARDS, not {direction}")
 
 
-class Node(namedtuple("Node", (*NodeTableRow._fields, "id"))):
+class Node(_NodeMethods, namedtuple("Node", (*NodeTableRow._fields, "id"))):
     """
     An object representing a single node in a :class:`Graph`. This acts like an
     :class:`~giglib.tables.NodeTableRow` but also has an ID.
     """
 
-    def is_sample(self):
-        return bool(self.flags & Const.NODE_IS_SAMPLE)
 
-
-class Mutation(namedtuple("Mutation", (*MutationTableRow._fields, "id"))):
+class Mutation(_MutationMethods, namedtuple("Mutation", (*MutationTableRow._fields, "id"))):
     """
     An object representing a single mutation in a :class:`Graph`. This acts like a
     :class:`~giglib.tables.MutationTableRow` but also has an ID.
     """
-
-    # Treat unknown (NaN) times as equal when comparing mutations
-    _comparable = MutationTableRow._comparable
-    __eq__ = MutationTableRow.__eq__
-    __ne__ = MutationTableRow.__ne__
-    __hash__ = MutationTableRow.__hash__
-
-    def is_time_known(self):
-        """
-        Return ``True`` if the time of this mutation is known
-        """
-        return not is_unknown_time(self.time)
 
 
 class Individual(namedtuple("Individual", (*IndividualTableRow._fields, "id"))):

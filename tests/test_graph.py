@@ -341,6 +341,53 @@ class TestMethods:
             gig.iedges_for_child("1")
 
 
+class TestRowsAndObjectsConsistent:
+    """
+    Table rows (e.g. ``tables.iedges[i]``) and graph objects (e.g. ``gig.iedges[i]``)
+    should have the same properties and methods, and give the same values. The only
+    exceptions are the IEdge properties that rely on the iedge being valid.
+    """
+
+    VALID_IEDGE_ONLY = frozenset({"span", "transform_position"})
+
+    @staticmethod
+    def public(cls):
+        return {name for name in dir(cls) if not name.startswith("_")} - set(dir(tuple)) - {"id"}
+
+    @pytest.mark.parametrize(
+        ("row_class", "obj_class"),
+        [
+            (gigl.tables.IEdgeTableRow, gigl.graph.IEdge),
+            (gigl.tables.NodeTableRow, gigl.graph.Node),
+            (gigl.tables.MutationTableRow, gigl.graph.Mutation),
+            (gigl.tables.IndividualTableRow, gigl.graph.Individual),
+        ],
+    )
+    def test_same_attributes(self, row_class, obj_class):
+        assert self.public(row_class) == self.public(obj_class) - self.VALID_IEDGE_ONLY
+
+    def test_same_iedge_values(self, all_sv_types_2re_gig):
+        gig = all_sv_types_2re_gig
+        names = self.public(gigl.tables.IEdgeTableRow) - set(gigl.tables.IEdgeTableRow._fields)
+        assert any(ie.is_inversion() for ie in gig.iedges)
+        for ie in gig.iedges:
+            row = gig.tables.iedges[ie.id]
+            for name in names:
+                value, row_value = getattr(ie, name), getattr(row, name)
+                if callable(value):
+                    value, row_value = value(), row_value()
+                assert value == row_value, name
+            assert ie.span == ie.child_span == abs(ie.parent_span)
+
+    def test_mutation_time_known(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(0)
+        tables.mutations.add_row(0, 0, "A")
+        tables.mutations.add_row(0, 1, "C", time=0)
+        assert [m.is_time_known() for m in tables.mutations] == [False, True]
+        assert [m.is_time_known() for m in tables.graph().mutations] == [False, True]
+
+
 class TestPythonScalars:
     """
     Values in row objects, and IDs, are Python ints and floats (not numpy scalars),
