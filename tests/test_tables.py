@@ -480,6 +480,65 @@ class TestBitflags:
         assert tables.iedges.has_all_bitflags(ValidFlags.IEDGES_ALL)
 
 
+class TestReadOnlyColumns:
+    """
+    Columns are read-only, so that editing them cannot leave indexes or validity flags
+    out of date
+    """
+
+    IEDGE_COLUMNS = (
+        "child_left",
+        "child_right",
+        "parent_left",
+        "parent_right",
+        "child",
+        "parent",
+        "child_chromosome",
+        "parent_chromosome",
+        "edge",
+    )
+
+    @staticmethod
+    def make_tables():
+        tables = gigl.Tables()
+        tables.nodes.add_row(1, individual=tables.individuals.add_row())
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.add_iedge_row(0, 5, 0, 5, child=1, parent=0)
+        tables.sort()
+        return tables
+
+    @pytest.mark.parametrize(
+        ("table", "column"),
+        [("iedges", c) for c in IEDGE_COLUMNS]
+        + [("nodes", "time"), ("nodes", "flags"), ("nodes", "individual"), ("individuals", "flags")],
+    )
+    def test_cannot_edit(self, table, column):
+        tables = self.make_tables()
+        values = getattr(getattr(tables, table), column)
+        before = values.copy()
+        with pytest.raises(ValueError, match="read-only"):
+            values[0] = 1
+        assert np.array_equal(getattr(getattr(tables, table), column), before)
+
+    def test_stale_index_prevented(self):
+        tables = self.make_tables()
+        with pytest.raises(ValueError, match="read-only"):
+            tables.iedges.child[0] = 0
+        assert list(tables.iedges.ids_for_child(1)) == [0]
+
+    def test_internal_edits_still_possible(self):
+        tables = self.make_tables()
+        tables.nodes.add_row(0.5)  # not referenced by any iedge, so will be removed
+        tables.change_times(1)
+        assert list(tables.nodes.time) == [2, 1, 1.5]
+        tables.iedges.set_bitflag(ValidFlags.IEDGES_INTEGERS)
+        mapping = tables.remove_non_ancestral_nodes()
+        assert list(mapping) == [0, 1]
+        # columns remain read-only after internal edits
+        with pytest.raises(ValueError, match="read-only"):
+            tables.nodes.time[0] = 0
+
+
 class TestIedgesValidation:
     """
     Tests for the validation of iedge tables during iedges.add_row()
