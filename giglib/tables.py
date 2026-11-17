@@ -1383,10 +1383,10 @@ class Tables:
         for u, nd in enumerate(self.nodes):
             if nd.time < time:
                 i = nd.individual
-                indiv = self.individuals[i]
-                if i not in individual_map:
+                if i not in individual_map:  # NB: NULL (no individual) is already mapped
+                    parents = self.individuals[i].parents
                     individual_map[i] = individuals.add_row(
-                        parents=tuple(individual_map.get(j, NULL) for j in indiv.parents)
+                        parents=tuple(individual_map.get(j, NULL) for j in (parents if parents is not None else ()))
                     )
                 node_map[u] = nodes.add_row(time=nd.time, flags=nd.flags, individual=individual_map[i])
         for ie in self.iedges:

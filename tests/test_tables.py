@@ -1028,3 +1028,49 @@ class TestSegment:
         assert seg.chromosome == 1
         assert str(seg) == "Segment(left=10, right=20, chromosome=1)"
         assert repr(seg) == "Segment(left=10, right=20, chromosome=1)"
+
+
+class TestDecapitate:
+    @staticmethod
+    def three_generation_tables(with_individuals):
+        # Grandparent (node 0, time 2), parent (node 1, time 1), child (node 2, time 0)
+        tables = gigl.Tables()
+        for t in (2, 1, 0):
+            individual = tables.individuals.add_row() if with_individuals else gigl.NULL
+            tables.nodes.add_row(t, individual=individual)
+        tables.add_iedge_row(0, 10, 0, 10, child=1, parent=0)
+        tables.add_iedge_row(0, 10, 0, 10, child=2, parent=1)
+        tables.sort()
+        return tables
+
+    def test_no_individuals(self):
+        # Previously failed with an IndexError
+        tables = self.three_generation_tables(with_individuals=False)
+        node_map = tables.decapitate(1.5)
+        assert list(node_map) == [gigl.NULL, 0, 1]
+        assert len(tables.nodes) == 2
+        assert len(tables.individuals) == 0
+        assert np.all(tables.nodes.individual == gigl.NULL)
+        assert len(tables.iedges) == 1
+        tables.graph()
+
+    def test_individuals_without_parents(self):
+        # Individuals added without parents have parents=None
+        tables = self.three_generation_tables(with_individuals=True)
+        assert tables.individuals[1].parents is None
+        tables.decapitate(1.5)
+        assert len(tables.individuals) == 2
+        assert list(tables.nodes.individual) == [0, 1]
+
+    def test_individual_parents_remapped(self):
+        tables = gigl.Tables()
+        old = tables.individuals.add_row()
+        mid = tables.individuals.add_row(parents=(old,))
+        young = tables.individuals.add_row(parents=(mid,))
+        for t, i in ((2, old), (1, mid), (0, young)):
+            tables.nodes.add_row(t, individual=i)
+        tables.decapitate(1.5)
+        assert len(tables.individuals) == 2
+        # The parent of "mid" was removed, so becomes NULL
+        assert tables.individuals[0].parents == (gigl.NULL,)
+        assert tables.individuals[1].parents == (0,)
