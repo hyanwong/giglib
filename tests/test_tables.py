@@ -1341,14 +1341,84 @@ class TestMutationTable:
         assert tables.mutations.time[0] == 11.5
         assert gigl.is_unknown_time(tables.mutations.time[1])
 
-    @pytest.mark.parametrize("method", ["decapitate", "sample_resolve", "remove_non_ancestral_nodes"])
-    def test_not_implemented_with_mutations(self, method):
+
+class TestMutationsInAlgorithms:
+    @staticmethod
+    def partly_ancestral_tables():
+        """
+        Root R (node 0, time 2) passes [0, 10) to A (node 1, time 1), which passes
+        only [0, 5) to the sample S (node 2, time 0). So only [0, 5) of A and R is
+        inherited by the sample.
+        """
         tables = gigl.Tables()
+        tables.nodes.add_row(2)
+        tables.nodes.add_row(1)
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
-        tables.mutations.add_row(0, 0, "A")
-        args = (1,) if method == "decapitate" else ()
-        with pytest.raises(NotImplementedError, match="mutations"):
-            getattr(tables, method)(*args)
+        tables.add_iedge_row(0, 10, 0, 10, child=1, parent=0, validate=ValidFlags.GIG)
+        tables.add_iedge_row(0, 5, 0, 5, child=2, parent=1, validate=ValidFlags.GIG)
+        # (node, position, state)
+        for node, pos, state in [(0, 2, "A"), (0, 8, "C"), (1, 3, "G"), (1, 7, "T"), (2, 4, "T"), (2, 9, "A")]:
+            tables.mutations.add_row(node, pos, state)
+        tables.sort()
+        return tables
+
+    def test_sample_resolve(self):
+        tables = self.partly_ancestral_tables()
+        before = tables.copy().graph().haplotype(2, right=10)
+        tables.sample_resolve()
+        # mutations at R:8 and A:7 are not inherited by the sample; S:9 is on a sample
+        assert [(m.node, m.position) for m in tables.mutations] == [(0, 2), (1, 3), (2, 4), (2, 9)]
+        assert tables.graph().haplotype(2, right=10) == before == "NNAGTNNNNA"
+
+    def test_sample_resolve_on_graph(self):
+        gig = self.partly_ancestral_tables().graph()
+        new_gig = gig.sample_resolve()
+        assert len(gig.mutations) == 6
+        assert len(new_gig.mutations) == 4
+
+    @pytest.mark.parametrize("seed", [1, 2])
+    def test_sample_resolve_keeps_haplotypes(self, seed):
+        ts = msprime.sim_ancestry(
+            4, sequence_length=100, recombination_rate=0.01, record_full_arg=True, random_seed=seed
+        )
+        ts = msprime.sim_mutations(ts, rate=0.05, random_seed=seed)
+        # Stop half the samples being samples, so that some of the ancestry (and
+        # mutations) is no longer inherited by any sample
+        tables = ts.dump_tables()
+        flags = tables.nodes.flags
+        flags[ts.samples()[::2]] = 0
+        tables.nodes.flags = flags
+        gig = gigl.Graph.from_tree_sequence(tables.tree_sequence())
+        new_gig = gig.sample_resolve()
+        assert len(new_gig.iedges) < len(gig.iedges)
+        assert len(new_gig.mutations) < len(gig.mutations)
+        for u in gig.sample_nodes():
+            assert new_gig.haplotype(u, right=100) == gig.haplotype(u, right=100)
+
+    def test_remove_non_ancestral_nodes(self):
+        tables = self.partly_ancestral_tables()
+        # Add an isolated node (3) with a mutation, which will be removed
+        tables.nodes.add_row(0.5)
+        tables.mutations.add_row(3, 1, "C")
+        tables.sort()
+        before = tables.copy().graph().haplotype(2, right=10)
+        # Make node 0 isolated too, by giving A no parent: removed with its mutations
+        tables.iedges.clear()
+        tables.add_iedge_row(0, 5, 0, 5, child=2, parent=1, validate=ValidFlags.GIG)
+        tables.mutations._subset([i for i, m in enumerate(tables.mutations) if m.node != 0])
+        mapping = tables.remove_non_ancestral_nodes()
+        assert list(mapping) == [1, 2]
+        assert len(tables.nodes) == 2
+        # Nodes 1 and 2 are now nodes 0 and 1; node 3's mutation is removed
+        assert [(m.node, m.position, m.derived_state) for m in tables.mutations] == [
+            (0, 3, "G"),
+            (0, 7, "T"),
+            (1, 4, "T"),
+            (1, 9, "A"),
+        ]
+        assert list(tables.mutations.ids_for_node(1)) == [2, 3]
+        gig = tables.graph()
+        assert gig.haplotype(1, right=10) == before.replace("A", "N", 1)  # lost R's mutation at 2
 
     def test_row_equality_with_unknown_times(self):
         mutations = gigl.Tables().mutations
@@ -1373,3 +1443,161 @@ class TestMutationTable:
         with pytest.raises(ValueError, match="adjacent"):
             copy.ids_for_node(2)
         assert list(mutations.ids_for_node(2)) == [0, 1]
+
+
+class TestDecapitateWithMutations:
+    @staticmethod
+    def simulated_gig(seed):
+        ts = msprime.sim_ancestry(4, sequence_length=60, recombination_rate=0.02, random_seed=seed)
+        ts = msprime.sim_mutations(ts, rate=0.1, random_seed=seed)
+        return gigl.Graph.from_tree_sequence(ts)
+
+    @pytest.mark.parametrize("seed", [1, 2])
+    @pytest.mark.parametrize("quantile", [0.1, 0.5, 0.9])
+    def test_haplotypes_preserved(self, seed, quantile):
+        gig = self.simulated_gig(seed)
+        time = np.quantile(gig.tables.nodes.time, quantile)
+        new_gig = gig.decapitate(time)
+        node_map = gig.tables.copy().decapitate(time)
+        assert np.all(new_gig.tables.mutations.time[~gigl.is_unknown_time(new_gig.tables.mutations.time)] < time)
+        for u, new_u in enumerate(node_map):
+            if new_u != gigl.NULL:
+                assert new_gig.haplotype(new_u, right=60) == gig.haplotype(u, right=60)
+
+    @pytest.mark.parametrize("seed", [1, 2])
+    def test_discard_old_mutations(self, seed):
+        gig = self.simulated_gig(seed)
+        time = np.quantile(gig.tables.nodes.time, 0.5)
+        new_gig = gig.decapitate(time, discard_old_mutations=True)
+        assert len(new_gig.mutations) < len(gig.mutations)
+        n_missing = 0
+        for u in gig.sample_nodes():
+            old, new = gig.haplotype(u, right=60), new_gig.haplotype(u, right=60)
+            # each allele is either unchanged, or now missing
+            assert all(a == b or b == "N" for a, b in zip(old, new))
+            n_missing += sum(a != b for a, b in zip(old, new))
+        assert n_missing > 0
+
+    @staticmethod
+    def three_generation_tables(child_iedge=(0, 10, 0, 10)):
+        """
+        Root R (node 0, time 3), A (node 1, time 2), and sample S (node 2, time 0).
+        """
+        tables = gigl.Tables()
+        tables.nodes.add_row(3)
+        tables.nodes.add_row(2)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.add_iedge_row(0, 10, 0, 10, child=1, parent=0)
+        tables.add_iedge_row(*child_iedge, child=2, parent=1)
+        for pos, state in enumerate("ACGTACGTAC"):
+            tables.mutations.add_row(0, pos, state)
+        tables.sort()
+        return tables
+
+    def test_inherited_alleles_precede_existing_mutations(self):
+        tables = self.three_generation_tables()
+        tables.mutations.add_row(2, 3, "C", time=0.5)  # S's own (young) mutation
+        tables.mutations.add_row(1, 4, "G", time=2.5)  # old, on A's branch: removed
+        tables.sort()
+        gig = tables.graph()
+        assert gig.haplotype(2) == "ACGCGCGTAC"
+        new_gig = gig.decapitate(1)  # removes R and A
+        assert len(new_gig.nodes) == 1
+        # S now has no iedges, so its sequence length (taken from iedges) is 0
+        assert new_gig.sequence_length(0, 0) == 0
+        assert new_gig.haplotype(0, right=10) == "ACGCGCGTAC"
+        # inherited alleles have unknown times, and come before S's own mutation at 3
+        at_3 = [m for m in new_gig.mutations if m.position == 3]
+        assert [m.derived_state for m in at_3] == ["T", "C"]
+        assert not at_3[0].is_time_known()
+        assert at_3[1].time == 0.5
+
+    def test_old_mutation_on_kept_branch(self):
+        # A mutation above S, older than the cutoff, is part of what S inherits
+        tables = self.three_generation_tables()
+        tables.mutations.add_row(2, 5, "T", time=1.5)
+        tables.sort()
+        gig = tables.graph()
+        new_gig = gig.decapitate(1)
+        assert new_gig.haplotype(0, right=10) == gig.haplotype(2) == "ACGTATGTAC"
+        assert all(not m.is_time_known() for m in new_gig.mutations)
+
+    def test_inversion_across_cutoff(self):
+        # S inherits A's genome inverted
+        gig = self.three_generation_tables(child_iedge=(0, 10, 10, 0)).graph()
+        assert gig.haplotype(2) == "GTACGTACGT"
+        new_gig = gig.decapitate(1)
+        assert new_gig.haplotype(0, right=10) == "GTACGTACGT"
+        # the new mutations are on S's own strand, so are not complemented again
+        assert new_gig.allele_at(0, 0) == "G"
+
+    def test_missing_alleles_not_added(self):
+        tables = self.three_generation_tables()
+        tables.mutations.clear()
+        tables.mutations.add_row(0, 4, "A")
+        tables.sort()
+        new_gig = tables.graph().decapitate(1)
+        assert [(m.node, m.position, m.derived_state) for m in new_gig.mutations] == [(0, 4, "A")]
+
+    def test_no_change_if_cutoff_is_older(self):
+        gig = self.three_generation_tables().graph()
+        new_gig = gig.decapitate(10)
+        assert new_gig.tables.mutations == gig.tables.mutations
+
+    def test_unknown_time_mutation_before_removed_one(self):
+        # S has an unknown-time mutation, followed (in table order) by an old one that is
+        # removed. The old one overwrites the unknown-time one, so both are replaced.
+        tables = self.three_generation_tables()
+        tables.mutations.add_row(2, 3, "C")
+        tables.mutations.add_row(2, 3, "G", time=1.5)
+        tables.sort()
+        gig = tables.graph()
+        assert gig.allele_at(2, 3) == "G"
+        new_gig = gig.decapitate(1)
+        assert new_gig.haplotype(0, right=10) == gig.haplotype(2)
+        assert [m.derived_state for m in new_gig.mutations_for_node(0) if m.position == 3] == ["G"]
+
+    def test_old_mutation_above_kept_root(self):
+        # A root younger than the cutoff loses its own (old) mutations
+        tables = gigl.Tables()
+        tables.nodes.add_row(2)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.add_iedge_row(0, 10, 0, 10, child=1, parent=0)
+        tables.mutations.add_row(0, 4, "A", time=4)
+        tables.mutations.add_row(0, 5, "C")
+        tables.sort()
+        gig = tables.graph()
+        new_gig = gig.decapitate(3)
+        assert len(new_gig.nodes) == 2
+        assert new_gig.haplotype(1) == gig.haplotype(1) == "NNNNACNNNN"
+        assert all(not m.is_time_known() for m in new_gig.mutations)
+
+    def test_iedge_chromosomes_kept(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(3)
+        tables.nodes.add_row(2)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.add_iedge_row(0, 10, 0, 10, child=1, parent=0, child_chromosome=1, parent_chromosome=1)
+        tables.add_iedge_row(0, 10, 0, 10, child=2, parent=1, child_chromosome=1, parent_chromosome=1)
+        tables.mutations.add_row(0, 4, "A", chromosome=1)
+        tables.sort()
+        gig = tables.graph()
+        for time in (2.5, 10):
+            new_gig = gig.decapitate(time)
+            node_map = gig.tables.copy().decapitate(time)
+            assert len(new_gig.iedges) > 0
+            assert np.all(new_gig.tables.iedges.child_chromosome == 1)
+            assert np.all(new_gig.tables.iedges.parent_chromosome == 1)
+            assert new_gig.allele_at(node_map[2], 4, chromosome=1) == "A"
+
+    def test_long_iedge_with_few_mutations(self):
+        # The time taken should depend on the number of mutations, not the iedge length
+        L = 10**9
+        tables = gigl.Tables()
+        tables.nodes.add_row(3)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.add_iedge_row(0, L, 0, L, child=1, parent=0)
+        tables.mutations.add_row(0, L - 1, "A")
+        tables.sort()
+        new_gig = tables.graph().decapitate(1)
+        assert [(m.node, m.position, m.derived_state) for m in new_gig.mutations] == [(0, L - 1, "A")]

@@ -17,6 +17,7 @@ from .util import (
     add_rectangle,
     add_row_label,
     add_triangle,
+    complement_allele,
     is_unknown_time,
     truncate_rows,
 )
@@ -997,19 +998,19 @@ class MutationTable(BaseExtraTable):
     # define each property by hand, for speed
     @property
     def node(self):
-        return self._data["node"]
+        return self._column("node")
 
     @property
     def chromosome(self):
-        return self._data["chromosome"]
+        return self._column("chromosome")
 
     @property
     def position(self):
-        return self._data["position"]
+        return self._column("position")
 
     @property
     def time(self) -> npt.NDArray[np.float64]:
-        return self._data["time"]
+        return self._column("time")
 
     @property
     def derived_state(self):
@@ -1071,8 +1072,16 @@ class MutationTable(BaseExtraTable):
         """
         Reorder the rows of the table using an array of row indexes
         """
-        self._datastore[0 : len(self)] = self._data[order]
-        self._extra_data = [self._extra_data[i] for i in order]
+        self._subset(order)
+
+    def _subset(self, ids):
+        """
+        Replace the rows of the table with the rows with the given IDs, in that order
+        """
+        ids = np.asarray(ids, dtype=np.int64)
+        self._datastore[0 : len(ids)] = self._data[ids]  # indexing makes a copy
+        self._data = self._datastore[0 : len(ids)]
+        self._extra_data = [self._extra_data[i] for i in ids]
         self._rebuild_index()
 
     def ids_for_node(self, u, chromosome=None):
@@ -1532,10 +1541,6 @@ class Tables:
         if len(self.mutations) > 0:
             self.mutations._reorder(self._mutation_sort_order())
 
-    def _check_no_mutations(self, method):
-        if len(self.mutations) > 0:
-            raise NotImplementedError(f"{method} does not yet support tables with mutations")
-
     def graph(self):
         """
         Return a genetic inheritance graph (Graph) object based on these tables. This
@@ -1622,17 +1627,40 @@ class Tables:
         known = ~is_unknown_time(self.mutations.time)
         self.mutations._data["time"][known] += timedelta
 
-    def decapitate(self, time):
+    def decapitate(self, time, *, discard_old_mutations=False):
         """
         Remove nodes that are older than a certain time, and edges that have those
         as parents. Also remove individuals associated with those nodes.
 
-        :param float time: The time before which nodes should be removed
+        Mutations above removed nodes, and mutations whose (known) time is at least
+        ``time``, are removed. Since a GIG has no per-site ancestral states (see
+        :ref:`sec_design_mutations`), information about alleles would then be lost.
+        So by default, wherever a remaining node loses its parent or its own old
+        mutations, mutations with unknown time are added above that node, recording the
+        alleles it inherited from above at those positions (and any mutations at that
+        node and position that came before the removed ones are also removed). This
+        means that the haplotypes of all remaining nodes are unchanged by decapitation.
+
+        :param float time: The time at or before which nodes should be removed
+        :param bool discard_old_mutations: If False (default), the alleles produced by
+            mutations at least as old as ``time`` are recorded by new mutations above
+            the nodes that lose their parents, as described above, so that haplotypes
+            are unchanged. If True, these old mutations are simply discarded, as in
+            :meth:`tskit:tskit.TreeSequence.decapitate`.
+
+            .. warning::
+                With ``discard_old_mutations=True``, ancestral states (which are given
+                by mutations above roots) are removed along with the roots, so
+                positions whose alleles were only defined by older mutations become
+                missing data, and haplotypes may change.
+
         :return: An array mapping old node ids to new node ids (or -1 if removed)
         :rtype: numpy.ndarray
 
         """
-        self._check_no_mutations("decapitate")
+        replacements, superseded = {}, []
+        if not discard_old_mutations and len(self.mutations) > 0:
+            replacements, superseded = self._alleles_inherited_across(time)
         individuals = IndividualTable()
         individual_map = {NULL: NULL}
         nodes = NodeTable()
@@ -1656,12 +1684,91 @@ class Tables:
                     ie.parent_right,
                     child=node_map[ie.child],
                     parent=node_map[ie.parent],
+                    child_chromosome=ie.child_chromosome,
+                    parent_chromosome=ie.parent_chromosome,
                 )
         self.nodes = nodes
         self.iedges = iedges
         self.individuals = individuals
+
+        old_mutations = self.mutations
+        mutations = MutationTable()
+        # Replacements come first, so that they precede (i.e. are older than) any
+        # retained mutations at the same node and position after the (stable) sort
+        for (u, chromosome, position), allele in sorted(replacements.items()):
+            mutations.add_row(node_map[u], position, allele, chromosome=chromosome)
+        keep = (node_map[old_mutations.node] != NULL) & ~(old_mutations.time >= time)  # unknown times are NaN
+        keep[superseded] = False
+        for i in np.flatnonzero(keep):
+            m = old_mutations[i]
+            mutations.add_row(
+                node_map[m.node],
+                m.position,
+                m.derived_state,
+                chromosome=m.chromosome,
+                time=None if is_unknown_time(m.time) else m.time,
+                metadata=m.metadata,
+            )
+        self.mutations = mutations
         self.sort()
         return node_map
+
+    def _alleles_inherited_across(self, time):
+        """
+        Work out the mutations needed by :meth:`decapitate` to keep the haplotypes of
+        nodes younger than ``time`` unchanged. Requires the tables to form a valid GIG.
+
+        Returns a tuple ``(replacements, superseded)``. ``replacements`` is a dict
+        mapping ``(node, chromosome, position)`` to the allele that should be recorded
+        by a new (unknown-time) mutation above that node, to precede any mutations that
+        are kept at that node and position. These record:
+
+        1. The effect of mutations at least as old as ``time`` above nodes younger than
+           ``time`` (these mutations are removed by decapitation). Only the last such
+           mutation at a node and position is needed.
+        2. Otherwise, the alleles inherited through iedges from parents at least as old
+           as ``time`` (these iedges are removed by decapitation). Missing alleles are
+           omitted.
+
+        ``superseded`` is a list of the IDs of mutations that precede (in table order)
+        the last removed mutation at the same node and position. Their effect is
+        overwritten by that mutation, so they should also be removed, as otherwise they
+        would follow the replacement.
+        """
+        from .graph import Graph
+
+        node_time = self.nodes.time
+        complements = self.allele_complements
+        mutations = self.mutations
+        replacements = {}
+        last_removed = {}
+        removed = (mutations.time >= time) & (node_time[mutations.node] < time)
+        for i in np.flatnonzero(removed):  # in table order, so the last one wins
+            m = mutations[i]
+            key = (m.node, m.chromosome, m.position)
+            last_removed[key] = i
+            replacements[key] = m.derived_state
+        superseded = []
+        if len(last_removed) > 0:
+            nodes = np.unique([key[0] for key in last_removed])
+            for j in np.flatnonzero(np.isin(mutations.node, nodes)):
+                key = (mutations.node[j], mutations.chromosome[j], mutations.position[j])
+                if j < last_removed.get(key, -1):
+                    superseded.append(j)
+
+        gig = Graph(self.copy())
+        for ie in gig.iedges:
+            if node_time[ie.child] >= time or node_time[ie.parent] < time:
+                continue
+            known = gig._known_alleles(ie.parent, ie.parent_chromosome, ie.parent_min, ie.parent_max)
+            for x, allele in known.items():
+                if ie.is_inversion():
+                    position = ie.child_left + ie.parent_left - 1 - x
+                    allele = complement_allele(allele, complements)
+                else:
+                    position = ie.child_left + x - ie.parent_left
+                replacements.setdefault((ie.child, ie.child_chromosome, position), allele)
+        return replacements, superseded
 
     @classmethod
     def from_tree_sequence(cls, ts, *, chromosome=None, **kwargs):
@@ -1764,9 +1871,12 @@ class Tables:
         for each node, ordered by node time (oldest first). When considering a
         node, we pop the (youngest) node off the end of the stack, which
         ensures that we have collected all the intervals with that node as a
-        parent, before passing inheritance information upwards
+        parent, before passing inheritance information upwards.
+
+        Nodes are not removed, so mutations stay above the same nodes. Mutations at
+        positions that are not inherited by any sample are removed (mutations above
+        sample nodes are always kept).
         """
-        self._check_no_mutations("sample_resolve")
         # == Implementation details ==
         # A. Rather than representing the intervals for a node as a list of
         #    (left, right) tuples, the "portion" library is used, allowing multiple
@@ -1791,8 +1901,11 @@ class Tables:
         stack = {c: collections.defaultdict(P.interval.Interval) for c in reversed(np.argsort(self.nodes.time))}
         old_iedges = self.iedges
         self.iedges = IEdgeTable()  # Make a new one
+        # The regions of each (non-sample) node inherited by samples, for filtering mutations
+        ancestral_regions = {}
         while len(stack):
             child, chromosomes = stack.popitem()
+            ancestral_regions[child] = chromosomes
             # An internal sample might have some material passed-up from its children
             # here, but we can replace that with everything passed up to parents
             if self.nodes[child].is_sample():
@@ -1833,15 +1946,35 @@ class Tables:
                                     child_chromosome=child_chr,
                                     parent_chromosome=parent_chr,
                                 )
+        self._remove_non_ancestral_mutations(ancestral_regions)
         if sort:
             self.sort()
+
+    def _remove_non_ancestral_mutations(self, ancestral_regions):
+        """
+        Remove mutations that are not in the regions of their nodes that are inherited
+        by samples. Mutations above sample nodes are always kept.
+        """
+        mutations = self.mutations
+        if len(mutations) == 0:
+            return
+        is_sample = (self.nodes.flags & NODE_IS_SAMPLE) != 0
+        keep = [
+            i
+            for i, (u, chrom, x) in enumerate(
+                zip(mutations.node.tolist(), mutations.chromosome.tolist(), mutations.position.tolist())
+            )
+            if is_sample[u] or x in ancestral_regions.get(u, {}).get(chrom, P.empty())
+        ]
+        if len(keep) < len(mutations):
+            mutations._subset(keep)
 
     def remove_non_ancestral_nodes(self):
         """
         Subset the node table to remove any nonsample nodes that are not referenced
-        in the iedges table
+        in the iedges table. Mutations above removed nodes are also removed, and the
+        node IDs of the remaining mutations are updated.
         """
-        self._check_no_mutations("remove_non_ancestral_nodes")
         if not self.iedges.has_all_bitflags(ValidFlags.IEDGES_INTEGERS):
             raise ValueError("Requires edges to contain non-negative child & parent ids")
         keep_nodes = np.zeros(len(self.nodes), dtype=bool)
@@ -1864,6 +1997,13 @@ class Tables:
         # must change the built-in indexes. However, edges are in the samme order,
         # so just chnage the keys
         iedges._id_range_for_child = {inv_mapping[child]: data for child, data in iedges._id_range_for_child.items()}
+
+        mutations = self.mutations
+        if len(mutations) > 0:
+            mutations._subset(np.flatnonzero(keep_nodes[mutations.node]))
+            # The mapping preserves the order of node IDs, so the sort order is unchanged
+            mutations._data["node"] = inv_mapping[mutations.node]
+            mutations._rebuild_index()
 
         return mapping
 

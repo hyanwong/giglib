@@ -742,18 +742,18 @@ class TestMutations:
         assert not root_mutation.is_time_known()
         assert view[0].is_time_known()
 
-    def test_edited_columns_reindexed(self):
-        # Editing a column directly must not leave a stale index in the graph
+    @pytest.mark.parametrize("column", ["node", "chromosome", "position", "time"])
+    def test_columns_read_only(self, column):
+        # Editing a column directly would leave a stale index, so is refused
         tables = gigl.Tables()
         tables.nodes.add_row(0)
         tables.nodes.add_row(0)
-        tables.mutations.add_row(0, 0, "A")
-        tables.mutations.node[0] = 1
+        tables.mutations.add_row(0, 0, "A", time=0)
+        with pytest.raises(ValueError, match="read-only"):
+            getattr(tables.mutations, column)[0] = 1
         gig = tables.graph()
-        assert len(gig.mutations_for_node(0)) == 0
-        assert len(gig.mutations_for_node(1)) == 1
-        assert gig.allele_at(0, 0) is None
-        assert gig.allele_at(1, 0) == "A"
+        assert len(gig.mutations_for_node(0)) == 1
+        assert gig.allele_at(0, 0) == "A"
 
     def test_ids_match_tables_layer(self):
         tables = self.make_tables()
@@ -852,12 +852,6 @@ class TestMutations:
         tables.mutations.add_row(3, 3, "T", time=5)
         with pytest.raises(ValueError, match="must be in time order"):
             tables.graph()
-
-    def test_to_tree_sequence_not_implemented(self):
-        tables = self.make_tables()
-        tables.mutations.add_row(3, 0, "A")
-        with pytest.raises(NotImplementedError, match="mutations"):
-            tables.graph().to_tree_sequence()
 
     def test_tskit_names(self):
         tables = self.make_tables()
@@ -1179,3 +1173,144 @@ class TestAlleleComplements:
         with pytest.raises(TypeError):
             gig.tables.allele_complements["A"] = "A"
         assert gig.tables.copy().allele_complements["A"] == "T"
+
+
+class TestToTreeSequenceWithMutations:
+    @staticmethod
+    def assert_round_trip(ts, exact_order=True):
+        gig = gigl.Graph.from_tree_sequence(ts)
+        ts2 = gig.to_tree_sequence(sequence_length=ts.sequence_length)
+        ts.tables.sites.assert_equals(ts2.tables.sites)
+        if exact_order:
+            ts.tables.mutations.assert_equals(ts2.tables.mutations)
+        else:
+            # Without times, the order of mutations within a site (for different
+            # nodes) cannot be recovered, so just compare their contents
+            def contents(ts):
+                return sorted((m.site, m.node, m.derived_state) for m in ts.mutations())
+
+            assert contents(ts2) == contents(ts)
+        assert list(ts2.alignments()) == list(ts.alignments())
+
+    @pytest.mark.parametrize("seed", [1, 2, 3])
+    def test_round_trip(self, seed):
+        ts = msprime.sim_ancestry(4, sequence_length=80, recombination_rate=0.02, random_seed=seed)
+        ts = msprime.sim_mutations(ts, rate=0.05, random_seed=seed)
+        self.assert_round_trip(ts)
+
+    def test_round_trip_recurrent_mutations(self):
+        ts = msprime.sim_ancestry(4, sequence_length=50, recombination_rate=0.02, random_seed=4)
+        ts = msprime.sim_mutations(ts, rate=1, random_seed=4)
+        assert ts.num_mutations > 2 * ts.num_sites
+        self.assert_round_trip(ts)
+
+    def test_round_trip_binary(self):
+        ts = msprime.sim_ancestry(3, sequence_length=50, random_seed=5)
+        ts = msprime.sim_mutations(ts, rate=0.1, model=msprime.BinaryMutationModel(), random_seed=5)
+        self.assert_round_trip(ts)
+
+    def test_round_trip_unknown_times(self):
+        ts = msprime.sim_ancestry(3, sequence_length=50, recombination_rate=0.02, random_seed=6)
+        ts = _remove_mutation_times(msprime.sim_mutations(ts, rate=0.5, random_seed=6))
+        assert np.all(tskit.is_unknown_time(ts.tables.mutations.time))
+        self.assert_round_trip(ts, exact_order=False)
+
+    def test_round_trip_missing_data(self):
+        ts = msprime.sim_ancestry(3, sequence_length=50, random_seed=7)
+        ts = msprime.sim_mutations(ts, rate=0.1, random_seed=7)
+        ts = ts.delete_intervals([[10, 20]], simplify=False)
+        self.assert_round_trip(ts)
+
+    def test_sites_without_mutations(self):
+        tables = tskit.TableCollection(sequence_length=10)
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        tables.nodes.add_row(time=1)
+        tables.edges.add_row(0, 10, 2, 0)
+        tables.edges.add_row(0, 10, 2, 1)
+        tables.sites.add_row(position=3, ancestral_state="G")
+        tables.sort()
+        self.assert_round_trip(tables.tree_sequence())
+
+    @staticmethod
+    def two_root_tables():
+        """
+        Two separate trees, with roots 2 and 5 (time 1) above samples 0, 1 and 3, 4
+        """
+        tables = gigl.Tables()
+        for t in (0, 0, 1, 0, 0, 1):
+            tables.nodes.add_row(t, flags=gigl.NODE_IS_SAMPLE if t == 0 else 0)
+        for child, parent in ((0, 2), (1, 2), (3, 5), (4, 5)):
+            tables.add_iedge_row(0, 10, 0, 10, child=child, parent=parent)
+        tables.sort()
+        return tables
+
+    def test_roots_agree(self):
+        tables = self.two_root_tables()
+        tables.mutations.add_row(2, 4, "A")
+        tables.mutations.add_row(5, 4, "A")
+        tables.mutations.add_row(0, 4, "C", time=0.5)
+        tables.sort()
+        ts = tables.graph().to_tree_sequence()
+        assert ts.num_sites == 1
+        assert ts.site(0).ancestral_state == "A"
+        assert [(m.node, m.derived_state) for m in ts.mutations()] == [(0, "C")]
+
+    def test_extra_root_mutation_becomes_mutation(self):
+        tables = self.two_root_tables()
+        tables.mutations.add_row(2, 4, "A")
+        tables.mutations.add_row(2, 4, "G", time=2)
+        tables.mutations.add_row(5, 4, "A")
+        tables.sort()
+        ts = tables.graph().to_tree_sequence()
+        assert ts.site(0).ancestral_state == "A"
+        assert [(m.node, m.derived_state) for m in ts.mutations()] == [(2, "G")]
+
+    def test_roots_disagree(self):
+        tables = self.two_root_tables()
+        tables.mutations.add_row(2, 4, "A")
+        tables.mutations.add_row(5, 4, "T")
+        tables.sort()
+        with pytest.raises(ValueError, match="different ancestral states"):
+            tables.graph().to_tree_sequence()
+
+    def test_missing_ancestral_state(self):
+        tables = self.two_root_tables()
+        tables.mutations.add_row(2, 4, "A")
+        tables.mutations.add_row(4, 4, "C")  # no mutation above root 5
+        tables.sort()
+        with pytest.raises(ValueError, match="not all roots"):
+            tables.graph().to_tree_sequence()
+
+    def test_mixed_times(self):
+        tables = self.two_root_tables()
+        tables.mutations.add_row(2, 4, "A")
+        tables.mutations.add_row(5, 4, "A")
+        tables.mutations.add_row(0, 4, "C", time=0.5)
+        tables.mutations.add_row(1, 4, "G")
+        tables.sort()
+        with pytest.raises(ValueError, match="known and unknown times"):
+            tables.graph().to_tree_sequence()
+
+    def test_multiple_chromosomes(self):
+        tables = self.two_root_tables()
+        tables.mutations.add_row(2, 4, "A")
+        tables.mutations.add_row(0, 4, "A", chromosome=1)
+        tables.sort()
+        with pytest.raises(ValueError, match="all be on one chromosome"):
+            tables.graph().to_tree_sequence()
+
+    def test_mutations_on_different_chromosome_to_iedges(self):
+        # The only mutation is on chromosome 1, but the iedges are on chromosome 0
+        tables = self.two_root_tables()
+        tables.mutations.add_row(2, 4, "A", chromosome=1)
+        tables.sort()
+        with pytest.raises(ValueError, match="all be on one chromosome"):
+            tables.graph().to_tree_sequence()
+
+    def test_position_beyond_sequence_length(self):
+        tables = self.two_root_tables()
+        tables.mutations.add_row(2, 12, "A")
+        tables.sort()
+        with pytest.raises(ValueError, match="less than the sequence length"):
+            tables.graph().to_tree_sequence()
