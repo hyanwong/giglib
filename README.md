@@ -1,176 +1,65 @@
 # The Genetic Inheritance Graph Library (giglib)
 
-A repository for templating ideas for the "(Generalised) Genetic Inheritance Graph" structure, which can
-capture genetic inheritance with genomic rearrangements, and hence describe inherited structural variation. This is
-not meant to be stable software, and the API is subject to change at any time, but for the moment you can
-try it out by converting a [succinct tree sequence](https://tskit.dev/tutorials/what_is.html)
-to a GIG (although such a gig will not contain structural variation)
+A library for "(Generalised) Genetic Inheritance Graphs" (GIGs), which extend the idea of an
+[ancestral recombination graph](https://tskit.dev/tutorials/args.html) to capture genetic inheritance
+with genomic rearrangements, and hence describe inherited structural variation.
+
+This is a proof of concept, not stable software: the API may change at any time.
+
+📖 **Documentation: [https://hyanwong.github.io/giglib/](https://hyanwong.github.io/giglib/)**
+
+## Quick start
+
+```bash
+python -m pip install git+https://github.com/hyanwong/giglib
+```
+
+You can try it out by converting a [succinct tree sequence](https://tskit.dev/tutorials/what_is.html)
+into a GIG (although such a GIG will not contain structural variation):
 
 ```python
 import msprime
 import giglib as gigl  # 😁
 
-ts = msprime.sim_ancestry(
-    4, sequence_length=100, recombination_rate=0.01, random_seed=1
-)
+ts = msprime.sim_ancestry(4, sequence_length=100, recombination_rate=0.01, random_seed=1)
 gig = gigl.Graph.from_tree_sequence(ts)
-print(len(gig.nodes), "nodes in this GIG")
+print(len(gig.nodes), "nodes, of which", len(gig.sample_nodes()), "are samples")
 ```
 
 ## Basic idea
 
-In [`tskit`](https://tskit.dev) we use edge annotations to describe which pieces of DNA are inherited in terms of a left and right coordinate.
-It should be possible to extend this to track the L & R in the edge *child*, and the L & R in the edge *parent* separately.
-The left and right values in each case refer to the coordinate system of the child and parent respectively.
+In [_tskit_](https://tskit.dev), each edge records the left and right coordinates of the inherited
+DNA. A GIG records these separately for the *child* and the *parent*, each in its own coordinate
+system. Rows of this kind are called interval edges, or `iedges`. This lets a GIG represent inversions,
+duplications, deletions, and more complex rearrangements: see
+[Concepts](https://hyanwong.github.io/giglib/concepts.html) for examples.
 
-We call an extended tree-sequence-like structure such as this a GIG ("Generalised (or Genetic) Inheritance Graph"). For
-terminological clarity,
-we switch to using the term interval-edge (`iedge`) to refer to what is normally called an `edge` in a *tskit* Tree Sequence.
+<img src="https://github.com/hyanwong/GeneticInheritanceGraph/assets/5416474/0fff67b3-71e7-4ed5-895a-140a06f49940" alt="A schematic GIG" width="500"/>
 
-Note that separating child from parent coordinates brings a host of extra complexities,
-and it’s unclear if the efficiency of the tskit approach,
-with its edge indexing etc, will port in any meaningful way to this new structure.
-Nevertheless, basic operations such as simplification and finding MRCA genomes
-have already been (inefficently) implemented.
+(Schematic drawn by [@duncanMR](https://github.com/duncanMR)).
 
-### Inversions
+## API principles
 
-The easiest example is an inversion. This would be an iedge like
+The design is inspired by _tskit_, but where the two conflict, giglib aims for internal
+consistency rather than compatibility with _tskit_:
 
-```
-{parent: P, child: C, child_left: 100, child_right: 200, parent_left: 200, parent_right: 100}
-```
+- **Tables and graphs** A GIG is created by freezing a mutable `Tables` object into an immutable
+  `Graph`, using `gig = tables.graph()`. Some algorithms can be run directly on the tables, which
+  makes forward simulation feasible.
+- **Graphs return objects, tables return IDs** For example, `gig.sample_nodes()` returns `Node`
+  objects, while `tables.sample_nodes()` returns a numpy array of IDs. Where possible, a query
+  has the same name on both.
+- **Views** Collections such as `gig.nodes` or `gig.iedges_for_child(u)` support `len()`,
+  indexing, and iteration, and expose their IDs via `.ids`.
+- **Attributes versus methods** Fixed properties are attributes (`gig.nodes`, `gig.time_units`).
+  Anything that takes parameters is a method (`gig.filter_nodes(flags=..., time=...)`).
+- **tskit names** Common _tskit_ names such as `gig.num_nodes` still work, but they emit a warning
+  suggesting the giglib equivalent (here, `len(gig.nodes)`).
 
-There is a subtle gotcha here, because intervals in a GIG, as in _tskit_, are treated as half-closed
-(i.e. do not include the position given by the right coordinate). When we invert an interval, it
-therefore does not include the *left* parent coordinate, but does include the *right* parent coordinate.
-Any transformed position is thus out by one. Or to put it another way, an inversion specified
-by child_left=0, child_right=3, parent_left=3, parent_right=0 transforms the points
-0, 1, 2 to 2, 1, 0: although the *interval* 0, 3 is transformed to 0, 3., the *point* 0 is transformed
-to position 2, not position 3. See
-[here](https://github.com/hyanwong/giglib/issues/41#issuecomment-1858530867)
-for more discussion.
+See [Usage](https://hyanwong.github.io/giglib/usage.html) for more detail, including the full
+list of differences from _tskit_ and pointers to the example simulation code.
 
-### Duplications
+## Contributing
 
-A tandem duplication is represented by two iedges, one for each duplicated region:
-
-```
-{parent: P, child: C, child_left: 100, child_right: 200, parent_left: 100, parent_right: 200}
-{parent: P, child: C, child_left: 200, child_right: 300, parent_left: 100, parent_right: 200}
-```
-
-Or one of the iedges could represent a non-adjacent duplication (e.g. corresponding to a transposable element):
-```
-{parent: P, child: C, child_left: 250, child_right: 350, parent_left: 100, parent_right: 200}
-```
-
-### Deletions
-
-A deletion simply occurs when no material from the parent is transmitted to any of its children (and the coordinate system is shrunk)
-
-```
-# Deletion of parental region from 200-300
-{parent: P, child: C, child_left: 100, child_right: 200, parent_left: 100, parent_right: 200}
-{parent: P, child: C, child_left: 200, child_right: 300, parent_left: 300, parent_right: 400}
-```
-
-### Viz
-
-The [graphical interpretation](https://github.com/hyanwong/giglib/issues/2#issuecomment-1684164074)
-is something like this, elegantly drawn by [@duncanMR](https://github.com/duncanMR):
-
-<img src="https://github.com/hyanwong/GeneticInheritanceGraph/assets/5416474/0fff67b3-71e7-4ed5-895a-140a06f49940" alt="GIG" width="500"/>
-
-## Meaning of trees
-The interpretation of local trees may be rather different from that in tskit. In particular,
-if there is a duplication, it could be interpreted as creating two tree tips within a single sample.
-This would mean that there is no longer a 1-to-1 mapping from samples to tree tips, which
-breaks one of the fundamental principles behind ARGs in general and the _tskit_ representation in particular.
-
-## API differences
-
-The fundamental data structures and API provided by the Genetic Inheritance Graph Library as defined in
-this GitHub repository intentionally mirror that of _tskit_ (which makes it easy e.g. to initialise a GIG
-from an msprime-simulated tree sequence 🎉). Nevertheless, there are a number of terminological
-and implementation differences, an incomplete list of which are below:
-
-- **Iedges** As described above, intervals in a GIG as defined by giglib are stored
-  in the iedges table, which has a `parent_left` and `child_left` column rather than a simple `left`
-  column as in _tskit_ (and similarly for `right`).
-- **Tables and Graphs** giglib provides a `Tables` and `Graph` class, corresponding
-  to `TableCollection` and `TreeSequence` classes in _tskit_. Thus to create a GIG from scratch,
-  you do `gig = tables.graph()`
-- **Chromosomes** The API includes the possibility of having genetic material on different chromosomes.
-  This is implemented using two extra columns in the iedges table (see
-  https://github.com/hyanwong/giglib/issues/11 for the rationale)
-- **Object access** Information stored in GIG tables can be accessed using square brackets, and
-  the `len()` function should work, so the canonical usage looks like `gig.nodes[0]`, `len(gig.nodes)`,
-  and `[u.id for u in gig.nodes]` rather than the equivalents in _tskit_ (`ts.node(0)`, `ts.num_nodes`,
-  and `[u.id for u in ts.nodes()]`. Similarly, we use `gig.sample_ids` (no braces) rather than `ts.samples()`.
-- **Internal iedge order** The iedges in a GIG are sorted such that all those for a given child are
-  adjacent (rather than all edges for a parent being adjacent as in _tskit_). Moreover, iedges are
-  sorted in decreasing order of child time, so that edges with more recent children come last. Since
-  edges for a given child are adjacent, child intervals for those edges cannot overlap. Edges for a
-  given child are ordered by left coordinate, which helps algorithmic efficiency. The internal
-  `gig.iedge_map_sorted_by_parent` array indexes into iedges in the order expected by tskit.
-- **No `.trees()` iterator** See above: the meaning of a "local tree" is unclear in a GIG, so
-  implementing the equivalent of the fundamental _tskit_ `.trees()` method is likely to require
-  substantial theoretical work.
-- **Algorithms on tables** Unlike _tskit_, some fundamental algorithms such as `find_mrca_regions` and
-  `sample_resolve` (a basic type of `simplify`) can be run directly on a set of tables.
-  For this to work, the tables need to conform to certain validity criteria.
-  Substantial additional functionality has been incoporated into the tables objects, so that table rows
-  (especially for iedges) can be validated on calling `table.add_row()`, according to certain validity flags
-  (see the [`ValidFlags` class](giglib/constants.py) in `constants.py`).
-  This allows use of the GIG structure during generation of the tables, without having the substantial
-  overhead of continually having to freeze them into an immutable graph. This makes forward simulation
-  feasible.
-- **Other stuff** More differences should be noted here!
-
-## Examples
-
-As with a _tskit_ tree sequence, a GIG is immmutable, so to create one from scratch you
-need to make a set of `Tables` and freeze them using the `.graph()` method (which gives
-opportunity to cache and index important stuff):
-
-```python
-import giglib as gigl
-
-tables = gigl.Tables()
-tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
-tables.nodes.add_row(1, flags=0)
-# Add an inversion
-tables.iedges.add_row(
-    parent=1, child=0, child_left=0, child_right=1, parent_left=1, parent_right=0
-)
-gig = tables.graph()
-assert len(gig.nodes) == 2
-assert len(gig.iedges) == 1
-assert len(gig.samples) == 1
-assert gig.iedges[0].is_inversion()
-```
-
-### Simulations
-
-Examples of code that runs simulations are provided in the test suite. Currently they are based on a relatively simple extension
-of the boilerplate forward-simulation code in https://tskit.dev/tutorials/forward_sims.html. The important
-difference is that the [find_mrca_regions](https://github.com/hyanwong/giglib/blob/3385f5149f7028cb2b5bfd8c236774b926f79de9/giglib/tables.py#L841)
-method is used to locate breakpoints for recombination.
-
-For more details the [sim.py file](https://github.com/hyanwong/giglib/blob/main/tests/sim.py)
-is a convenience wrapper that links out to other files containing simulation code.
-Currently only forward simulation code is provided. Nevertheless, it is conceptually
-general enough to form the basis of a pangenome simulator (this would however require
-substantial effort in fixing reasonable parameters before realistic-looking pangenomes
-could be created).
-
-For a hacky example of how to use the simulation code directly from the test suite, see
-https://github.com/hyanwong/giglib/issues/86#issuecomment-1970029273
-or https://github.com/hyanwong/giglib/issues/82#issuecomment-1972153550.
-
-
-## Documentation
-
-Preliminary documentation is at [https://hyanwong.github.io/giglib/](https://hyanwong.github.io/giglib/)
-(partially autogenerated from the codebase). Note that the API is not stable and may change at any time.
+Ideas and discussion happen in the [issues](https://github.com/hyanwong/giglib/issues).
+Pull requests are welcome.
