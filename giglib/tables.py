@@ -160,7 +160,13 @@ class BaseTable:
     def __setattr__(self, attr, value):
         if self._frozen:
             raise AttributeError("Trying to set attribute on a frozen (read-only) instance")
-        return super().__setattr__(attr, value)
+        super().__setattr__(attr, value)
+        if attr == "_datastore":
+            # Whenever the storage array is replaced, make read-only views of its
+            # columns (in-place changes to the storage are seen through these views)
+            read_only = value.view()
+            read_only.flags.writeable = False
+            super().__setattr__("_read_only_columns", {name: read_only[name] for name in read_only.dtype.names})
 
     def __eq__(self, other):
         return np.all(self._data == other._data) and self._extra_data == other._extra_data
@@ -201,10 +207,12 @@ class BaseTable:
         (e.g. ``iedges.child[0] = 2`` would leave ``ids_for_child()`` returning the
         wrong iedges). Code in this library that needs to edit a column should use
         ``self._data[name]``, and then update any indexes and flags.
+
+        For speed, this slices a read-only view of the whole column in the storage
+        array, which is only created when the storage array is replaced (see
+        ``__setattr__``), rather than setting the read-only flag on every access.
         """
-        column = self._data[name]
-        column.flags.writeable = False
-        return column
+        return self._read_only_columns[name][: len(self._data)]
 
     @property
     def _num_preallocated_rows(self):
