@@ -48,4 +48,7 @@ def test_warn_tskit_name():
     msg = r"gig\.foo does not exist in giglib: for the equivalent of tskit's ts\.foo, try bar"
     with pytest.warns(gigl.TskitNameWarning, match=msg):
         util.warn_tskit_name("foo", "bar")
+    msg = r"tables\.foo does not exist in giglib: for the equivalent of tskit's tables\.foo, try bar"
+    with pytest.warns(gigl.TskitNameWarning, match=msg):
+        util.warn_tskit_name("foo", "bar", obj="tables", tskit_obj="tables")
     assert issubclass(gigl.TskitNameWarning, UserWarning)

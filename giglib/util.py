@@ -15,13 +15,14 @@ class TskitNameWarning(UserWarning):
     """
 
 
-def warn_tskit_name(name, suggestion):
+def warn_tskit_name(name, suggestion, *, obj="gig", tskit_obj="ts"):
     """
-    Warn that ``gig.<name>`` does not exist in giglib, and suggest the giglib
-    equivalent of the tskit ``ts.<name>``.
+    Warn that ``<obj>.<name>`` does not exist in giglib, and suggest the giglib
+    equivalent of the tskit ``<tskit_obj>.<name>``. By default, ``obj`` is a
+    :class:`Graph` (``gig``), the equivalent of a tskit ``TreeSequence`` (``ts``).
     """
     warnings.warn(
-        f"gig.{name} does not exist in giglib: for the equivalent of tskit's ts.{name}, try {suggestion}",
+        f"{obj}.{name} does not exist in giglib: for the equivalent of tskit's {tskit_obj}.{name}, try {suggestion}",
         TskitNameWarning,
         stacklevel=3,
     )
