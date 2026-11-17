@@ -385,12 +385,22 @@ class IEdgeTable(BaseTable):
         return super().__eq__(other)
 
     def set_bitflag(self, flag):
+        """
+        Mark the given :class:`~giglib.ValidFlags` as guaranteed for this table
+        """
         self.flags |= flag
 
     def unset_bitflag(self, flag):
+        """
+        Mark the given :class:`~giglib.ValidFlags` as no longer guaranteed for this table
+        """
         self.flags &= ~flag
 
     def has_bitflag(self, flag):
+        """
+        Return ``True`` if any of the bits in ``flag`` (one or more
+        :class:`~giglib.ValidFlags`) are guaranteed for this table
+        """
         return bool(self.flags & flag)
 
     def _increment_id_range_for_child(self, child, child_chromosome, rownum):

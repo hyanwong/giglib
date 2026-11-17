@@ -15,4 +15,4 @@ kernelspec:
 
 # APIs
 
-There is currently only a [Python API](sec_python_api) 
+There is currently only a {ref}`Python API <sec_python_api>` 
