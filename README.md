@@ -28,7 +28,7 @@ Start from a tree sequence you already have:
 
 ```python
 import msprime
-import giglib as gigl
+import giglib as gigl  # 😁
 
 ts = msprime.sim_ancestry(4, sequence_length=100, recombination_rate=0.01, random_seed=1)
 gig = gigl.Graph.from_tree_sequence(ts)
