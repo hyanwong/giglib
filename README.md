@@ -1,65 +1,85 @@
 # The Genetic Inheritance Graph Library (giglib)
 
-A library for "(Generalised) Genetic Inheritance Graphs" (GIGs), which extend the idea of an
-[ancestral recombination graph](https://tskit.dev/tutorials/args.html) to capture genetic inheritance
-with genomic rearrangements, and hence describe inherited structural variation.
+**Like [tskit](https://tskit.dev), but for genomes that rearrange.**
 
-This is a proof of concept, not stable software: the API may change at any time.
+A tree sequence assumes that every genome shares one coordinate system, so position 1000 means
+the same thing in every sample. That breaks down as soon as there are inversions, duplications,
+deletions, or transposable elements. A **genetic inheritance graph** (GIG) drops that assumption:
+each edge records the inherited interval in the *child's* coordinates **and** in the *parent's*
+coordinates. This lets a GIG store genetic ancestry that includes structural variation.
 
-📖 **Documentation: [https://hyanwong.github.io/giglib/](https://hyanwong.github.io/giglib/)**
+If you know tskit, you already know most of giglib.
 
-## Quick start
+📖 **[Documentation](https://hyanwong.github.io/giglib/)** · This is a proof of concept: the API may change at any time.
+
+## Try it
 
 ```bash
 python -m pip install git+https://github.com/hyanwong/giglib
 ```
 
-You can try it out by converting a [succinct tree sequence](https://tskit.dev/tutorials/what_is.html)
-into a GIG (although such a GIG will not contain structural variation):
+Start from a tree sequence you already have:
 
 ```python
 import msprime
-import giglib as gigl  # 😁
+import giglib as gigl
 
 ts = msprime.sim_ancestry(4, sequence_length=100, recombination_rate=0.01, random_seed=1)
 gig = gigl.Graph.from_tree_sequence(ts)
-print(len(gig.nodes), "nodes, of which", len(gig.sample_nodes()), "are samples")
+print(len(gig.nodes), "nodes,", len(gig.iedges), "iedges,", len(gig.sample_nodes()), "samples")
+
+ts_again = gig.to_tree_sequence()  # ...and back again
 ```
 
-## Basic idea
+Then go somewhere a tree sequence can't follow. Here a child inherits its parent's genome, plus an
+extra, inverted copy of the last 50 bases:
 
-In [_tskit_](https://tskit.dev), each edge records the left and right coordinates of the inherited
-DNA. A GIG records these separately for the *child* and the *parent*, each in its own coordinate
-system. Rows of this kind are called interval edges, or `iedges`. This lets a GIG represent inversions,
-duplications, deletions, and more complex rearrangements: see
-[Concepts](https://hyanwong.github.io/giglib/concepts.html) for examples.
+```python
+tables = gigl.Tables()
+parent = tables.nodes.add_row(time=1)
+child = tables.nodes.add_row(time=0, flags=gigl.NODE_IS_SAMPLE)
+tables.iedges.add_row(child=child, parent=parent, child_left=0, child_right=100, parent_left=0, parent_right=100)
+tables.iedges.add_row(child=child, parent=parent, child_left=100, child_right=150, parent_left=100, parent_right=50)
+gig = tables.graph()
 
-<img src="https://github.com/hyanwong/GeneticInheritanceGraph/assets/5416474/0fff67b3-71e7-4ed5-895a-140a06f49940" alt="A schematic GIG" width="500"/>
+for ie in gig.iedges_for_child(child):
+    print(f"child {ie.child_left}-{ie.child_right} <- parent {ie.parent_left}-{ie.parent_right}",
+          "(inverted)" if ie.is_inversion() else "")
+# child 0-100 <- parent 0-100
+# child 100-150 <- parent 100-50 (inverted)
+```
 
-(Schematic drawn by [@duncanMR](https://github.com/duncanMR)).
+The child's genome is now 150 bases long, while its parent's is 100. giglib can still trace
+ancestry through the rearrangement. For example, `gig.find_mrca_regions(u, v)` finds which
+regions of two genomes share a common ancestor, and where those regions sit in each genome. That
+is enough to build forward simulations with structural variants and recombination: see the
+[Usage](https://hyanwong.github.io/giglib/usage.html#simulations) page.
 
-## API principles
+## Coming from tskit
 
-The design is inspired by _tskit_, but where the two conflict, giglib aims for internal
-consistency rather than compatibility with _tskit_:
+| tskit | giglib |
+|---|---|
+| `TableCollection`, `tables.tree_sequence()` | `Tables`, `tables.graph()` |
+| `ts.edges()` (`left`, `right`) | `gig.iedges` (`child_left`, `child_right`, `parent_left`, `parent_right`) |
+| `ts.node(u)`, `ts.num_nodes` | `gig.nodes[u]`, `len(gig.nodes)` |
+| `ts.samples()` | `gig.sample_nodes()` (`Node` objects) or `gig.sample_nodes().ids` (IDs) |
+| `ts.tables.nodes.time` | `gig.tables.nodes.time` |
+| `ts.simplify()` | `gig.sample_resolve()` (a basic version, so far) |
 
-- **Tables and graphs** A GIG is created by freezing a mutable `Tables` object into an immutable
-  `Graph`, using `gig = tables.graph()`. Some algorithms can be run directly on the tables, which
-  makes forward simulation feasible.
-- **Graphs return objects, tables return IDs** For example, `gig.sample_nodes()` returns `Node`
-  objects, while `tables.sample_nodes()` returns a numpy array of IDs. Where possible, a query
-  has the same name on both.
-- **Views** Collections such as `gig.nodes` or `gig.iedges_for_child(u)` support `len()`,
-  indexing, and iteration, and expose their IDs via `.ids`.
-- **Attributes versus methods** Fixed properties are attributes (`gig.nodes`, `gig.time_units`).
-  Anything that takes parameters is a method (`gig.filter_nodes(flags=..., time=...)`).
-- **tskit names** Common _tskit_ names such as `gig.num_nodes` still work, but they emit a warning
-  suggesting the giglib equivalent (here, `len(gig.nodes)`).
+A few rules keep the API predictable:
+- `Graph` methods return objects and `Tables` methods return ID arrays, using the same names.
+- Collections such as `gig.nodes` support `len()`, indexing and `.ids`.
+- Some algorithms run directly on unfrozen `Tables`, which makes forward simulation practical.
 
-See [Usage](https://hyanwong.github.io/giglib/usage.html) for more detail, including the full
-list of differences from _tskit_ and pointers to the example simulation code.
+If you type `gig.num_nodes` out of habit, it still works, and a warning tells you the giglib
+equivalent.
 
-## Contributing
+For the full story, see [Concepts](https://hyanwong.github.io/giglib/concepts.html) (how
+rearrangements are encoded) and [Usage](https://hyanwong.github.io/giglib/usage.html) (all the
+differences from tskit).
 
-Ideas and discussion happen in the [issues](https://github.com/hyanwong/giglib/issues).
-Pull requests are welcome.
+## Get involved
+
+giglib is an experiment in what an ARG library for structural variation could look like, and
+there are plenty of open questions, from how to store mutations to how to define local trees. Ideas,
+use cases and pull requests are very welcome: see the [issues](https://github.com/hyanwong/giglib/issues).
