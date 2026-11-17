@@ -68,39 +68,44 @@ class Position(_UnpackableAsKeywords, collections.namedtuple("Position", "positi
     __slots__ = ()
 
 
-class IEdgeTableRow(
-    collections.namedtuple(
-        "IEdgeTableRow",
-        ", ".join(
-            [
-                "child",
-                "parent",
-                "child_left",
-                "child_right",
-                "parent_left",
-                "parent_right",
-                "child_chromosome",
-                "parent_chromosome",
-                "edge",
-            ]
-        ),
-    )
-):
+class _IEdgeMethods:
     """
-    A row in an IEdgeTable. This is a named tuple, so the fields can be accessed
-    by name as well as by index.
+    Properties and methods shared by iedge table rows (:class:`IEdgeTableRow`) and
+    iedge objects in a graph (:class:`~giglib.graph.IEdge`). These do not assume that
+    the iedge is valid (e.g. that ``child_left < child_right``, or that the child and
+    parent intervals have the same length), as table rows may not have been validated.
+    Those that rely on validity are only defined on :class:`~giglib.graph.IEdge`.
     """
 
-    @property
-    def parent_span(self):
-        return self.parent_right - self.parent_left
+    __slots__ = ()
 
     @property
     def child_span(self):
+        """
+        The span of the child interval, ``child_right - child_left`` (positive
+        for a valid iedge)
+        """
         return self.child_right - self.child_left
 
+    @property
+    def parent_span(self):
+        """
+        The span of the parent interval, ``parent_right - parent_left``. This is
+        negative if the iedge is an inversion.
+        """
+        return self.parent_right - self.parent_left
+
     def is_inversion(self):
+        """
+        Is the parent interval in the opposite orientation to the child interval
+        """
         return self.parent_span * self.child_span < 0
+
+    def is_simple_inversion(self):
+        """
+        Is this an in-situ inversion, where parent and child coords are simply swapped
+        """
+        return self.parent_left == self.child_right and self.parent_right == self.child_left
 
     @property
     def parent_max(self):
@@ -145,28 +150,73 @@ class IEdgeTableRow(
         return Segment(self.parent_left, self.parent_right, self.parent_chromosome)
 
 
+class IEdgeTableRow(
+    _IEdgeMethods,
+    collections.namedtuple(
+        "IEdgeTableRow",
+        ", ".join(
+            [
+                "child",
+                "parent",
+                "child_left",
+                "child_right",
+                "parent_left",
+                "parent_right",
+                "child_chromosome",
+                "parent_chromosome",
+                "edge",
+            ]
+        ),
+    ),
+):
+    """
+    A row in an IEdgeTable. This is a named tuple, so the fields can be accessed
+    by name as well as by index.
+    """
+
+
+class _NodeMethods:
+    """
+    Methods shared by node table rows (:class:`NodeTableRow`) and node objects in a
+    graph (:class:`~giglib.graph.Node`)
+    """
+
+    __slots__ = ()
+
+    def is_sample(self):
+        """
+        Is this node flagged as a sample
+        """
+        return bool(self.flags & NODE_IS_SAMPLE)
+
+
 class NodeTableRow(
+    _NodeMethods,
     collections.namedtuple(
         "NodeTableRow",
         ", ".join(["time", "flags", "individual", "metadata"]),
-    )
+    ),
 ):
-    def is_sample(self):
-        return bool(self.flags & NODE_IS_SAMPLE)
+    pass
 
 
 class IndividualTableRow(collections.namedtuple("IndividualTableRow", "flags, location, parents, metadata")):
     pass
 
 
-class MutationTableRow(
-    collections.namedtuple("MutationTableRow", "node, position, chromosome, time, derived_state, metadata")
-):
+class _MutationMethods:
     """
-    A row in a :class:`MutationTable`. The ``position`` is in the coordinates of
-    ``node`` for the given ``chromosome``, and the ``derived_state`` replaces the
-    base at that position. See :ref:`sec_design_mutations` for details.
+    Methods shared by mutation table rows (:class:`MutationTableRow`) and mutation
+    objects in a graph (:class:`~giglib.graph.Mutation`)
     """
+
+    __slots__ = ()
+
+    def is_time_known(self):
+        """
+        Return ``True`` if the time of this mutation is known
+        """
+        return not is_unknown_time(self.time)
 
     # Unknown times are NaNs, which would otherwise make identical rows compare unequal
     def _comparable(self):
@@ -186,6 +236,17 @@ class MutationTableRow(
 
     def __hash__(self):
         return hash(self._comparable())
+
+
+class MutationTableRow(
+    _MutationMethods,
+    collections.namedtuple("MutationTableRow", "node, position, chromosome, time, derived_state, metadata"),
+):
+    """
+    A row in a :class:`MutationTable`. The ``position`` is in the coordinates of
+    ``node`` for the given ``chromosome``, and the ``derived_state`` replaces the
+    base at that position. See :ref:`sec_design_mutations` for details.
+    """
 
 
 class BaseTable:
