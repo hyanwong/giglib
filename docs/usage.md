@@ -77,7 +77,9 @@ compatibility with _tskit_. In particular:
   can be represented by multiple disjoint intervals in the `iedges` table. If the parent
   coordinates are the same as the child's (i.e. the interval is not moved or inverted), they can
   be omitted, and `child_left` defaults to 0, so e.g. `tables.iedges.add_row(1, 0, child_right=100)`
-  means that node 1 inherits positions 0 to 100 from node 0, unchanged.
+  means that node 1 inherits positions 0 to 100 from node 0, unchanged. If no coordinates are given,
+  the iedge covers position 0 only (like the default sequence length of 1 in _msprime_), which is
+  handy for building simple trees, e.g. `tables.iedges.add_row(1, 0)`.
 - **Tables and Graphs** giglib provides a `Tables` and `Graph` class, corresponding
   to `TableCollection` and `TreeSequence` classes in _tskit_. Thus to create a GIG from scratch,
   you do `gig = tables.graph()`
