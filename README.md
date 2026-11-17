@@ -2,8 +2,7 @@
 
 **Genetic ancestry for genomes that rearrange.**
 
-Two kinds of graph are increasingly used to describe genetic variation, but each tells only half
-the story. [Ancestral recombination graphs](https://tskit.dev/tutorials/args.html) (ARGs) record
+Two kinds of graph are increasingly used to describe genetic variation. [Ancestral recombination graphs](https://tskit.dev/tutorials/args.html) (ARGs) record
 how genomes are related through inheritance and recombination, but assume that all genomes line
 up base for base. Pangenome graphs capture structural variation between genomes, such as
 inversions, duplications, and deletions, but not the genealogy that produced it. A **genetic
