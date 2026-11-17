@@ -88,10 +88,19 @@ coalescence. A definition that works in both cases is:
 - **Unequal crossing-over:** the child contains both copies, and each of its parents only one, so
   again the child is the duplication node.
 
-The merge of the two lineages, further back, is then an ordinary coalescence. Whether a split in
-the genealogy of a region is a "speciation" (orthology) or a "duplication" (paralogy) depends on
-whether a duplication node lies between it and the copies: the same distinction as in gene-tree
-/ species-tree reconciliation.
+What happens to the two lineages above the duplication node depends on how the duplication
+arose:
+
+- **Tandem duplication:** the copies merge immediately, in the parent, as both are copies of one
+  interval of the parent's genome. This merge *is* the duplication event: it is not the
+  coalescence of two independently inherited lineages, so it carries no information about
+  demography.
+- **Unequal crossing-over:** the copies come from different parents, and merge further back
+  in time, where the two (allelic) lineages coalesce. That merge is an ordinary coalescence.
+
+Whether a split in the genealogy of a region is a "speciation" (orthology) or a "duplication"
+(paralogy) depends on whether a duplication node lies between it and the copies: the same
+distinction as in gene-tree / species-tree reconciliation.
 
 ### Why distinguish them
 
@@ -139,12 +148,15 @@ of regions. Which is faster to compute, and gives smaller tables, needs measurin
 
 Mutations are above nodes, not on iedges. If simplification only removes nodes (or regions of
 nodes) that are unary, a mutation above a removed region of a node `u` has exactly one descendant
-copy, in a child `c`. So it can move to the node `c`, at the corresponding position (found
-through the iedge from `c` to `u`). Its derived state is complemented if that iedge is an
-inversion. Its time stays valid: it was between the times of `u` and `u`'s parent `p`, `c` is
-younger than `u`, and after composing iedges, `c`'s parent in that region is `p`. A region with
-several copies is a coalescence or a duplication, so its node is kept, and its mutations stay
-above it.
+copy, in the nearest descendant `d` that is kept. So it can move to the node `d`, at the
+corresponding position. This is found by tracing the *original* iedges from `d` up to `u`: one
+iedge if `d` is a child of `u`, or several if a chain of unary nodes is removed. The composed
+iedge cannot be used for this, as it maps `d`'s coordinates to those of the node above `u`, not
+of `u` itself. The mutation's derived state is complemented if that path includes an odd number
+of inversions. Its time stays valid: it was between the times of `u` and of `u`'s parent, `d` is
+younger than `u`, and after composing iedges, `d`'s parent in that region is `u`'s parent (or an
+older kept ancestor). A region with several copies is a coalescence or a duplication, so its node
+is kept, and its mutations stay above it.
 
 The homology table does not affect mutations, which stay above their nodes in the real graph.
 The time of a mutation is only constrained by the real iedges (it must be between the times of its
@@ -156,6 +168,15 @@ ancestors, and so would allow a much wider range of times.
 Proposed in {issue}`140`. It would be used by a "homologous location" method, e.g.
 `gig.homologous_location(source_node, source_position, target_node)`, returning the equivalent
 position (and orientation) in the target genome. Open questions:
+
+- **Several equivalent positions.** A position can have more than one equivalent in the same
+  target genome. For example, after a tandem duplication of a parent's positions 10 to 20 to make
+  a child's positions 10 to 20 and 20 to 30, position 15 of the parent is equivalent to both 15
+  and 25 in the child. Or a position may have none (e.g. after a deletion). So the method must
+  either return *all* the equivalent positions (each with a chromosome and orientation, possibly
+  none), take a way of choosing between them (e.g. to choose a recombination breakpoint at
+  random), or report that the answer is ambiguous. This must be decided before implementing it.
+  Returning all of them is the most general, and the others can be built on it.
 
 - **What is at the top?** The deepest roots, a chosen reference genome (which ties in with the
   reference sequences in {ref}`sec_design_mutations`, and with {issue}`158`), or the local MRCA
@@ -304,4 +325,5 @@ conversation about the giglib API, mutations, and storage (November 2026), and i
 - Should simplification optionally keep unary nodes, or other nodes (e.g. those with
   mutations), as _tskit_'s `simplify()` can?
 - What is at the top of the homology table, and where does it live?
+- What should `homologous_location()` return when a position has several (or no) equivalents?
 - Should `sample_resolve()` become an option of `simplify()`?
