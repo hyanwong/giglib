@@ -114,6 +114,18 @@ class ValidFlags(IntFlag):
         IEDGES_WITHIN_CHILD_SORTED | IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC | IEDGES_SECONDARY_ORDER_CHILD_ID_ASC
     )
 
+    #: The requirements guaranteed by the edges of a valid tskit tree sequence, when each
+    #: edge becomes an iedge with the same child and parent coordinates. This does not
+    #: include :data:`IEDGES_INTEGERS`, as tskit edges can have non-integer coordinates,
+    #: or the sorting requirements, as tskit sorts edges differently.
+    IEDGES_FROM_TSKIT = (
+        IEDGES_INTERVALS
+        | IEDGES_FOR_CHILD_NONOVERLAPPING
+        | IEDGES_PARENT_OLDER_THAN_CHILD
+        | IEDGES_SAME_PARENT_CHILD_FOR_EDGE
+        | IEDGES_CHILD_INTERVAL_POSITIVE
+    )
+
     NONE = 0
 
     @classmethod

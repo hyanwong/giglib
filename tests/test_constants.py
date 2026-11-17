@@ -18,3 +18,11 @@ class TestValidFlags:
             i += 1
             assert flag in ValidFlags.IEDGES_COMBO_STANDALONE
         assert i == int.bit_count(ValidFlags.IEDGES_COMBO_STANDALONE)
+
+    def test_iedges_from_tskit(self):
+        flags = ValidFlags.IEDGES_FROM_TSKIT
+        assert flags in ValidFlags.IEDGES_ALL
+        # tskit edges can have non-integer coordinates, and are sorted differently
+        assert ValidFlags.IEDGES_INTEGERS not in flags
+        assert flags & ValidFlags.IEDGES_SORTED == 0
+        assert flags | ValidFlags.IEDGES_INTEGERS | ValidFlags.IEDGES_SORTED == ValidFlags.IEDGES_ALL
