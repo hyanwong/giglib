@@ -287,6 +287,9 @@ class BaseTable:
         may also shrink the storage required for the table
         """
         self._datastore.setflags(write=False)
+        # _data is a view of _datastore created before freezing, so it keeps its own
+        # (writeable) flag, which must also be unset
+        self._data.setflags(write=False)
         self._frozen = True
         # TODO: use resize(refcheck=False) [dangerous!] to shrink self._datastore to the
         # size of self._data.

@@ -341,6 +341,45 @@ class TestMethods:
             gig.iedges_for_child("1")
 
 
+class TestImmutable:
+    """
+    A Graph, and the tables it wraps, cannot be changed
+    """
+
+    @staticmethod
+    def make_graph():
+        ts = msprime.sim_ancestry(5, sequence_length=100, recombination_rate=0.01, random_seed=1)
+        ts = msprime.sim_mutations(ts, rate=0.01, random_seed=1)
+        return gigl.Graph.from_tree_sequence(ts)
+
+    @pytest.mark.parametrize(
+        "operation",
+        [
+            lambda t: t.change_times(1),
+            lambda t: t.sort(),
+            lambda t: t.decapitate(1),
+            lambda t: t.sample_resolve(),
+            lambda t: t.remove_non_ancestral_nodes(),
+            lambda t: t.nodes.add_row(0),
+            lambda t: t.iedges.add_row(0, 1),
+            lambda t: t.mutations.add_row(0, 0, "A"),
+            lambda t: t.nodes.clear(),
+        ],
+    )
+    def test_table_methods_refused(self, operation):
+        gig = self.make_graph()
+        before = gig.tables.copy()
+        with pytest.raises((ValueError, AttributeError)):
+            operation(gig.tables)
+        assert gig.tables == before
+
+    def test_copy_is_editable(self):
+        gig = self.make_graph()
+        tables = gig.tables.copy()
+        tables.change_times(1)
+        assert np.allclose(tables.nodes.time, gig.tables.nodes.time + 1)
+
+
 class TestChromosomes:
     @staticmethod
     def make_graph():

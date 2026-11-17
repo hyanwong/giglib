@@ -62,6 +62,16 @@ class TestFreezeData:
         assert len(unfrozen) == 1
 
 
+class TestFrozenStorage:
+    def test_data_not_writeable(self, simple_ts):
+        # _data is a view created before freezing, so needs its own flag unsetting
+        gig = gigl.Graph.from_tree_sequence(simple_ts)
+        for name in gig.tables.table_classes._fields:
+            table = getattr(gig.tables, name)
+            assert not table._datastore.flags.writeable
+            assert not table._data.flags.writeable
+
+
 class TestIEdgeIndex:
     def test_index_used_in_equality(self, trivial_gig):
         tables = trivial_gig.tables
