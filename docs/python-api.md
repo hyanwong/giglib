@@ -26,6 +26,9 @@ This page provides formal documentation for the {ref}`giglib<sec_welcome>` Pytho
 .. autoclass:: giglib.Segment
   :members:
 
+.. autoclass:: giglib.Position
+  :members:
+
 .. autoclass:: giglib.TskitNameWarning
 
 .. py:data:: UNKNOWN_TIME

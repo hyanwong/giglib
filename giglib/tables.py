@@ -26,11 +26,45 @@ NULL = Const.NULL  # alias for tskit.NULL
 NODE_IS_SAMPLE = Const.NODE_IS_SAMPLE  # alias for tskit.NODE_IS_SAMPLE
 
 
-Segment = collections.namedtuple("Segment", "left, right, chromosome")
-Segment.__doc__ = """
-A segment of a chromosome, defined by its left (inclusive)
-and right (exclusive) positions and chromosome ID
-"""
+class _UnpackableAsKeywords:
+    """
+    A mixin for named tuples, allowing them to be unpacked as keyword arguments
+    using ``**``, e.g. ``gig.allele_at(u, **position)``. This works because the
+    field names match the argument names used throughout the API. Otherwise, these
+    behave exactly as named tuples: iterating gives the values (not the field names),
+    and indexing with an integer or slice works as normal.
+    """
+
+    __slots__ = ()
+
+    def keys(self):
+        return self._fields
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            return getattr(self, key)
+        return super().__getitem__(key)
+
+
+class Segment(_UnpackableAsKeywords, collections.namedtuple("Segment", "left, right, chromosome")):
+    """
+    A segment of a chromosome, defined by its left (inclusive) and right (exclusive)
+    positions and chromosome ID. This is a named tuple, which can also be unpacked as
+    keyword arguments, e.g. ``gig.haplotype(u, **segment)``.
+    """
+
+    __slots__ = ()
+
+
+class Position(_UnpackableAsKeywords, collections.namedtuple("Position", "position, chromosome")):
+    """
+    A single position on a chromosome, in the coordinates of a particular node.
+    Like :class:`Segment`, the chromosome ID comes after the position. This is a
+    named tuple, which can also be unpacked as keyword arguments, e.g.
+    ``gig.allele_at(u, **position)``.
+    """
+
+    __slots__ = ()
 
 
 class IEdgeTableRow(
@@ -1129,9 +1163,10 @@ class MRCAdict(dict):
                 MRCA_node_ID2 : ...,
                 ...
             }
-    In each inner dict, the key (X, Y, CHRZ) gives an interval (with X < Y) in the MRCA
-    node for chromosome Z, and the value is an ``MRCAintervals`` tuple which gives the
-    corresponding intervals and chromosome numbers in u and v. In the example above there
+    In each inner dict, the key is a :class:`Segment` ``(X, Y, CHRZ)`` giving an interval
+    (with X < Y) in the MRCA node for chromosome Z (a plain tuple of the same form can also
+    be used), and the value is an ``MRCAintervals`` tuple which gives the corresponding
+    intervals and chromosome numbers in u and v. In the example above there
     is a list of two corresponding intervals in u: (uA, uB, CHRuC) and (uC, uD, CHRuE)
     representing a duplication of the MRCA interval into u.
     If uA > uB then that interval in u is inverted relative to that in the MRCA node.
@@ -1143,8 +1178,9 @@ class MRCAdict(dict):
 
     # Convenience tuples
     MRCAintervals = collections.namedtuple("MRCAintervals", "u, v")  # store in the dict
-    # Store equivalent positions in u & v and if one is inverted relative to the other
-    MRCApos = collections.namedtuple("MRCApos", "u, chr_u, v, chr_v, opposite_orientations")
+    # Store equivalent positions in u & v (as Position tuples), and whether one is
+    # inverted relative to the other (a property of the pair, not of either position)
+    MRCApos = collections.namedtuple("MRCApos", "u, v, opposite_orientations")
 
     def random_match_pos(self, rng):
         """
@@ -1159,18 +1195,22 @@ class MRCAdict(dict):
 
         :param obj rng: A numpy random number generator with a method ``integers()``
             that behaves like ``np.random.default_rng().integers``.
-        :returns: a named tuple of ``(u_position, v_position, opposite_orientations)``
-            Positions are chosen at random if there are multiple equivalent positions
+        :returns: a named tuple of ``(u, v, opposite_orientations)``, where ``u`` and
+            ``v`` are :class:`Position` tuples giving the position and chromosome in
+            each node. Positions are chosen at random if there are multiple equivalent positions
             for u, or multiple equivalent positions for v. If one of the sequences is
             inverted relative to the other then ``.opposite_orientations`` is ``True``.
         :rtype: MRCApos
         """
-        tot_len = sum(x[1] - x[0] for v in self.values() for x in v.keys())
+        # Keys are Segments, but unpack them as tuples, so plain (left, right, chromosome)
+        # tuples also work (and unpacking is faster than indexing a Segment)
+        tot_len = sum(right - left for v in self.values() for left, right, _ in v.keys())
         # Pick a single breakpoint
         loc = rng.integers(tot_len)  # breakpoint is before this base
         for mrca_intervals in self.values():
             for x in mrca_intervals.keys():
-                if loc < x[1] - x[0]:
+                left, right, _ = x
+                if loc < right - left:
                     u_matches, v_matches = mrca_intervals[x]
                     assert len(u_matches) != 0
                     assert len(v_matches) != 0
@@ -1201,15 +1241,15 @@ class MRCAdict(dict):
                     v0, v1, vCHR = v
                     if u0 < u1:
                         if v0 < v1:
-                            return self.MRCApos(u0 + loc, uCHR, v0 + loc, vCHR, False)
+                            return self.MRCApos(Position(u0 + loc, uCHR), Position(v0 + loc, vCHR), False)
                         else:
-                            return self.MRCApos(u0 + loc, uCHR, v0 - loc - 1, vCHR, True)
+                            return self.MRCApos(Position(u0 + loc, uCHR), Position(v0 - loc - 1, vCHR), True)
                     else:
                         if v0 < v1:
-                            return self.MRCApos(u0 - loc - 1, uCHR, v0 + loc, vCHR, True)
+                            return self.MRCApos(Position(u0 - loc - 1, uCHR), Position(v0 + loc, vCHR), True)
                         else:
-                            return self.MRCApos(u0 - loc - 1, uCHR, v0 - loc - 1, vCHR, False)
-                loc -= x[1] - x[0]
+                            return self.MRCApos(Position(u0 - loc - 1, uCHR), Position(v0 - loc - 1, vCHR), False)
+                loc -= right - left
 
     def _plot(
         self,

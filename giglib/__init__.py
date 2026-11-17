@@ -15,6 +15,7 @@ from .constants import (
 )
 from .graph import Graph  # noqa: F401
 from .tables import (
+    Position,  # noqa: F401
     Segment,  # noqa: F401
     Tables,  # noqa: F401
 )
