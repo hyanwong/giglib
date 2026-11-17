@@ -18,7 +18,10 @@ from .tables import (
     Segment,  # noqa: F401
     Tables,  # noqa: F401
 )
-from .util import set_print_options  # noqa: F401
+from .util import (
+    TskitNameWarning,  # noqa: F401
+    set_print_options,  # noqa: F401
+)
 
 NULL = Const.NULL
 NODE_IS_SAMPLE = Const.NODE_IS_SAMPLE

@@ -12,6 +12,17 @@ import tskit
 
 from .constants import Const, ValidFlags
 from .tables import IEdgeTableRow, IndividualTableRow, NodeTableRow, Tables
+from .util import as_id, warn_tskit_name
+
+
+def _read_only(arr):
+    """
+    Return a read-only view of a numpy array (sharing the same memory)
+    """
+    if arr.flags.writeable:
+        arr = arr.view()
+        arr.flags.writeable = False
+    return arr
 
 
 class Graph:
@@ -31,6 +42,9 @@ class Graph:
         self.tables = tables
         self._validate()
         self.tables.freeze()
+        # Cached arrays: read-only, so they can safely be shared between views
+        self._iedge_map_sorted_by_parent = _read_only(self._iedge_map_sorted_by_parent)
+        self._sample_ids = _read_only(self.tables.sample_nodes())
 
     @classmethod
     def from_tree_sequence(cls, ts):
@@ -69,8 +83,6 @@ class Graph:
         self._iedge_map_sorted_by_parent = np.arange(
             len(iedge_table)
         )  # to overwrite later - initialised here in case we return early with 0 edges
-        # Cache
-        self.sample_ids = self.tables.sample_ids
 
         # TODO: should cache node spans here,
         # see https://github.com/hyanwong/giglib/issues/27
@@ -181,80 +193,161 @@ class Graph:
         return self.tables.nodes.time.max()
 
     @property
-    def num_nodes(self):
-        # Deprecated
-        return len(self.tables.nodes)
-
-    @property
-    def num_iedges(self):
-        # Deprecated
-        return len(self.tables.iedges)
-
-    @property
-    def num_samples(self):
-        # Deprecated
-        return len(self.sample_ids)
-
-    @property
     def nodes(self):
         """
-        Return an object used to iterate over the nodes in this GIG
+        A sequence-like view of all the :class:`~giglib.graph.Node` objects in this
+        GIG, supporting ``len()``, indexing, and iteration. The node IDs are
+        available as ``gig.nodes.ids``.
         """
 
         return GIGItemIterator(self.tables.nodes, Node)
 
-    def samples(self):
+    def filter_nodes(self, flags=None, time=None):
         """
-        Iterate over the sample nodes, returning
+        Return a sequence-like view of the :class:`~giglib.graph.Node` objects
+        matching all the given criteria, supporting ``len()``, indexing, and
+        iteration. The matching node IDs are available (as a read-only numpy array)
+        via the ``.ids`` attribute of the returned view, e.g.
+        ``gig.filter_nodes(time=0).ids``.
+
+        :param int flags: If not ``None``, only return nodes for which *all* the
+            bits in ``flags`` are set.
+        :param time: If not ``None``, only return nodes at this time. This can be
+            a single number, in which case node times must be exactly equal to this
+            value, or a ``(start, end)`` pair, in which case node times must satisfy
+            ``start <= time < end``.
         """
-        return GIGItemIterator(self.tables.nodes, Node, ids=self.sample_ids)
+        if flags is None and time is None:
+            return self.nodes
+        candidates = None
+        if flags is not None and (flags & Const.NODE_IS_SAMPLE):
+            # Matching nodes must be a subset of the (cached) samples
+            if flags == Const.NODE_IS_SAMPLE and time is None:
+                return GIGItemIterator(self.tables.nodes, Node, ids=self._sample_ids)
+            candidates = self._sample_ids
+        ids = self.tables.nodes.filter(flags=flags, time=time, candidates=candidates)
+        return GIGItemIterator(self.tables.nodes, Node, ids=ids)
+
+    def sample_nodes(self, time=None):
+        """
+        Return a sequence-like view of the sample :class:`~giglib.graph.Node`
+        objects. This is an alias for
+        ``filter_nodes(flags=giglib.NODE_IS_SAMPLE, time=time)``. Sample node IDs
+        are available via ``gig.sample_nodes().ids``: when ``time`` is ``None``
+        this is a cached array, so is efficient to call repeatedly.
+        """
+        return self.filter_nodes(flags=Const.NODE_IS_SAMPLE, time=time)
 
     @property
     def individuals(self):
         """
-        Return an object used to iterate over the individuals in this GIG
+        A sequence-like view of all the :class:`~giglib.graph.Individual` objects
+        in this GIG, supporting ``len()``, indexing, and iteration.
         """
         return GIGItemIterator(self.tables.individuals, Individual)
 
     @property
     def iedges(self):
         """
-        Return an object used to iterate over the iedges in this GIG
+        A sequence-like view of all the :class:`~giglib.graph.IEdge` objects
+        in this GIG, supporting ``len()``, indexing, and iteration.
         """
         return GIGItemIterator(self.tables.iedges, IEdge)
 
+    # tskit names which do not exist in giglib. These exist only to guide users
+    # familiar with tskit towards the giglib equivalents, and emit a TskitNameWarning
+
+    @property
+    def num_nodes(self):
+        warn_tskit_name("num_nodes", "len(gig.nodes)")
+        return len(self.nodes)
+
+    @property
+    def num_edges(self):
+        warn_tskit_name("num_edges", "len(gig.iedges)")
+        return len(self.iedges)
+
+    @property
+    def num_individuals(self):
+        warn_tskit_name("num_individuals", "len(gig.individuals)")
+        return len(self.individuals)
+
+    @property
+    def num_samples(self):
+        warn_tskit_name("num_samples", "len(gig.sample_nodes())")
+        return len(self._sample_ids)
+
+    def samples(self):
+        """
+        Not part of the giglib API: returns sample IDs, as in tskit, but emits a
+        :class:`~giglib.TskitNameWarning`. Use :meth:`sample_nodes` to get sample
+        :class:`~giglib.graph.Node` objects, or ``gig.sample_nodes().ids`` to get sample IDs.
+        """
+        warn_tskit_name("samples()", "gig.sample_nodes() for nodes, or gig.sample_nodes().ids for IDs")
+        return self._sample_ids
+
+    def node(self, u):
+        """
+        Not part of the giglib API (emits a :class:`~giglib.TskitNameWarning`): use ``gig.nodes[u]``
+        """
+        warn_tskit_name("node(u)", "gig.nodes[u]")
+        return self.nodes[u]
+
+    def individual(self, i):
+        """
+        Not part of the giglib API (emits a :class:`~giglib.TskitNameWarning`): use ``gig.individuals[i]``
+        """
+        warn_tskit_name("individual(i)", "gig.individuals[i]")
+        return self.individuals[i]
+
     def iedges_for_parent(self, u, chromosome=None):
         """
-        Iterate over all iedges with parent u
+        Return a sequence-like view of the :class:`~giglib.graph.IEdge` objects with parent ``u``,
+        ordered by parent chromosome then position. If ``chromosome`` is given, only
+        return iedges for that chromosome in the parent. If ``u`` is not a parent
+        (or has no iedges on that chromosome), the returned view is empty.
         """
+        u = as_id(u)
+        ranges = self._id_range_for_parent.get(u, {})
         if chromosome is None:
-            start = next(self._id_range_for_parent[u].keys())[0]
-            end = next(reversed(self._id_range_for_parent[u].keys()))[1]
+            if len(ranges) == 0:
+                start = end = 0
+            else:
+                # chromosome ranges are adjacent and in increasing chromosome order
+                start = next(iter(ranges.values()))[0]
+                end = next(reversed(ranges.values()))[1]
         else:
-            start, end = self._id_range_for_parent[u][chromosome]
-        for i in range(start, end):
-            yield self.iedges[self._iedge_map_sorted_by_parent[i]]
+            start, end = ranges.get(chromosome, (0, 0))
+        return GIGItemIterator(self.tables.iedges, IEdge, ids=self._iedge_map_sorted_by_parent[start:end])
 
     def iedges_for_child(self, u, chromosome=None):
         """
-        Iterate over all iedges with child u
+        Return a sequence-like view of the :class:`~giglib.graph.IEdge` objects with child ``u``,
+        ordered by child chromosome then left position. If ``chromosome`` is given,
+        only return iedges for that chromosome in the child. To get iedge IDs instead,
+        use :meth:`tables.IEdgeTable.ids_for_child`.
         """
-        for i in self.tables.iedges.ids_for_child(u, chromosome):
-            yield self.iedges[i]
+        u = as_id(u)
+        return GIGItemIterator(self.tables.iedges, IEdge, ids=self.tables.iedges.ids_for_child(u, chromosome))
 
     def chromosomes_as_child(self, u):
+        u = as_id(u)
         return self.tables.iedges.chromosomes_as_child(u)
 
     def chromosomes_as_parent(self, u):
+        u = as_id(u)
         return self._id_range_for_parent.get(u, {}).keys()
 
     def chromosomes(self, u):
+        u = as_id(u)
         return self.chromosomes_as_child(u) | self.chromosomes_as_parent(u)
 
     def max_pos_as_child(self, u, chromosome=None):
+        u = as_id(u)
         return self.tables.iedges.max_pos_as_child(u, chromosome=chromosome)
 
     def max_pos_as_parent(self, u, chromosome=None):
+        u = as_id(u)
         if u not in self._id_range_for_parent:
             return None
         if chromosome is None:
@@ -271,6 +364,7 @@ class Graph:
         This defines the known sequence length of the node u for a given
         chromosome (or the maximum position in any chromosome if not specified)
         """
+        u = as_id(u)
         max_child = self.max_pos_as_child(u, chromosome=chromosome)
         max_parent = self.max_pos_as_parent(u, chromosome=chromosome)
         if max_parent is None and max_child is None:
@@ -282,6 +376,7 @@ class Graph:
         return max(max_child, max_parent)
 
     def min_pos_as_child(self, u, chromosome=None):
+        u = as_id(u)
         return self.tables.iedges.min_pos_as_child(u, chromosome=chromosome)
 
     # We don't yet define min_pos_as_parent or therefore min_pos, because
@@ -294,17 +389,16 @@ class Graph:
         max_position(u) but returns 0 rather than None if this is an
         isolated node (with no associated edges).
         """
+        u = as_id(u)
         return self.max_pos(u, chromosome) or 0
 
     def total_sequence_length(self, u):
         """
-        Return the sum of all the sequence lengths in all the chromosomes
+        Return the sum of the known sequence lengths of node ``u`` over all
+        its chromosomes (0 if the node is isolated)
         """
-        iedges = self.tables.iedges
-        chroms = self._id_range_for_parent.get(u, {}).keys() | iedges._id_range_for_child.get(u, {}).keys()
-        if len(chroms) > 0:
-            return max(self.sequence_length(u, c) for c in chroms)
-        return 0
+        u = as_id(u)
+        return sum(self.sequence_length(u, c) for c in self.chromosomes(u))
 
     def to_tree_sequence(self, sequence_length=None):
         """
@@ -384,45 +478,60 @@ class Graph:
         new_tables.sample_resolve()
         return new_tables.graph()
 
-    def find_mrca_regions(self, *args, **kwargs):
+    def find_mrca_regions(self, u, v, **kwargs):
         """
-        A wrapper around the find_mrca_regions method in the tables object
+        A wrapper around :meth:`Tables.find_mrca_regions`. Unlike the tables
+        method, ``u`` and ``v`` can be either node IDs or
+        :class:`~giglib.graph.Node` objects.
         """
-        return self.tables.find_mrca_regions(*args, **kwargs)
+        return self.tables.find_mrca_regions(as_id(u), as_id(v), **kwargs)
 
 
 class GIGItemIterator:
     """
-    Class to help iterate over items in a GIG. In paticular this is focussed on
-    items that are represented as table rows, such as nodes, iedges, and . Since it has a
-    __len__ method, it should play nicely with showing progressbar
-    output with tqdm (e.g. for i in tqdm.tqdm(gig.iedges): ...)
+    A sequence-like view of items in a GIG that are represented as table rows,
+    such as nodes, iedges, and individuals, optionally restricted to a subset of
+    IDs. Supports ``len()``, indexing, and iteration, returning objects (rather than
+    IDs). Since it has a ``__len__`` method, it plays nicely with progressbar
+    output from tqdm (e.g. ``for ie in tqdm.tqdm(gig.iedges): ...``)
     """
 
     def __init__(self, table, cls, ids=None):
-        self.ids = ids
+        # If ids is None, the view covers all rows in the table
+        self._ids = None if ids is None else _read_only(np.asarray(ids))
         self.table = table
         self.cls = cls
 
+    @property
+    def ids(self):
+        """
+        The IDs of the items in this view, as a read-only numpy array
+        """
+        if self._ids is None:
+            self._ids = _read_only(np.arange(len(self.table), dtype=np.int64))
+        return self._ids
+
     def __getitem__(self, index):
-        if self.ids is None:
+        if self._ids is None:
+            if index < 0:
+                index += len(self.table)
             return self.cls(**self.table[index]._asdict(), id=index)
         else:
-            true_id = self.ids[index]
+            true_id = self._ids[index]
             return self.cls(**self.table[true_id]._asdict(), id=true_id)
 
     def __len__(self):
-        if self.ids is None:
+        if self._ids is None:
             return len(self.table)
         else:
-            return len(self.ids)
+            return len(self._ids)
 
     def __iter__(self):
-        if self.ids is None:
+        if self._ids is None:
             for i in range(len(self.table)):
                 yield self.cls(**self.table[i]._asdict(), id=i)
         else:
-            for i in self.ids:
+            for i in self._ids:
                 yield self.cls(**self.table[i]._asdict(), id=i)
 
 
@@ -506,17 +615,17 @@ class IEdge(namedtuple("IEdge", (*IEdgeTableRow._fields, "id"))):
 class Node(namedtuple("Node", (*NodeTableRow._fields, "id"))):
     """
     An object representing a single node in a :class:`Graph`. This acts like an
-    :class:`~tables.NodeTableRow` but also has an ID.
+    :class:`~giglib.tables.NodeTableRow` but also has an ID.
     """
 
     def is_sample(self):
-        return self.flags & Const.NODE_IS_SAMPLE
+        return bool(self.flags & Const.NODE_IS_SAMPLE)
 
 
 class Individual(namedtuple("Individual", (*IndividualTableRow._fields, "id"))):
     """
     An object representing a single individual in a :class:`Graph`. This acts like an
-    :class:`~tables.IndividualTableRow` but also has an ID.
+    :class:`~giglib.tables.IndividualTableRow` but also has an ID.
     """
 
     pass

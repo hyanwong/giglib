@@ -21,7 +21,7 @@ class TestConstructor:
         gig = tables.graph()
         assert len(gig.nodes) == 2
         assert len(gig.iedges) == 1
-        assert len(gig.sample_ids) == 1
+        assert len(gig.tables.sample_nodes()) == 1
 
     def test_no_edges(self):
         tables = gigl.Tables()
@@ -31,7 +31,7 @@ class TestConstructor:
         gig = tables.graph()
         assert len(gig.nodes) == 3
         assert len(gig.iedges) == 0
-        assert len(gig.sample_ids) == 1
+        assert len(gig.tables.sample_nodes()) == 1
         # Cached values should be defined but empty
         assert len(gig._id_range_for_parent) == 0
         assert gig._iedge_map_sorted_by_parent.shape == (0,)
@@ -153,6 +153,39 @@ class TestMethods:
                 edges.add(iedge.id)
         assert len(edges) == simple_ts.num_edges
 
+    def test_iedges_for_child_view(self, multi_chromosome_gig):
+        gig = multi_chromosome_gig
+        view = gig.iedges_for_child(1)
+        assert len(view) == 3
+        assert view[0].id == next(iter(view)).id
+        assert [ie.child_chromosome for ie in view] == [1, 3, 3]
+        assert len(gig.iedges_for_child(1, chromosome=3)) == 2
+        assert len(gig.iedges_for_child(1, chromosome=99)) == 0
+        assert len(gig.iedges_for_child(0)) == 0  # root
+
+    def test_iedges_for_parent(self, multi_chromosome_gig):
+        gig = multi_chromosome_gig
+        for u in range(len(gig.nodes)):
+            expected = {ie.id for ie in gig.iedges if ie.parent == u}
+            view = gig.iedges_for_parent(u)
+            assert len(view) == len(expected)
+            assert {ie.id for ie in view} == expected
+            assert all(isinstance(ie, gigl.graph.IEdge) for ie in view)
+            chroms = [ie.parent_chromosome for ie in view]
+            assert chroms == sorted(chroms)
+            for c in gig.chromosomes_as_parent(u):
+                expected_c = {ie.id for ie in gig.iedges if ie.parent == u and ie.parent_chromosome == c}
+                assert {ie.id for ie in gig.iedges_for_parent(u, c)} == expected_c
+        assert len(gig.iedges_for_parent(1, chromosome=99)) == 0
+        assert len(gig.iedges_for_parent(5)) == 0  # sample: not a parent
+
+    def test_total_sequence_length_multi_chromosome(self, multi_chromosome_gig):
+        gig = multi_chromosome_gig
+        assert gig.sequence_length(1, 1) == 10
+        assert gig.sequence_length(1, 3) == 5
+        assert gig.total_sequence_length(1) == 15
+        assert gig.total_sequence_length(0) == 20
+
     def test_max_pos(self):
         ts = tskit.Tree.generate_balanced(2, span=4).tree_sequence
         tables = gigl.Tables.from_tree_sequence(ts.keep_intervals([[1, 3]]))
@@ -171,7 +204,7 @@ class TestMethods:
 
     def test_sequence_length(self, simple_ts):
         gig = gigl.Graph.from_tree_sequence(simple_ts)
-        for u in gig.sample_ids:
+        for u in gig.tables.sample_nodes():
             assert gig.sequence_length(u, chromosome=0) == simple_ts.sequence_length
 
     def test_sequence_length_root(self, all_sv_types_no_re_gig):
@@ -185,21 +218,134 @@ class TestMethods:
         tables = gigl.Tables()
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         gig = tables.graph()
-        for u in gig.sample_ids:
+        for u in gig.tables.sample_nodes():
             # any chromosomes reported as length 0
             assert gig.sequence_length(u, 0) == 0
             assert gig.sequence_length(u, 1) == 0
             assert gig.sequence_length(u, 2) == 0
 
     def test_samples(self, trivial_gig):
-        assert np.all(trivial_gig.sample_ids > 0)  # samples are at the end
+        assert np.all(trivial_gig.tables.sample_nodes() > 0)  # samples are at the end
         n = 0
-        for u, sample in zip(trivial_gig.sample_ids, trivial_gig.samples()):
+        for u, sample in zip(trivial_gig.tables.sample_nodes(), trivial_gig.sample_nodes()):
             assert u == sample.id
             assert sample.time == trivial_gig.tables.nodes.time[u]
-            assert trivial_gig.nodes[u].is_sample()
+            assert trivial_gig.nodes[u].is_sample() is True
             n += 1
         assert n == np.sum(trivial_gig.tables.nodes.flags & gigl.NODE_IS_SAMPLE > 0)
+        assert len(trivial_gig.sample_nodes()) == n
+        assert trivial_gig.sample_nodes()[0].id == trivial_gig.tables.sample_nodes()[0]
+        assert any(u.is_sample() is False for u in trivial_gig.nodes)
+
+    def test_samples_time(self):
+        tables = gigl.Tables()
+        for t in (0, 0, 1, 2.5, 3):
+            tables.nodes.add_row(t, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(1, flags=0)
+        gig = tables.graph()
+        assert list(tables.sample_nodes()) == [0, 1, 2, 3, 4]
+        assert list(tables.sample_nodes(time=0)) == [0, 1]
+        assert list(tables.sample_nodes(time=1)) == [2]  # node 5 is not a sample
+        assert list(tables.sample_nodes(time=4)) == []
+        assert list(tables.sample_nodes(time=(1, 3))) == [2, 3]
+        assert [u.id for u in gig.sample_nodes(time=(0, 2))] == [0, 1, 2]
+        assert len(gig.sample_nodes(time=99)) == 0
+        with pytest.raises(ValueError, match="start <= end"):
+            tables.sample_nodes(time=(3, 1))
+
+    def test_no_samples(self):
+        tables = gigl.Tables()
+        assert len(tables.sample_nodes()) == 0
+        gig = tables.graph()
+        assert len(gig.sample_nodes()) == 0
+        assert len(gig.sample_nodes().ids) == 0
+
+    @pytest.fixture()
+    def flagged_gig(self):
+        # node: time, flags
+        tables = gigl.Tables()
+        S, X = gigl.NODE_IS_SAMPLE, gigl.Const.NODE_IS_RE
+        for t, f in ((0, S), (0, S | X), (1, X), (1, S), (2, 0)):
+            tables.nodes.add_row(t, flags=f)
+        return tables.graph()
+
+    def test_filter_nodes(self, flagged_gig):
+        gig = flagged_gig
+        S, X = gigl.NODE_IS_SAMPLE, gigl.Const.NODE_IS_RE
+        assert list(gig.filter_nodes().ids) == [0, 1, 2, 3, 4]
+        assert list(gig.filter_nodes(flags=X).ids) == [1, 2]
+        assert list(gig.filter_nodes(flags=S | X).ids) == [1]  # all bits must be set
+        assert list(gig.filter_nodes(flags=S, time=0).ids) == [0, 1]
+        assert list(gig.filter_nodes(time=1).ids) == [2, 3]
+        assert list(gig.filter_nodes(time=(1, 3)).ids) == [2, 3, 4]
+        assert list(gig.filter_nodes(flags=0).ids) == [0, 1, 2, 3, 4]
+        view = gig.filter_nodes(flags=X)
+        assert len(view) == 2
+        assert all(isinstance(u, gigl.graph.Node) for u in view)
+        assert view[-1].id == 2
+        # the tables method returns the same IDs
+        for kwargs in ({}, {"flags": X}, {"flags": S | X}, {"time": (1, 3)}, {"flags": S, "time": 1}):
+            assert np.array_equal(gig.filter_nodes(**kwargs).ids, gig.tables.filter_nodes(**kwargs))
+
+    def test_sample_nodes_is_filter_alias(self, flagged_gig):
+        gig = flagged_gig
+        for time in (None, 0, 1, (0, 2)):
+            expected = gig.filter_nodes(flags=gigl.NODE_IS_SAMPLE, time=time).ids
+            assert np.array_equal(gig.sample_nodes(time=time).ids, expected)
+            assert np.array_equal(gig.tables.sample_nodes(time=time), expected)
+
+    def test_ids_read_only(self, flagged_gig):
+        gig = flagged_gig
+        # the unfiltered sample IDs are cached, so must not be modifiable
+        assert gig.sample_nodes().ids is gig.sample_nodes().ids
+        for view in (gig.nodes, gig.sample_nodes(), gig.filter_nodes(time=1), gig.iedges):
+            with pytest.raises(ValueError, match="read-only"):
+                view.ids[...] = 0
+        assert list(gig.sample_nodes().ids) == [0, 1, 3]
+
+    def test_nodes_ids(self, flagged_gig):
+        assert list(flagged_gig.nodes.ids) == list(range(len(flagged_gig.nodes)))
+        assert flagged_gig.nodes[-1].id == len(flagged_gig.nodes) - 1
+
+    def test_node_objects_as_arguments(self, multi_chromosome_gig):
+        gig = multi_chromosome_gig
+        u = gig.nodes[1]
+        assert [ie.id for ie in gig.iedges_for_child(u)] == [ie.id for ie in gig.iedges_for_child(1)]
+        assert [ie.id for ie in gig.iedges_for_parent(u)] == [ie.id for ie in gig.iedges_for_parent(1)]
+        assert gig.total_sequence_length(u) == gig.total_sequence_length(1)
+        assert gig.chromosomes(u) == gig.chromosomes(1)
+        with pytest.raises(TypeError, match="integer ID"):
+            gig.iedges_for_child("1")
+
+
+class TestTskitNames:
+    @pytest.mark.parametrize(
+        ("attr", "expected"),
+        [
+            ("num_nodes", lambda g: len(g.nodes)),
+            ("num_edges", lambda g: len(g.iedges)),
+            ("num_individuals", lambda g: len(g.individuals)),
+            ("num_samples", lambda g: len(g.sample_nodes())),
+        ],
+    )
+    def test_num_properties(self, all_sv_types_1re_gig, attr, expected):
+        with pytest.warns(gigl.TskitNameWarning, match=attr):
+            assert getattr(all_sv_types_1re_gig, attr) == expected(all_sv_types_1re_gig)
+
+    def test_samples_returns_ids(self, all_sv_types_1re_gig):
+        gig = all_sv_types_1re_gig
+        with pytest.warns(gigl.TskitNameWarning, match="sample_nodes"):
+            assert np.array_equal(gig.samples(), gig.sample_nodes().ids)
+
+    def test_node_and_individual(self, all_sv_types_1re_gig):
+        gig = all_sv_types_1re_gig
+        with pytest.warns(gigl.TskitNameWarning, match=r"gig\.nodes\[u\]"):
+            assert gig.node(1) == gig.nodes[1]
+        tables = gigl.Tables()
+        tables.individuals.add_row()
+        gig = tables.graph()
+        with pytest.warns(gigl.TskitNameWarning, match=r"gig\.individuals\[i\]"):
+            assert gig.individual(0) == gig.individuals[0]
 
 
 class TestTskit:
@@ -211,7 +357,8 @@ class TestTskit:
     def test_simple_from_tree_sequence(self, simple_ts):
         assert simple_ts.num_trees > 1
         gig = gigl.Graph.from_tree_sequence(simple_ts)
-        assert np.all(gig.sample_ids == gig.tables.sample_ids)
+        assert np.all(gig.tables.sample_nodes() == simple_ts.samples())
+        assert [u.id for u in gig.sample_nodes()] == list(simple_ts.samples())
 
     def test_to_tree_sequence(self, degree2_2_tip_ts):
         gig = gigl.Graph.from_tree_sequence(degree2_2_tip_ts)

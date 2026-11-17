@@ -130,7 +130,7 @@ class TestSimpleSims:
         simulator = sim.DTWF_no_recombination()
         gig = simulator.run(num_diploids=10, seq_lens=[100], gens=gens, random_seed=1)
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
-        assert gig.num_iedges > 0
+        assert len(gig.iedges) > 0
 
     def test_variable_population_size(self):
         gens = 2
@@ -146,7 +146,7 @@ class TestSimpleSims:
         simulator = sim.DTWF_no_recombination()
         gig = simulator.run(num_diploids=(2, 10, 20), seq_lens=[100, 50], gens=gens, random_seed=1)
         gig = gig.sample_resolve()
-        for u in gig.sample_ids:
+        for u in gig.tables.sample_nodes():
             assert set(gig.chromosomes(u)) == {0, 1}
             assert gig.sequence_length(u, 0) == gig.max_pos(u, 0) == 100
             assert gig.sequence_length(u, 1) == gig.max_pos(u, 1) == 50
@@ -176,9 +176,9 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         self.simulator = sim.DTWF_one_break_no_rec_inversions_slow()
         gig = self.simulator.run(num_diploids=10, seq_lens=self.seq_lens, gens=gens, random_seed=1)
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
-        assert gig.num_iedges > 0
+        assert len(gig.iedges) > 0
         ts = gig.to_tree_sequence()
-        assert ts.num_samples == len(gig.sample_ids)
+        assert ts.num_samples == len(gig.tables.sample_nodes())
         assert ts.num_trees > 1
         assert ts.at_index(0).num_edges > 0
 
@@ -314,7 +314,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         )
         # should have deleted the grand MRCA (used for matching)
         assert len(gig.nodes) == len(self.simulator.tables.nodes) - 1
-        assert gig.num_samples == 100 * 2
+        assert len(gig.sample_nodes()) == 100 * 2
         # check we still have a single inversion in the ancestry (not lost by drift)
         # (the child ID will have changed by removing the grand MRCA)
         num_inversions = 0
@@ -387,8 +387,8 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         gig = gig.sample_resolve()
         # No recombinations between chromosomes in this simulation: check there are no
         # MRCA regions shared between chromosomes
-        s1 = gig.sample_ids[0]
-        s2 = gig.sample_ids[1]
+        s1 = gig.tables.sample_nodes()[0]
+        s2 = gig.tables.sample_nodes()[1]
         for chromA in gig.chromosomes(s1):
             for chromB in gig.chromosomes(s2):
                 if chromA != chromB:

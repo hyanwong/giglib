@@ -25,6 +25,8 @@ This page provides formal documentation for the {ref}`giglib<sec_welcome>` Pytho
 ```{eval-rst}
 .. autoclass:: giglib.Segment
   :members:
+
+.. autoclass:: giglib.TskitNameWarning
 ```
 
 
@@ -78,9 +80,41 @@ Validity requirements for a GIG are described in {meth}`Tables.graph`.
   :members:
 ```
 
+### Table rows
+
+```{eval-rst}
+.. autoclass:: giglib.tables.IEdgeTableRow
+  :members:
+
+.. autoclass:: giglib.tables.NodeTableRow
+  :members:
+
+.. autoclass:: giglib.tables.IndividualTableRow
+  :members:
+```
+
 ## The **Graph** class
 
 ```{eval-rst}
 .. autoclass:: giglib.Graph
   :members:
+```
+
+### Graph objects
+
+Accessors on a {class}`Graph` return objects rather than IDs. Collections of these
+objects are returned as a sequence-like view, which supports ``len()``, indexing,
+and iteration.
+
+```{eval-rst}
+.. autoclass:: giglib.graph.Node
+  :members:
+
+.. autoclass:: giglib.graph.IEdge
+  :members:
+
+.. autoclass:: giglib.graph.Individual
+  :members:
+
+.. autoclass:: giglib.graph.GIGItemIterator
 ```

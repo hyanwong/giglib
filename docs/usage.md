@@ -18,7 +18,31 @@ kernelspec:
 The fundamental data structures and API provided by _giglib_
 intentionally mirror that of [tskit](https://tskit.dev/learn/) (which makes it easy e.g. to initialise a GIG
 from an msprime-simulated tree sequence 🎉). Nevertheless, there are a number of terminological
-and implementation differences, an incomplete list of which are below:
+and implementation differences, an incomplete list of which are below.
+
+(sec_usage_consistency)=
+
+## API consistency
+
+Where there is a conflict, _giglib_ aims for internal consistency rather than
+compatibility with _tskit_. In particular:
+
+- **Attributes versus methods** Fixed properties of a GIG are attributes
+  (e.g. `gig.nodes`, `gig.iedges`, `gig.time_units`); anything that takes
+  parameters or performs a query is a method (e.g. `gig.filter_nodes(flags=..., time=...)`,
+  `gig.sample_nodes(time=...)`, `gig.iedges_for_child(u)`).
+- **Graphs return objects, tables return IDs** Methods on a `Graph` return objects such as
+  `Node` or `IEdge` instances. Collections of objects are returned as sequence-like views
+  which support `len()`, indexing and iteration, and whose (read-only) IDs are available via `.ids`,
+  e.g. `len(gig.sample_nodes())` or `gig.sample_nodes(time=0).ids`. Methods with the same name
+  on a `Tables` object return numpy arrays of IDs instead, e.g. `tables.sample_nodes()`.
+- **Same names on both layers** As far as possible, the same query has the same name on `Graph`
+  and `Tables` objects, so the object you call it on determines whether you get objects or IDs.
+- **Lenient inputs** Methods on a `Graph` that take a node accept either a node ID or a `Node` object.
+- **tskit-style names** Some _tskit_ names that do not exist in _giglib_ (e.g. `gig.num_nodes`,
+  `gig.samples()`, `gig.node(u)`) are provided for convenience, but emit a `giglib.TskitNameWarning`
+  suggesting the _giglib_ equivalent (e.g. `len(gig.nodes)`). These warnings can be silenced in the
+  usual way, e.g. `warnings.simplefilter("ignore", giglib.TskitNameWarning)`.
 
 ## API differences
 
@@ -37,13 +61,13 @@ and implementation differences, an incomplete list of which are below:
 - **Object access** Information stored in GIG tables can be accessed using square brackets, and
   the `len()` function should work, so the canonical usage looks like `gig.nodes[0]`, `len(gig.nodes)`,
   and `[u.id for u in gig.nodes]` rather than the equivalents in _tskit_ (`ts.node(0)`, `ts.num_nodes`,
-  and `[u.id for u in ts.nodes()]`. Similarly, we use `gig.sample_ids` (no braces) rather than `ts.samples()`.
+  and `[u.id for u in ts.nodes()]`.
 - **Internal iedge order** The iedges in a GIG are sorted such that all those for a given child are
   adjacent (rather than all edges for a parent being adjacent as in _tskit_). Moreover, iedges are
   sorted in decreasing order of child time, so that edges with more recent children come last. Since
   edges for a given child are adjacent, child intervals for those edges cannot overlap. Edges for a
   given child are ordered by left coordinate, which helps algorithmic efficiency. The internal
-  `gig.iedge_map_sorted_by_parent` array indexes into iedges in the order expected by tskit.
+  `gig.iedges_for_parent(u)` method returns iedges for a parent in the order expected by tskit.
 - **No `.trees()` iterator** See above: the meaning of a "local tree" is unclear in a GIG, so
   implementing the equivalent of the fundamental _tskit_ `.trees()` method is likely to require
   substantial theoretical work.
@@ -77,7 +101,8 @@ tables.iedges.add_row(
 gig = tables.graph()
 assert len(gig.nodes) == 2
 assert len(gig.iedges) == 1
-assert len(gig.samples) == 1
+assert len(gig.sample_nodes()) == 1
+assert list(gig.sample_nodes().ids) == [0]
 assert gig.iedges[0].is_inversion()
 ```
 
