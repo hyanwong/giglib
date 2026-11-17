@@ -17,6 +17,7 @@ from .util import (
     add_rectangle,
     add_row_label,
     add_triangle,
+    complement_allele,
     is_unknown_time,
     truncate_rows,
 )
@@ -1540,10 +1541,6 @@ class Tables:
         if len(self.mutations) > 0:
             self.mutations._reorder(self._mutation_sort_order())
 
-    def _check_no_mutations(self, method):
-        if len(self.mutations) > 0:
-            raise NotImplementedError(f"{method} does not yet support tables with mutations")
-
     def graph(self):
         """
         Return a genetic inheritance graph (Graph) object based on these tables. This
@@ -1630,17 +1627,39 @@ class Tables:
         known = ~is_unknown_time(self.mutations.time)
         self.mutations._data["time"][known] += timedelta
 
-    def decapitate(self, time):
+    def decapitate(self, time, *, discard_old_mutations=False):
         """
         Remove nodes that are older than a certain time, and edges that have those
         as parents. Also remove individuals associated with those nodes.
 
-        :param float time: The time before which nodes should be removed
+        Mutations above removed nodes, and mutations whose (known) time is at least
+        ``time``, are removed. Since a GIG has no per-site ancestral states (see
+        :ref:`sec_design_mutations`), information about alleles would then be lost.
+        So by default, wherever a remaining node loses its parent, mutations with unknown
+        time are added above that node, recording the alleles it inherited from above
+        at those positions. This means that the haplotypes of all remaining nodes are
+        unchanged by decapitation.
+
+        :param float time: The time at or before which nodes should be removed
+        :param bool discard_old_mutations: If False (default), the alleles produced by
+            mutations at least as old as ``time`` are recorded by new mutations above
+            the nodes that lose their parents, as described above, so that haplotypes
+            are unchanged. If True, these old mutations are simply discarded, as in
+            :meth:`tskit:tskit.TreeSequence.decapitate`.
+
+            .. warning::
+                With ``discard_old_mutations=True``, ancestral states (which are given
+                by mutations above roots) are removed along with the roots, so
+                positions whose alleles were only defined by older mutations become
+                missing data, and haplotypes may change.
+
         :return: An array mapping old node ids to new node ids (or -1 if removed)
         :rtype: numpy.ndarray
 
         """
-        self._check_no_mutations("decapitate")
+        inherited = []
+        if not discard_old_mutations and len(self.mutations) > 0:
+            inherited = self._alleles_inherited_across(time)
         individuals = IndividualTable()
         individual_map = {NULL: NULL}
         nodes = NodeTable()
@@ -1668,8 +1687,68 @@ class Tables:
         self.nodes = nodes
         self.iedges = iedges
         self.individuals = individuals
+
+        old_mutations = self.mutations
+        mutations = MutationTable()
+        # Inherited alleles come first, so that they precede (i.e. are older than) any
+        # existing mutations at the same node and position after the (stable) sort
+        for u, chromosome, position, allele in inherited:
+            mutations.add_row(node_map[u], position, allele, chromosome=chromosome)
+        keep = (node_map[old_mutations.node] != NULL) & ~(old_mutations.time >= time)  # unknown times are NaN
+        for i in np.flatnonzero(keep):
+            m = old_mutations[i]
+            mutations.add_row(
+                node_map[m.node],
+                m.position,
+                m.derived_state,
+                chromosome=m.chromosome,
+                time=None if is_unknown_time(m.time) else m.time,
+                metadata=m.metadata,
+            )
+        self.mutations = mutations
         self.sort()
         return node_map
+
+    def _alleles_inherited_across(self, time):
+        """
+        Return a list of (node, chromosome, position, allele) for the alleles inherited
+        by nodes younger than ``time`` through iedges from parents at least as old as
+        ``time`` (i.e. the iedges removed by decapitation). This includes the effect of
+        mutations above the child that are at least as old as ``time`` (which are
+        removed by decapitation). Missing alleles are omitted. Requires the tables to
+        form a valid GIG.
+        """
+        from .graph import Graph
+
+        gig = Graph(self.copy())
+        node_time = self.nodes.time
+        complements = self.allele_complements
+        mutations = self.mutations
+        # Old mutations above nodes that will be kept: {(node, chromosome, position): allele}
+        # (mutations are in time order, so the last at a position is the most recent)
+        old_alleles = {}
+        old = (mutations.time >= time) & (node_time[mutations.node] < time)
+        for i in np.flatnonzero(old):
+            m = mutations[i]
+            old_alleles[(m.node, m.chromosome, m.position)] = m.derived_state
+        result = []
+        for ie in gig.iedges:
+            if node_time[ie.child] >= time or node_time[ie.parent] < time:
+                continue
+            lo, hi = ie.parent_min, ie.parent_max
+            parent_alleles = gig._alleles(ie.parent, ie.parent_chromosome, lo, hi)
+            for i in range(ie.child_right - ie.child_left):
+                if ie.is_inversion():
+                    allele = parent_alleles[ie.parent_left - 1 - i - lo]
+                    if allele is not None:
+                        allele = complement_allele(allele, complements)
+                else:
+                    allele = parent_alleles[ie.parent_left + i - lo]
+                position = ie.child_left + i
+                allele = old_alleles.get((ie.child, ie.child_chromosome, position), allele)
+                if allele is not None:
+                    result.append((ie.child, ie.child_chromosome, position, allele))
+        return result
 
     @classmethod
     def from_tree_sequence(cls, ts, *, chromosome=None, **kwargs):

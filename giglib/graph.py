@@ -656,15 +656,23 @@ class Graph:
         """
         Convert this GIG to a tree sequence. This can only be done if
         each iedge has the same child_left as parent_left and the same
-        child_right as parent_right.
+        child_right as parent_right. This is mainly intended for testing.
+
+        Mutations are grouped into sites by position. Since a GIG stores ancestral
+        states as mutations above roots (see :ref:`sec_design_mutations`), the first
+        mutation above each root of the local tree (excluding isolated nodes) at a
+        site gives that site's ancestral state. This can only be done if all the roots
+        at the site have such a mutation, and they all agree. All other mutations
+        become mutations in the tree sequence, and the mutations at a site must
+        either all have known times, or all have unknown times.
 
         :param int sequence_length: The sequence length in the resulting
             tree sequence (if ``None``, take the maximum position of any edge).
         :return: A tree sequence
         :rtype: tskit.TreeSequence
+        :raises ValueError: If the GIG cannot be represented as a tree sequence
 
         """
-        self.tables._check_no_mutations("to_tree_sequence")
         for ie in self.iedges:
             if ie.child_left != ie.parent_left or ie.child_right != ie.parent_right:
                 raise ValueError(
@@ -701,18 +709,84 @@ class Graph:
 
         tables.provenances.add_row(record=json.dumps({"parameters": {"command": "gig.to_tree_sequence"}}))
         tables.sort()
+        if len(self.mutations) > 0:
+            self._add_tskit_mutations(tables)
         return tables.tree_sequence()
 
-    def decapitate(self, time):
+    def _add_tskit_mutations(self, tables):
         """
-        Return a new GIG with all nodes older than time removed.
+        Add sites and mutations to a tskit TableCollection, which already contains
+        the nodes and edges of this GIG (see :meth:`to_tree_sequence`)
+        """
+        mutations = self.tables.mutations
+        if len(np.unique(mutations.chromosome)) > 1:
+            raise ValueError("Cannot convert mutations on more than one chromosome to a tree sequence")
+        if mutations.position.max() >= tables.sequence_length:
+            raise ValueError("Mutation positions must be less than the sequence length")
+        by_position = {}
+        for m in self.mutations:  # in order of occurrence, for any one node and position
+            by_position.setdefault(int(m.position), []).append(m)
+        ts = tables.tree_sequence()
+        tree = ts.first()
+        for position in sorted(by_position):
+            tree.seek(position)
+            roots = {u for u in tree.roots if tree.num_children(u) > 0}
+            ancestral_state = None
+            seen_roots = set()
+            other_mutations = []
+            for m in by_position[position]:
+                if m.node in roots and m.node not in seen_roots:
+                    seen_roots.add(m.node)
+                    if ancestral_state is None:
+                        ancestral_state = m.derived_state
+                    elif m.derived_state != ancestral_state:
+                        raise ValueError(
+                            f"Cannot convert to a tree sequence: the roots at position {position} "
+                            "have different ancestral states"
+                        )
+                else:
+                    other_mutations.append(m)
+            if seen_roots != roots:
+                raise ValueError(
+                    f"Cannot convert to a tree sequence: at position {position}, not all roots "
+                    "have a mutation giving an ancestral state"
+                )
+            known = [m.is_time_known() for m in other_mutations]
+            if any(known) and not all(known):
+                raise ValueError(
+                    f"Cannot convert to a tree sequence: the mutations at position {position} "
+                    "have a mixture of known and unknown times"
+                )
+            site = tables.sites.add_row(position=position, ancestral_state=ancestral_state)
+            # tskit requires older mutations first at a site
+            other_mutations.sort(key=lambda m: -m.time if m.is_time_known() else 0)
+            for m in other_mutations:
+                tables.mutations.add_row(
+                    site=site,
+                    node=m.node,
+                    derived_state=m.derived_state,
+                    time=m.time if m.is_time_known() else tskit.UNKNOWN_TIME,
+                    metadata=m.metadata if m.metadata is not None else b"",
+                )
+        tables.sort()
+        tables.build_index()
+        tables.compute_mutation_parents()
+
+    def decapitate(self, time, *, discard_old_mutations=False):
+        """
+        Return a new GIG with all nodes at least as old as ``time`` removed. See
+        :meth:`Tables.decapitate` for details, including how mutations are treated.
 
         :param float time: The cutoff time
+        :param bool discard_old_mutations: If False (default), record the alleles
+            produced by old mutations using new mutations, so that the haplotypes of the
+            remaining nodes are unchanged. If True, simply discard old mutations. See
+            :meth:`Tables.decapitate`.
         :return: A new GIG object
         :rtype: Graph
         """
-        tables = self.tables.copy()  # placeholder for making these editable
-        tables.decapitate(time)
+        tables = self.tables.copy()
+        tables.decapitate(time, discard_old_mutations=discard_old_mutations)
         return self.__class__(tables)
 
     def sample_resolve(self):

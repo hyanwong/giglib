@@ -2,11 +2,11 @@
 
 # Mutations
 
-**Status: Accepted, partly implemented.** Implemented: the mutations table and the
-`gig.mutations` and `gig.mutations_for_node()` accessors, conversion from _tskit_, allele
-complements, and `gig.allele_at()` and `gig.haplotype()`. Not yet implemented: handling
-mutations when simplifying or decapitating, conversion to _tskit_, reference sequences, and
-variants.
+**Status: Accepted, mostly implemented.** Implemented: the mutations table and the
+`gig.mutations` and `gig.mutations_for_node()` accessors, conversion to and from _tskit_, allele
+complements, `gig.allele_at()` and `gig.haplotype()`, and handling of mutations in
+`sample_resolve()`, `remove_non_ancestral_nodes()` and `decapitate()`. Not yet implemented:
+reference sequences, variants, and simplification that removes nodes.
 Discussion: {issue}`5`. Related: {issue}`140` (portable reference sequences),
 {issue}`126` (pseudo-roots), {issue}`135` (structural change without recombination),
 {issue}`141` (a position class).
@@ -309,11 +309,27 @@ an inversion.
 ## Simplification
 
 - A node with a duplication beneath it represents a split in the local genealogy, so
-  simplification (currently {meth}`~giglib.Tables.sample_resolve`) should always keep such
-  nodes. (A possible later optimisation is to push duplications up to the next coalescent node.)
-  This also avoids having to turn one mutation above a duplicated node into several mutations,
-  one for each duplicated copy.
+  simplification should always keep such nodes. (A possible later optimisation is to push
+  duplications up to the next coalescent node.) This also avoids having to turn one mutation
+  above a duplicated node into several mutations, one for each duplicated copy.
 - Mutations in regions that are not inherited by any sample are removed, as in _tskit_.
+  The current {meth}`~giglib.Tables.sample_resolve` does this, and never removes nodes, so
+  other mutations stay above the same nodes. Mutations above sample nodes are always kept.
+  Simplification that removes (e.g. unary) nodes is not yet implemented: it would need to
+  move mutations above a removed node down to the corresponding positions in its child.
+
+## Decapitation
+
+{meth}`~giglib.Tables.decapitate` removes nodes at least as old as a given time, and the iedges
+above the remaining nodes. As in _tskit_, it removes mutations at least as old as that time, as
+well as mutations above removed nodes. But because ancestral states are themselves mutations
+above roots, removing them would turn known alleles into missing data. So by default
+(`discard_old_mutations=False`), wherever a remaining node loses its parent, mutations with
+unknown time are added above it, recording the alleles it inherited there. These include the effect of
+any removed mutations on the node's own branch, and come before the node's other mutations at
+the same position, so the haplotypes of all remaining nodes are unchanged. With
+`discard_old_mutations=True`, old mutations are simply removed, as in _tskit_, so haplotypes may
+gain missing data.
 
 ## Converting to and from _tskit_
 
@@ -323,9 +339,14 @@ an inversion.
   root of the local tree at that position, placed before any other mutations at that root and
   position. Isolated nodes (roots with no children) get no such mutation, so are left as missing
   data. This matches _tskit_'s default treatment of isolated samples as missing.
-- **To _tskit_**: mutations at the same position are grouped into sites, and mutations above
-  roots become ancestral states. This is only possible if the conversion is possible for the
-  iedges (i.e. there are no rearrangements).
+- **To _tskit_**: this is mainly for testing, so only the simplest cases are supported.
+  Mutations at the same position are grouped into sites. At each site, the first mutation above
+  each (non-isolated) root of the local tree gives the site's ancestral state: every root must
+  have such a mutation, and they must all agree, otherwise an error is raised. All other
+  mutations become _tskit_ mutations, and must either all have known times or all have unknown
+  times. The iedges must also be convertible (i.e. there are no rearrangements). Converting a
+  tree sequence to a GIG and back gives the same sites and mutations (although if times are
+  unknown, mutations at a site may be reordered).
 
 (sec_design_mutations_future)=
 
