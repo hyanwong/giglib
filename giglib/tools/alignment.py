@@ -2,15 +2,66 @@
 Convert between GIGs with insertions and deletions, and tree sequences whose
 coordinates are the columns of a multiple sequence alignment.
 
-A tree sequence cannot represent changes in the coordinate system, but insertions and
-deletions (indels) can be "hacked" into one by using the columns of an alignment as its
-coordinates. A gap in a genome is represented by the character ``-``. Each site can span
-several columns, given by the length of its alleles, which must all be the same length.
-So a deletion of three bases can be a single mutation from ``ATCG`` to ``A---``, and an
-insertion a mutation from ``A---`` to ``ATCG``. The genome of a node is then the
-non-gap columns, in order.
+This module is experimental: see :ref:`sec_tools`. Discussion: :issue:`139`.
 
-This module is experimental: see :ref:`sec_tools`.
+**Representation.** A tree sequence cannot represent changes in the coordinate system,
+but insertions and deletions (indels) can be "hacked" into one by using the columns of
+an alignment as its coordinates. A gap in a genome is represented by the character
+``-``. Each site can span several columns, given by the length of its alleles, which must
+all be the same length. So a deletion of three bases can be a single mutation from
+``ATCG`` to ``A---``, an insertion a mutation from ``A---`` to ``ATCG`` (or ``ANNN`` if
+the inserted bases are unknown), and a SNP within an indel region is simply another allele
+of the same site. No anchor base is needed, but anchored (VCF-like) alleles also work. The
+genome of a node is then its non-gap columns, in order. As
+:meth:`tskit:tskit.TreeSequence.alignments` cannot decode multi-character alleles, this
+module provides :func:`alignments` (using :func:`split_sites`).
+
+**Tree sequence to GIG** (:func:`from_tree_sequence`). Each node's coordinates are those
+of its non-gap columns. Each edge becomes iedges over the runs of columns that both the
+child and the parent have, breaking only where exactly one of them has a gap. Columns
+that only the child has are inserted positions, with no parent, and their bases come
+from mutations above the child. Sites must not overlap, must not extend beyond the end
+of the sequence, and the columns of a site must all be in the same tree (a site's
+mutations belong to the tree at its position).
+
+**GIG to tree sequence** (planned). The reference coordinates are those shared by the
+roots, and the ancestral state of each column is given by the first mutation above the
+roots there (as in :meth:`giglib.Graph.to_tree_sequence`). All roots must agree.
+
+- *Columns.* Working from the roots down, each position inherited through an iedge takes
+  its parent's column. Each inserted position (with no parent) gets a new column after
+  the column of the node's previous position. Columns are ordered by sortable keys: a
+  reference position ``x`` has key ``(x,)``, and the ``i``-th base inserted by node
+  ``u`` after key ``k`` has key ``k + (u, i)``. So nested insertions sort within their
+  parent insertion, and independent insertions at the same place are ordered by node
+  ID. Each node's positions must map to strictly increasing columns.
+- *Edges.* Each iedge becomes an edge over its columns. Gaps between a child's iedges
+  (deletions, and other nodes' insertions) are filled by extending the edge to their
+  left, so a child inherits ``-`` where its parent lacks a column. For an insertion at a
+  recombination breakpoint, this choice of parent is arbitrary but harmless, as neither
+  parent has those columns.
+- *Sites and mutations.* Each maximal run of columns where any node has a gap becomes
+  one site, split at tree boundaries. Other columns with mutations become single-column
+  sites. There is one mutation above each node whose string at a site differs from its
+  parent's in the local tree (or, for a root, from the ancestral string).
+
+**Round trips, and what is lost.** Converting a tree sequence to a GIG and back should
+give the same alignments, but not necessarily the same sites: multi-column sites without
+gaps (blocks of SNPs) would be split into single columns, and anchor bases would be
+dropped. Converting a GIG to a tree sequence and back should give the same haplotypes.
+For a GIG with rearrangements that are not colinear, a tree sequence can keep the
+sequences, but not the homology between bases:
+
+- an in-place inversion could become a reverse-complemented allele over the same columns
+  (``AACG`` to ``CGTT``), which converts back to substitutions;
+- a duplicated copy could become inserted columns with known bases, which converts back
+  to an insertion unrelated to the original copy;
+- a translocation within a chromosome could become a deletion and an insertion;
+- several chromosomes could become one tree sequence per chromosome.
+
+The plan is for conversion to a tree sequence to raise an error for rearrangements that
+are not colinear by default, so that no information is silently lost, with an option
+(e.g. ``rearrangements="as_indels"``) to encode them as above.
 """
 
 import bisect
