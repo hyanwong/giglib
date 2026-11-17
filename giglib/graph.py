@@ -876,10 +876,11 @@ class GIGItemIterator:
             i = index + n if index < 0 else index
             if not 0 <= i < n:
                 raise IndexError(f"index {index} is out of range for {n} items")
-            return self.cls(**self.table[i]._asdict(), id=i)
+            i = int(i)  # e.g. if a numpy integer was used as the index
+            return self.cls(*self.table[i], i)
         else:
-            true_id = self._ids[index]
-            return self.cls(**self.table[true_id]._asdict(), id=true_id)
+            true_id = int(self._ids[index])
+            return self.cls(*self.table[true_id], true_id)
 
     def __len__(self):
         if self._ids is None:
@@ -890,10 +891,10 @@ class GIGItemIterator:
     def __iter__(self):
         if self._ids is None:
             for i in range(len(self.table)):
-                yield self.cls(**self.table[i]._asdict(), id=i)
+                yield self.cls(*self.table[i], i)
         else:
-            for i in self._ids:
-                yield self.cls(**self.table[i]._asdict(), id=i)
+            for i in self._ids.tolist():  # as Python ints
+                yield self.cls(*self.table[i], i)
 
 
 class IEdge(namedtuple("IEdge", (*IEdgeTableRow._fields, "id"))):

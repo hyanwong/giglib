@@ -244,7 +244,9 @@ class BaseTable:
         return np.all(self._data == other._data) and self._extra_data == other._extra_data
 
     def __getitem__(self, index):
-        return self._RowClass(*self._data[index])
+        # .tolist() converts the values to Python scalars (ints and floats), which is
+        # both faster than unpacking a numpy row, and gives row objects that print nicely
+        return self._RowClass(*self._data[index].tolist())
 
     def clear(self):
         """
@@ -382,7 +384,7 @@ class BaseExtraTable(BaseTable):
         self._extra_data = []
 
     def __getitem__(self, index):
-        return self._RowClass(*self._data[index], *self._extra_data[index])
+        return self._RowClass(*self._data[index].tolist(), *self._extra_data[index])
 
 
 class IEdgeTable(BaseTable):
@@ -658,14 +660,15 @@ class IEdgeTable(BaseTable):
                         raise ValueError("Iedge data must be integers")
                     if i < 6 and val < 0:
                         raise ValueError("Iedge data must be non-negative (except edge ID)")
-            self._validate_add_row(validate, self._RowClass(*self._datastore[num_rows]))
+            self._validate_add_row(validate, self._RowClass(*self._datastore[num_rows].tolist()))
 
         # Passed validation: keep those flags (unset others). Note that we can't validate
         # the age of the parent and child here so we have to set those flags to invalid
         # (they can be set to valid by using the table.add_iedge_row wrapper instead)
         self.flags &= validate | ~ValidFlags.IEDGES_ALL
 
-        self._increment_id_range_for_child(child, child_chromosome, num_rows)
+        # Index keys are Python ints, even if e.g. numpy integers were passed in
+        self._increment_id_range_for_child(int(child), int(child_chromosome), num_rows)
         # expand the visible data array
         self._data = self._datastore[0 : num_rows + 1]
 
@@ -1286,8 +1289,10 @@ class MRCAdict(dict):
                     #      IHGFEABCD       (v)
                     #
                     #  A recombinant after pos 4 should give abcd or IHGFEABCDefghi
-                    u0, u1, uCHR = u
-                    v0, v1, vCHR = v
+                    # (convert to Python ints, as rng.choice returns numpy values)
+                    u0, u1, uCHR = (int(x) for x in u)
+                    v0, v1, vCHR = (int(x) for x in v)
+                    loc = int(loc)
                     if u0 < u1:
                         if v0 < v1:
                             return self.MRCApos(Position(u0 + loc, uCHR), Position(v0 + loc, vCHR), False)
@@ -1614,7 +1619,7 @@ class Tables:
         else:
             iedges._datastore[0 : len(iedges)] = iedges._data[edge_order]
         iedges._id_range_for_child = {}
-        for i, (c, c_chr) in enumerate(zip(iedges.child, iedges.child_chromosome)):
+        for i, (c, c_chr) in enumerate(zip(iedges.child.tolist(), iedges.child_chromosome.tolist())):
             iedges._increment_id_range_for_child(c, c_chr, i)
 
         iedges.set_bitflag(ValidFlags.IEDGES_SORTED)
@@ -2099,7 +2104,9 @@ class Tables:
 
         # must change the built-in indexes. However, edges are in the samme order,
         # so just chnage the keys
-        iedges._id_range_for_child = {inv_mapping[child]: data for child, data in iedges._id_range_for_child.items()}
+        iedges._id_range_for_child = {
+            int(inv_mapping[child]): data for child, data in iedges._id_range_for_child.items()
+        }
 
         mutations = self.mutations
         if len(mutations) > 0:
