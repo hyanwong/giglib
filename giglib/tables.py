@@ -517,8 +517,8 @@ class IEdgeTable(BaseTable):
         self,
         child_left,
         child_right,
-        parent_left,
-        parent_right,
+        parent_left=None,
+        parent_right=None,
         *,
         child,
         parent,
@@ -536,6 +536,23 @@ class IEdgeTable(BaseTable):
             :meth:`.Tables.add_iedge_row` which is a wrapper around this method
             that also allows validation of parent and child node times
 
+        :param int child_left: The left (inclusive) position of the interval, in the
+            child's coordinates
+        :param int child_right: The right (exclusive) position of the interval, in the
+            child's coordinates
+        :param int parent_left: The position in the parent's coordinates corresponding
+            to ``child_left``. If ``parent_left > parent_right``, the interval is
+            inverted. If ``parent_left`` and ``parent_right`` are both ``None``
+            (default), they are taken to be the same as ``child_left`` and
+            ``child_right``, i.e. the interval is inherited without being moved or
+            inverted. Either both or neither must be given.
+        :param int parent_right: The position in the parent's coordinates corresponding
+            to ``child_right`` (see ``parent_left``)
+        :param int child: The ID of the child node (must be given by keyword)
+        :param int parent: The ID of the parent node (must be given by keyword)
+        :param int child_chromosome: The chromosome in the child's genome (default 0)
+        :param int parent_chromosome: The chromosome in the parent's genome (default 0)
+        :param int edge: An optional edge ID (default: ``NULL``, i.e. -1)
         :param int validate: A set of bitflags (as listed in :class:`~giglib.ValidFlags`)
             specifying which iedge table validation checks
             should be performed when adding this data. If the existing data is valid, and
@@ -571,10 +588,17 @@ class IEdgeTable(BaseTable):
 
         .. code-block::
 
+            # Inherit positions 0 to 100 unchanged
+            new_id = iedges.add_row(0, 100, child=c, parent=p)
+            # Inherit an inverted copy of parent positions 50 to 100
             new_id = iedges.add_row(
-                cl, cr, pl, pr, child=c, parent=p, validate=ValidFlags.IEDGES_INTERVALS
+                100, 150, 100, 50, child=c, parent=p, validate=ValidFlags.IEDGES_INTERVALS
             )
         """
+        if parent_left is None and parent_right is None:
+            parent_left, parent_right = child_left, child_right
+        elif parent_left is None or parent_right is None:
+            raise ValueError("Either both or neither of parent_left and parent_right must be given")
         # Stick into the datastore but don't allow it to be accessed via ._data yet
         num_rows = len(self._data)
         if len(self._datastore) == num_rows:

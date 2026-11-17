@@ -282,6 +282,31 @@ class TestIEdgeTable:
         assert tables.iedges[0].child_span == 1
         assert tables.iedges[0].parent_span == -1
 
+    def test_parent_coords_default_to_child_coords(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(time=1)
+        tables.nodes.add_row(time=0)
+        tables.iedges.add_row(10, 20, child=1, parent=0)
+        assert (tables.iedges.parent_left[0], tables.iedges.parent_right[0]) == (10, 20)
+        assert not tables.iedges[0].is_inversion()
+
+    def test_parent_coords_default_with_validation(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(time=1)
+        tables.nodes.add_row(time=0)
+        tables.add_iedge_row(0, 10, child=1, parent=0, validate=ValidFlags.GIG)
+        tables.add_iedge_row(10, 15, 5, 0, child=1, parent=0, validate=ValidFlags.GIG)
+        assert tables.iedges.has_all_bitflags(ValidFlags.GIG)
+        assert list(tables.iedges.parent_left) == [0, 5]
+        assert list(tables.iedges.parent_right) == [10, 0]
+
+    @pytest.mark.parametrize("kwargs", [{"parent_left": 10}, {"parent_right": 20}])
+    def test_only_one_parent_coord(self, kwargs):
+        iedges = gigl.Tables().iedges
+        with pytest.raises(ValueError, match="both or neither"):
+            iedges.add_row(10, 20, child=1, parent=0, **kwargs)
+        assert len(iedges) == 0
+
     def test_novalidate_add_row(self):
         tables = gigl.Tables()
         tables.nodes.add_row(time=1)
