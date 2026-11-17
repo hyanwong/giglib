@@ -31,9 +31,13 @@ implemented so far.
 ```python
 import giglib.tools.alignment
 
-gig = giglib.tools.alignment.from_tree_sequence(ts)
-for u, row in zip(ts.samples(), giglib.tools.alignment.alignments(ts)):
-    assert gig.haplotype(u, right=len(row.replace("-", ""))) == row.replace("-", "")
+gig = giglib.tools.alignment.from_tree_sequence(ts_with_multi_char_indels)
+
+# Each sample's haplotype in the GIG is its alignment with the gaps removed
+rows = giglib.tools.alignment.alignments(ts_with_multi_char_indels)
+for u, row in zip(ts_with_multi_char_indels.samples(), rows):
+    sequence = row.replace("-", "")
+    assert gig.haplotype(u, right=len(sequence)) == sequence
 ```
 
 ```{eval-rst}
