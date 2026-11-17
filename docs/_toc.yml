@@ -17,4 +17,5 @@ chapters:
   sections:
   - file: design/mutations
   - file: design/storage
+  - file: design/simplification
 #- file: CHANGELOG
