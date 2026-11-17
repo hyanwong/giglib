@@ -166,7 +166,8 @@ independent of the storage.
 ## Towards a bespoke core
 
 **Status: Proposed.** The likely endpoint is a bespoke core, probably written in Rust (or
-possibly C, see {issue}`138`), with a Python API on top. It should be able to:
+possibly C: see {ref}`below<sec_design_storage_language>`), with a Python API on top. It should
+be able to:
 
 - **Append rows fast,** with the incremental index and validity checks described above, since
   forward simulations add rows and run algorithms in alternation.
@@ -178,14 +179,36 @@ possibly C, see {issue}`138`), with a Python API on top. It should be able to:
 - **Save and load,** in a documented file format.
 - **Freeze tables,** to give an immutable `Graph`.
 
-A suggested path is to keep the public contract above fixed, and replace the storage behind it
-one table at a time, using the behaviour tests to check each step, and rewriting
-`tests/test_implementation.py` for the new storage.
+(sec_design_storage_language)=
+
+### Language
+
+The choice of language is discussed in {issue}`138`, and has not been made. The current
+preference is Rust, mainly because memory allocation bugs are hard to track down in C (as in
+_tskit_'s C library). Rust can also expose a C interface, which would make the core usable from
+other languages (e.g. R). The issue also agrees that the Python side should be developed further
+first, so that the core is designed around algorithms that have settled.
+
+### Suggested path
+
+Keep the public contract above fixed, and replace the storage behind it gradually:
+
+1. **Python stays the reference implementation.** Develop and test new algorithms in Python,
+   using the behaviour tests as the oracle for any later port.
+2. **Move storage primitives first.** Start with creating tables, appending rows, validating,
+   reading columns without copying, and saving and loading, one table at a time. Rewrite
+   `tests/test_implementation.py` for the new storage, and check each step with the behaviour
+   tests.
+3. **Port algorithms only once they are stable,** and only if they need the speed or control
+   over memory.
+4. **Add a C interface last,** once the core has settled, as a thin layer for use from other
+   languages.
 
 ### Open questions
 
-- Is it better to build on _tskit_'s C tables (and its `kastore` file format), extending them
-  for iedges and chromosomes, or to write a bespoke core from scratch?
+- Rust or C ({issue}`138`)? Either way, is it better to build on _tskit_'s C tables (which also
+  have Rust bindings) and its `kastore` file format, extending them for iedges and chromosomes,
+  or to write a bespoke core from scratch?
 - Should the indexes currently built when a `Graph` is created (e.g. the parent index) be
   maintained by the tables instead?
 - Should bulk addition (`add_rows()`) be added to the current numpy storage, or wait for the
