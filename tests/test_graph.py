@@ -341,6 +341,49 @@ class TestMethods:
             gig.iedges_for_child("1")
 
 
+class TestPythonScalars:
+    """
+    Values in row objects, and IDs, are Python ints and floats (not numpy scalars),
+    so that they print nicely, e.g. ``Node(time=0.0, ...)`` not ``np.float64(0.0)``
+    """
+
+    @staticmethod
+    def assert_python_scalars(obj):
+        for name, value in obj._asdict().items():
+            assert not isinstance(value, np.generic), f"{name} is {type(value)}"
+
+    def test_rows_and_objects(self):
+        ts = msprime.sim_ancestry(3, sequence_length=50, recombination_rate=0.01, random_seed=2)
+        ts = msprime.sim_mutations(ts, rate=0.02, random_seed=2)
+        gig = gigl.Graph.from_tree_sequence(ts)
+        for collection in (gig.nodes, gig.iedges, gig.mutations, gig.individuals):
+            assert len(collection) > 0
+            self.assert_python_scalars(collection[0])
+            self.assert_python_scalars(next(iter(collection)))
+        for table in (gig.tables.nodes, gig.tables.iedges, gig.tables.mutations):
+            self.assert_python_scalars(table[0])
+        assert "np." not in repr(gig.mutations[0])
+
+    def test_view_ids(self, all_sv_types_1re_gig):
+        gig = all_sv_types_1re_gig
+        sample = gig.sample_nodes()[0]
+        for view in (gig.sample_nodes(), gig.iedges_for_child(sample), gig.iedges_for_parent(gig.iedges[0].parent)):
+            assert len(view) > 0
+            assert isinstance(view[0].id, int)
+            assert all(isinstance(obj.id, int) for obj in view)
+        assert isinstance(gig.nodes[np.int64(0)].id, int)
+
+    def test_index_keys(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0)
+        # numpy integers passed in are stored as Python ints in the index
+        tables.iedges.add_row(np.int64(1), np.int64(0), child_chromosome=np.int16(2))
+        assert all(isinstance(c, int) for c in tables.iedges.chromosomes_as_child(1))
+        tables.sort()
+        assert all(isinstance(c, int) for c in tables.iedges.chromosomes_as_child(1))
+
+
 class TestTskitNames:
     @pytest.mark.parametrize(
         ("attr", "expected"),
