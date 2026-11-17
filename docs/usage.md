@@ -178,6 +178,10 @@ print(gig.haplotype(child))  # ACTTACGTACACTGA
 print(gig.allele_at(child, 12))  # T
 ```
 
+The examples above all use chromosome 0, the default. Other chromosomes are given by keyword, e.g.
+`tables.mutations.add_row(u, 3, "A", chromosome=1)` or `gig.allele_at(u, 3, chromosome=1)`
+(see {ref}`sec_usage_consistency`).
+
 As elsewhere in the API, the `Graph` returns objects, and the tables return IDs:
 `gig.mutations_for_node(child)` gives `Mutation` objects, while
 `gig.tables.mutations.ids_for_node(child)` gives an array of mutation IDs. Mutation times may be
