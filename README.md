@@ -55,6 +55,27 @@ regions of two genomes share a common ancestor, and where those regions sit in e
 is enough to build forward simulations with structural variants and recombination: see the
 [Usage](https://hyanwong.github.io/giglib/usage.html#simulations) page.
 
+## Design principles
+
+- **No global coordinate system.** Each genome has its own coordinates, and positions are integers
+  (base pairs). There is no global sequence length: a node's length comes from the iedges above and
+  below it (`gig.sequence_length(u, chromosome)`).
+- **One parent per position.** Within a child's chromosome, each position is inherited from at
+  most one parent. Iedges are grouped by child, so tracing the ancestry of any point upwards
+  through the graph is always unambiguous, however rearranged the genomes are.
+- **Multiple chromosomes.** A node can carry several chromosomes, and an iedge can move material
+  between them (e.g. translocations).
+- **Validate only what you need.** Validity is tracked as a set of separate guarantees
+  ([`ValidFlags`](https://hyanwong.github.io/giglib/python-api.html#sec-python-api-tables-validity)),
+  such as "parents are older than children" or "iedges for each child are sorted". Rows can be
+  checked as they are added, e.g. with `tables.add_iedge_row(..., validate=...)`. Each table
+  algorithm checks for just the guarantees it needs, and refuses to run without them. So algorithms
+  like `tables.find_mrca_regions()` can run on growing tables during a simulation, without the cost
+  of repeatedly freezing them into a `Graph`. Freezing with `tables.graph()` requires all the
+  guarantees, and adds indexes for fast lookup.
+- **A library, not a simulator.** As with tskit, giglib provides the data structures and
+  algorithms that simulators and inference methods can build on.
+
 ## Coming from tskit
 
 | tskit | giglib |
@@ -66,13 +87,28 @@ is enough to build forward simulations with structural variants and recombinatio
 | `ts.tables.nodes.time` | `gig.tables.nodes.time` |
 | `ts.simplify()` | `gig.sample_resolve()` (a basic version, so far) |
 
-A few rules keep the API predictable:
+Where tskit and internal consistency conflict, giglib chooses consistency. A few rules keep the
+API predictable:
 - `Graph` methods return objects and `Tables` methods return ID arrays, using the same names.
 - Collections such as `gig.nodes` support `len()`, indexing and `.ids`.
-- Some algorithms run directly on unfrozen `Tables`, which makes forward simulation practical.
+- Fixed properties are attributes (`gig.nodes`); anything that takes parameters is a method
+  (`gig.sample_nodes(time=0)`).
 
 If you type `gig.num_nodes` out of habit, it still works, and a warning tells you the giglib
 equivalent.
+
+### What you won't find (yet)
+
+- **No local trees.** Without a shared coordinate system, there is no single "tree at position
+  x" across all samples. A duplication also means one sample genome can appear as two tips in the
+  same local genealogy, breaking the one-sample-one-tip assumption behind ARGs. So there is no
+  `ts.trees()` equivalent: algorithms instead work directly on the graph, by tracing intervals up
+  through the iedges.
+- **No sites or mutations.** In tskit a site is a position in the shared coordinate system, so a
+  global sites table doesn't make sense for a GIG. The plan is to store each mutation's position
+  in the coordinates of the node it occurs above, without a separate sites table (see
+  [#5](https://github.com/hyanwong/giglib/issues/5)). Until then, tree sequences must be converted
+  without their sites and mutations.
 
 For the full story, see [Concepts](https://hyanwong.github.io/giglib/concepts.html) (how
 rearrangements are encoded) and [Usage](https://hyanwong.github.io/giglib/usage.html) (all the
