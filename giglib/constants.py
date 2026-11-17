@@ -10,6 +10,10 @@ class Const:
 
     #: The default NULL integer value, identical to :data:`tskit:tskit.NULL`
     NULL = tskit.NULL
+    #: The value used for an unknown mutation time, identical to
+    #: :data:`tskit:tskit.UNKNOWN_TIME`. As this is a NaN, test for it using
+    #: :func:`giglib.is_unknown_time`, not ``==``.
+    UNKNOWN_TIME = tskit.UNKNOWN_TIME
     ROOTWARDS = 0
     LEAFWARDS = 1
 

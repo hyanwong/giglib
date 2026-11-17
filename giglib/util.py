@@ -1,8 +1,10 @@
 import itertools
+import types
 import warnings
 
 import matplotlib.patches as patches
 import numpy as np
+import tskit
 
 
 class TskitNameWarning(UserWarning):
@@ -23,6 +25,55 @@ def warn_tskit_name(name, suggestion):
         TskitNameWarning,
         stacklevel=3,
     )
+
+
+def is_unknown_time(time):
+    """
+    Test whether a time (or an array of times) is :data:`~giglib.UNKNOWN_TIME`. This is
+    needed because ``UNKNOWN_TIME`` is a NaN value, so ``time == UNKNOWN_TIME`` is
+    always False.
+
+    :param time: A single time, or an array of times
+    :return: A boolean (or an array of booleans)
+    """
+    return tskit.is_unknown_time(time)
+
+
+def _iupac_complements():
+    pairs = {"A": "T", "C": "G", "R": "Y", "K": "M", "S": "S", "W": "W", "B": "V", "D": "H", "N": "N"}
+    complements = {}
+    for a, b in pairs.items():
+        for x, y in ((a, b), (a.lower(), b.lower())):
+            complements[x] = y
+            complements[y] = x
+    complements["-"] = "-"
+    return complements
+
+
+#: The default map of allele complements, containing the IUPAC nucleotide codes
+#: (in upper and lower case) and ``"-"`` (which maps to itself)
+DEFAULT_ALLELE_COMPLEMENTS = types.MappingProxyType(_iupac_complements())
+
+
+def complement_allele(allele, complements):
+    """
+    Return the allele that would be read on the opposite strand, using a map of
+    complements (see :ref:`sec_design_mutations_strands`):
+
+    1. If ``allele`` is a key in ``complements``, return the corresponding value.
+    2. Otherwise, if ``allele`` has more than one character, and every character is
+       in ``complements``, return its reverse complement.
+    3. Otherwise, return ``allele`` unchanged (it is treated as strand-symmetric).
+
+    :param str allele: The allele to complement
+    :param dict complements: The map of complements
+    :rtype: str
+    """
+    if allele in complements:
+        return complements[allele]
+    if len(allele) > 1 and all(c in complements for c in allele):
+        return "".join(complements[c] for c in reversed(allele))
+    return allele
 
 
 def as_id(x):

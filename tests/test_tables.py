@@ -35,12 +35,56 @@ class TestCreation:
         tables.change_times(timedelta=time)
         assert tables.nodes[0].time == simple_ts.node(0).time + time
 
-    def test_mutations_not_implemented_error(self, simple_ts_with_mutations):
-        ts_tables = simple_ts_with_mutations.tables
-        assert ts_tables.mutations.num_rows > 0
-        assert ts_tables.sites.num_rows > 0
-        with pytest.raises(NotImplementedError):
-            gigl.Tables.from_tree_sequence(simple_ts_with_mutations)
+    def test_mutations(self, simple_ts_with_mutations):
+        ts = simple_ts_with_mutations
+        assert ts.num_mutations > 0
+        tables = gigl.Tables.from_tree_sequence(ts)
+        # one mutation per ancestral state, above the root(s) of each local tree
+        num_ancestral = sum(tree.num_sites * len(tree.roots) for tree in ts.trees())
+        assert len(tables.mutations) == ts.num_mutations + num_ancestral
+        unknown = gigl.is_unknown_time(tables.mutations.time)
+        assert np.sum(~unknown) == ts.num_mutations
+        for mut in ts.mutations():
+            matches = [
+                m
+                for m in tables.mutations
+                if m.node == mut.node and m.position == ts.site(mut.site).position and m.time == mut.time
+            ]
+            assert len(matches) == 1
+            assert matches[0].derived_state == mut.derived_state
+        tables.graph()  # passes validation
+
+    def test_ancestral_state_mutations(self, simple_ts_with_mutations):
+        ts = simple_ts_with_mutations
+        tables = gigl.Tables.from_tree_sequence(ts, chromosome=3)
+        assert np.all(tables.mutations.chromosome == 3)
+        for tree in ts.trees():
+            for site in tree.sites():
+                for root in tree.roots:
+                    ids = tables.mutations.ids_for_node(root, chromosome=3)
+                    at_site = [tables.mutations[i] for i in ids if tables.mutations[i].position == site.position]
+                    # the ancestral state comes first, with unknown time
+                    assert at_site[0].derived_state == site.ancestral_state
+                    assert gigl.is_unknown_time(at_site[0].time)
+
+    def test_isolated_nodes_have_no_ancestral_state(self):
+        tables = tskit.TableCollection(sequence_length=10)
+        for _ in range(3):
+            tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        root = tables.nodes.add_row(time=1)
+        tables.edges.add_row(0, 10, root, 0)
+        tables.edges.add_row(0, 10, root, 1)  # node 2 is isolated
+        tables.sites.add_row(position=4, ancestral_state="A")
+        ts = tables.tree_sequence()
+        gig_tables = gigl.Tables.from_tree_sequence(ts)
+        assert [m.node for m in gig_tables.mutations] == [root]
+
+    def test_non_integer_site_positions(self):
+        tables = tskit.TableCollection(sequence_length=10)
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        tables.sites.add_row(position=4.5, ancestral_state="A")
+        with pytest.raises(ValueError, match="integers"):
+            gigl.Tables.from_tree_sequence(tables.tree_sequence())
 
     def test_populations_not_implemented_error(self, ts_with_multiple_pops):
         # No need to test for migrations, since they necessarily
@@ -1159,3 +1203,173 @@ class TestDecapitate:
         # The parent of "mid" was removed, so becomes NULL
         assert tables.individuals[0].parents == (gigl.NULL,)
         assert tables.individuals[1].parents == (0,)
+
+
+class TestMutationTable:
+    def test_add_row(self):
+        mutations = gigl.Tables().mutations
+        assert mutations.add_row(1, 5, "A") == 0
+        assert mutations.add_row(0, 3, "T", chromosome=2, time=1.5, metadata=b"x") == 1
+        assert len(mutations) == 2
+        assert list(mutations.node) == [1, 0]
+        assert list(mutations.position) == [5, 3]
+        assert list(mutations.chromosome) == [0, 2]
+        assert mutations.derived_state == ["A", "T"]
+        assert gigl.is_unknown_time(mutations.time[0])
+        assert mutations.time[1] == 1.5
+        row = mutations[1]
+        assert isinstance(row, gigl.tables.MutationTableRow)
+        assert row == (0, 2, 3, 1.5, "T", b"x")
+
+    @pytest.mark.parametrize("state", [b"A", 1, None, ["A"]])
+    def test_derived_state_must_be_string(self, state):
+        with pytest.raises(TypeError, match="derived_state must be a string"):
+            gigl.Tables().mutations.add_row(0, 0, state)
+
+    @pytest.mark.parametrize("state", ["", "-", "ATTG"])
+    def test_indel_alleles(self, state):
+        mutations = gigl.Tables().mutations
+        mutations.add_row(0, 0, state)
+        assert mutations[0].derived_state == state
+
+    def test_append(self):
+        mutations = gigl.Tables().mutations
+        mutations.add_row(1, 5, "A", time=2)
+        mutations.append(mutations[0])
+        assert mutations[0] == mutations[1]
+
+    def test_copy_and_equality_with_unknown_times(self):
+        tables = gigl.Tables()
+        tables.mutations.add_row(0, 1, "A")  # unknown time is a NaN
+        tables.mutations.add_row(0, 2, "C", time=1)
+        copy = tables.copy()
+        assert copy.mutations == tables.mutations
+        assert copy == tables
+        copy.mutations.add_row(0, 3, "G")
+        assert copy.mutations != tables.mutations
+
+    def test_inequality(self):
+        a, b = gigl.Tables(), gigl.Tables()
+        a.mutations.add_row(0, 1, "A")
+        b.mutations.add_row(0, 1, "T")
+        assert a.mutations != b.mutations
+        b.mutations.clear()
+        b.mutations.add_row(0, 1, "A", time=0)
+        assert a.mutations != b.mutations
+
+    def test_clear(self):
+        mutations = gigl.Tables().mutations
+        mutations.add_row(0, 1, "A")
+        assert len(mutations.ids_for_node(0)) == 1
+        mutations.clear()
+        assert len(mutations) == 0
+        assert len(mutations.ids_for_node(0)) == 0
+
+    def test_str(self):
+        tables = gigl.Tables()
+        tables.mutations.add_row(0, 1, "A")
+        assert "MUTATIONS" in str(tables)
+        assert "derived_state" in str(tables.mutations)
+        assert "mutations" in tables._repr_html_()
+
+    def test_ids_for_node(self):
+        mutations = gigl.Tables().mutations
+        for node, chrom, pos in [(3, 0, 1), (3, 0, 1), (3, 0, 4), (3, 2, 0), (1, 0, 7)]:
+            mutations.add_row(node, pos, "A", chromosome=chrom)
+        assert list(mutations.ids_for_node(3)) == [0, 1, 2, 3]
+        assert list(mutations.ids_for_node(3, chromosome=0)) == [0, 1, 2]
+        assert list(mutations.ids_for_node(3, chromosome=2)) == [3]
+        assert list(mutations.ids_for_node(3, chromosome=1)) == []
+        assert list(mutations.ids_for_node(1)) == [4]
+        assert list(mutations.ids_for_node(0)) == []
+        # The (start, end) ranges match the IDs, without creating an array
+        assert mutations._range_for_node(3) == (0, 4)
+        assert mutations._range_for_node(3, chromosome=2) == (3, 4)
+        assert mutations._range_for_node(0) == (0, 0)
+        assert mutations._range_for_node(3, chromosome=1) == (0, 0)
+        # index is rebuilt after adding rows
+        mutations.add_row(1, 8, "C")
+        assert list(mutations.ids_for_node(1)) == [4, 5]
+
+    def test_ids_for_node_not_adjacent(self):
+        mutations = gigl.Tables().mutations
+        for node in (0, 1, 0):
+            mutations.add_row(node, 0, "A")
+        with pytest.raises(ValueError, match="adjacent"):
+            mutations.ids_for_node(0)
+
+    @pytest.mark.parametrize("rows", [[(0, 0, 5), (0, 0, 4)], [(0, 1, 0), (0, 0, 9)]])
+    def test_ids_for_node_unsorted(self, rows):
+        mutations = gigl.Tables().mutations
+        for node, chrom, pos in rows:
+            mutations.add_row(node, pos, "A", chromosome=chrom)
+        with pytest.raises(ValueError, match="ordered by chromosome, then position"):
+            mutations.ids_for_node(0)
+
+    def test_sort(self):
+        tables = gigl.Tables()
+        for t in (0, 2, 1):
+            tables.nodes.add_row(t)
+        # (node, chromosome, position, state), deliberately out of order
+        rows = [(0, 0, 5, "a"), (2, 0, 1, "b"), (1, 0, 3, "c"), (1, 0, 3, "d"), (0, 1, 0, "e"), (0, 0, 5, "f")]
+        for node, chrom, pos, state in rows:
+            tables.mutations.add_row(node, pos, state, chromosome=chrom)
+        tables.sort()
+        # nodes in order of decreasing time (node 1 at time 2, node 2 at time 1, then
+        # node 0), then chromosome, then position, and with mutations at the same node
+        # and position ("c", "d" and "a", "f") kept in their original order
+        assert tables.mutations.derived_state == ["c", "d", "b", "a", "f", "e"]
+        # the sort is stable, so the same order is produced again
+        tables.mutations.add_row(1, 3, "g")
+        tables.sort()
+        assert tables.mutations.derived_state == ["c", "d", "g", "b", "a", "f", "e"]
+
+    def test_sort_bad_node(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(0)
+        tables.mutations.add_row(1, 0, "A")
+        with pytest.raises(ValueError, match="not in the node table"):
+            tables.sort()
+
+    def test_change_times(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.mutations.add_row(0, 0, "A", time=1.5)
+        tables.mutations.add_row(0, 1, "C")
+        tables.change_times(10)
+        assert tables.nodes.time[0] == 11
+        assert tables.mutations.time[0] == 11.5
+        assert gigl.is_unknown_time(tables.mutations.time[1])
+
+    @pytest.mark.parametrize("method", ["decapitate", "sample_resolve", "remove_non_ancestral_nodes"])
+    def test_not_implemented_with_mutations(self, method):
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.mutations.add_row(0, 0, "A")
+        args = (1,) if method == "decapitate" else ()
+        with pytest.raises(NotImplementedError, match="mutations"):
+            getattr(tables, method)(*args)
+
+    def test_row_equality_with_unknown_times(self):
+        mutations = gigl.Tables().mutations
+        mutations.add_row(0, 0, "A")
+        mutations.add_row(0, 0, "A", time=0)
+        row = mutations[0]
+        assert row == mutations[0]
+        assert not (row != mutations[0])
+        assert hash(row) == hash(mutations[0])
+        assert len({row, mutations[0]}) == 1
+        assert row != mutations[1]
+        assert mutations[1] == (0, 0, 0, 0.0, "A", None)
+        assert row != (0, 0, 0)
+
+    def test_copy_keeps_index(self):
+        mutations = gigl.Tables().mutations
+        for node in (2, 2, 1):
+            mutations.add_row(node, 0, "A")
+        copy = mutations.copy()
+        assert list(copy.ids_for_node(2)) == [0, 1]
+        copy.add_row(2, 1, "C")  # makes node 2 non-adjacent in the copy only
+        with pytest.raises(ValueError, match="adjacent"):
+            copy.ids_for_node(2)
+        assert list(mutations.ids_for_node(2)) == [0, 1]

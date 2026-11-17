@@ -5,14 +5,15 @@ efficient access.
 """
 
 import json
+import warnings
 from collections import namedtuple
 
 import numpy as np
 import tskit
 
 from .constants import Const, ValidFlags
-from .tables import IEdgeTableRow, IndividualTableRow, NodeTableRow, Tables
-from .util import as_id, warn_tskit_name
+from .tables import IEdgeTableRow, IndividualTableRow, MutationTableRow, NodeTableRow, Tables
+from .util import as_id, complement_allele, is_unknown_time, warn_tskit_name
 
 
 def _read_only(arr):
@@ -41,6 +42,8 @@ class Graph:
             raise ValueError("tables must be a giglib.Tables object")
         self.tables = tables
         self._validate()
+        self._validate_mutations()
+        self._check_allele_complements()
         self.tables.freeze()
         # Cached arrays: read-only, so they can safely be shared between views
         self._iedge_map_sorted_by_parent = _read_only(self._iedge_map_sorted_by_parent)
@@ -183,6 +186,224 @@ class Graph:
                     prev_right = ie.child_right
         self.tables.iedges.flags = ValidFlags.GIG
 
+    def _iedge_id_above(self, u, chromosome, position):
+        """
+        Return the ID of the iedge above node ``u`` that contains ``position`` on the
+        given chromosome of ``u`` (or None if ``u`` has no parent at that position)
+        """
+        ids = self.tables.iedges.ids_for_child(u, chromosome)
+        if len(ids) == 0:
+            return None
+        start, end = ids[0], ids[-1] + 1
+        j = np.searchsorted(self.tables.iedges.child_left[start:end], position, side="right") - 1
+        if j >= 0 and position < self.tables.iedges.child_right[start + j]:
+            return start + j
+        return None
+
+    def _validate_mutations(self):
+        """
+        Check the mutations table (requires the iedges to have been validated)
+        """
+        tables = self.tables
+        mutations = tables.mutations
+        # Rebuild the node index before the tables are frozen, so that a Graph can never
+        # use a stale index. Public column accessors are intended to be read-only (see
+        # BaseTable._column), so columns should only change through methods that keep the
+        # index up to date. But the index would still go stale if the underlying ``_data``
+        # array were edited directly (as some library code does), so this check is
+        # retained as a cheap safeguard: it costs little compared to the validation below.
+        mutations._rebuild_index()
+        n = len(mutations)
+        if n == 0:
+            return
+        node = mutations.node
+        chromosome = mutations.chromosome
+        position = mutations.position
+        time = mutations.time
+        node_time = tables.nodes.time
+        if node.min() < 0 or node.max() >= len(tables.nodes):
+            bad = np.flatnonzero((node < 0) | (node >= len(tables.nodes)))
+            raise ValueError(f"Mutations {bad} refer to nodes that are not in the node table")
+        if position.min() < 0:
+            raise ValueError(f"Mutations {np.flatnonzero(position < 0)} have negative positions")
+        known = ~is_unknown_time(time)
+        if not np.all(np.isfinite(time[known])):
+            bad = np.flatnonzero(known & ~np.isfinite(time))
+            raise ValueError(f"Mutations {bad} have times that are neither finite nor UNKNOWN_TIME")
+        if not np.array_equal(tables._mutation_sort_order(), np.arange(n)):
+            raise ValueError("Mutations are not in the required order: call tables.sort() first")
+
+        too_young = known & (time < node_time[node])
+        if np.any(too_young):
+            i = np.argmax(too_young)
+            raise ValueError(f"Mutation {i} has time {time[i]}, younger than its node ({node_time[node[i]]})")
+
+        prev_key = None
+        prev_time = np.inf
+        for i in np.arange(n):
+            key = (node[i], chromosome[i], position[i])
+            if key != prev_key:
+                prev_key = key
+                prev_time = np.inf
+            if known[i]:
+                if time[i] > prev_time:
+                    raise ValueError(
+                        f"Mutation {i} has time {time[i]}, older than a previous mutation at the same "
+                        "node and position: mutations at the same position must be in time order"
+                    )
+                prev_time = time[i]
+                ie_id = self._iedge_id_above(node[i], chromosome[i], position[i])
+                if ie_id is not None:
+                    parent_time = node_time[tables.iedges.parent[ie_id]]
+                    if time[i] >= parent_time:
+                        raise ValueError(
+                            f"Mutation {i} has time {time[i]}, which is not younger than the parent "
+                            f"of node {node[i]} at that position (time {parent_time})"
+                        )
+
+    def _check_allele_complements(self):
+        """
+        Warn if there are inversions and multi-character alleles that cannot be
+        complemented using the allele complements map
+        """
+        iedges = self.tables.iedges
+        if len(self.tables.mutations) == 0 or not np.any(iedges.parent_right < iedges.parent_left):
+            return
+        complements = self.tables.allele_complements
+        # Rule 3 of the complement rules: multi-character, not in the map, and with
+        # some characters that are not in the map
+        uncomplementable = sorted(
+            {
+                a
+                for a in self.tables.mutations.derived_state
+                if len(a) > 1 and a not in complements and not all(c in complements for c in a)
+            }
+        )
+        if len(uncomplementable) > 0:
+            warnings.warn(
+                f"This GIG contains inversions, but the alleles {uncomplementable} cannot be "
+                "complemented using tables.allele_complements, so will be treated as "
+                "strand-symmetric. To silence this warning, add them to the map (mapping an "
+                "allele to itself if it really is symmetric).",
+                UserWarning,
+                stacklevel=4,  # point to the caller of Tables.graph()
+            )
+
+    def _alleles(self, u, chromosome, left, right):
+        """
+        Return a list of the alleles at positions ``left`` to ``right - 1`` of node
+        ``u``'s genome, with ``None`` for unknown (missing) alleles.
+
+        Each position is traced rootwards until it reaches a mutation (the most recent
+        one at that node and position), or a node with no parent at that position.
+        Each position has at most one parent, so tracing never branches. We track
+        intervals in the coordinates of the current node, with an affine map
+        ``index = m * x + k`` back to the index in the result, where ``m == -1`` if
+        the interval has passed through an odd number of inversions.
+        """
+        result = [None] * (right - left)
+        complements = self.tables.allele_complements
+        iedges = self.tables.iedges
+        mutations = self.tables.mutations
+        mut_position = mutations.position
+        state_col = mutations._extra_data_cols["derived_state"]
+        stack = [(u, chromosome, left, right, 1, -left)]
+        while stack:
+            v, c, a, b, m, k = stack.pop()
+            # Resolve positions with mutations above v. The last mutation at a position
+            # is the most recent, so determines the allele inherited from v.
+            resolved = []
+            start, end = mutations._range_for_node(v, c)
+            if end > start:
+                j = start + np.searchsorted(mut_position[start:end], a, side="left")
+                hi = start + np.searchsorted(mut_position[start:end], b, side="left")
+                while j < hi:
+                    x = mut_position[j]
+                    while j + 1 < hi and mut_position[j + 1] == x:
+                        j += 1
+                    state = mutations._extra_data[j][state_col]
+                    result[m * x + k] = state if m == 1 else complement_allele(state, complements)
+                    resolved.append(x)
+                    j += 1
+            # Trace the unresolved intervals up through the iedges above v
+            ie_ids = iedges.ids_for_child(v, c)
+            if len(ie_ids) == 0:
+                continue  # no parents: unresolved positions remain missing
+            ie_start, ie_end = ie_ids[0], ie_ids[-1] + 1
+            child_left = iedges.child_left[ie_start:ie_end]
+            child_right = iedges.child_right[ie_start:ie_end]
+            for p, q in zip([a, *(x + 1 for x in resolved)], [*resolved, b]):
+                if p >= q:
+                    continue
+                i = np.searchsorted(child_right, p, side="right")
+                while i < len(child_left) and child_left[i] < q:
+                    ov_a, ov_b = max(p, child_left[i]), min(q, child_right[i])
+                    if ov_a < ov_b:
+                        ie = iedges[ie_start + i]
+                        if ie.parent_left < ie.parent_right:
+                            d = ie.parent_left - ie.child_left
+                            stack.append((ie.parent, ie.parent_chromosome, ov_a + d, ov_b + d, m, k - m * d))
+                        else:
+                            # Inversion: parent position x' = s - x
+                            s = ie.child_left + ie.parent_left - 1
+                            stack.append((ie.parent, ie.parent_chromosome, s - ov_b + 1, s - ov_a + 1, -m, k + m * s))
+                    i += 1
+        return result
+
+    def haplotype(self, u, chromosome=0, *, left=0, right=None, missing_data_character="N"):
+        """
+        Return the sequence of alleles in node ``u``'s genome, as a string. Each
+        position takes the allele of the most recent mutation above it (traced up
+        through the iedges, and complemented across inversions using
+        ``tables.allele_complements``: alleles that cannot be complemented using the
+        map, such as ``"0"`` or ``"1"``, are left unchanged). Positions with no mutation
+        above them are missing data. See :ref:`sec_design_mutations`.
+
+        For a GIG converted from a tree sequence ``ts`` without a reference sequence,
+        ``haplotype(u, right=int(ts.sequence_length))`` for a sample ``u`` matches the
+        corresponding sequence from :meth:`tskit:tskit.TreeSequence.alignments`. Note
+        that ``right`` should be given explicitly, as the default is the length of
+        ``u``'s genome implied by its iedges, which may be shorter.
+
+        If any alleles have more or less than one character (e.g. representing small
+        indels), the length of the returned string will differ from ``right - left``.
+
+        :param int u: The node (or a :class:`~giglib.graph.Node` object)
+        :param int chromosome: The chromosome in ``u``'s genome (default: 0)
+        :param int left: The first position to return (default: 0)
+        :param int right: The position after the last one to return. If ``None``
+            (default), use the sequence length of ``u`` for this chromosome.
+        :param str missing_data_character: The string to use for positions with
+            unknown alleles (default: ``"N"``, as for :meth:`tskit:tskit.TreeSequence.alignments`)
+        :return: The haplotype
+        :rtype: str
+        """
+        u = as_id(u)
+        if right is None:
+            right = self.sequence_length(u, chromosome)
+        if left < 0 or right < left:
+            raise ValueError(f"Invalid interval [{left}, {right})")
+        alleles = self._alleles(u, chromosome, left, right)
+        return "".join(missing_data_character if a is None else a for a in alleles)
+
+    def allele_at(self, u, position, chromosome=0):
+        """
+        Return the allele at a position in node ``u``'s genome, given by the most recent
+        mutation above that position (complemented across inversions using
+        ``tables.allele_complements``, with alleles that cannot be complemented using
+        the map left unchanged). See :ref:`sec_design_mutations`.
+
+        :param int u: The node (or a :class:`~giglib.graph.Node` object)
+        :param int position: The position, in ``u``'s coordinates
+        :param int chromosome: The chromosome in ``u``'s genome (default: 0)
+        :return: The allele, or ``None`` if it is unknown (missing data)
+        :rtype: str
+        """
+        u = as_id(u)
+        if position < 0:
+            raise ValueError("position must be non-negative")
+        return self._alleles(u, chromosome, position, position + 1)[0]
+
     @property
     def time_units(self):
         return self.tables.time_units
@@ -254,6 +475,25 @@ class Graph:
         """
         return GIGItemIterator(self.tables.iedges, IEdge)
 
+    @property
+    def mutations(self):
+        """
+        A sequence-like view of all the :class:`~giglib.graph.Mutation` objects
+        in this GIG, supporting ``len()``, indexing, and iteration.
+        """
+        return GIGItemIterator(self.tables.mutations, Mutation)
+
+    def mutations_for_node(self, u, chromosome=None):
+        """
+        Return a sequence-like view of the :class:`~giglib.graph.Mutation` objects
+        above node ``u``, ordered by chromosome, then position, then the order in
+        which they occurred. If ``chromosome`` is given, only return mutations on that
+        chromosome of ``u``. To get mutation IDs instead, use
+        :meth:`tables.MutationTable.ids_for_node`.
+        """
+        u = as_id(u)
+        return GIGItemIterator(self.tables.mutations, Mutation, ids=self.tables.mutations.ids_for_node(u, chromosome))
+
     # tskit names which do not exist in giglib. These exist only to guide users
     # familiar with tskit towards the giglib equivalents, and emit a TskitNameWarning
 
@@ -271,6 +511,11 @@ class Graph:
     def num_individuals(self):
         warn_tskit_name("num_individuals", "len(gig.individuals)")
         return len(self.individuals)
+
+    @property
+    def num_mutations(self):
+        warn_tskit_name("num_mutations", "len(gig.mutations)")
+        return len(self.mutations)
 
     @property
     def num_samples(self):
@@ -292,6 +537,13 @@ class Graph:
         """
         warn_tskit_name("node(u)", "gig.nodes[u]")
         return self.nodes[u]
+
+    def mutation(self, i):
+        """
+        Not part of the giglib API (emits a :class:`~giglib.TskitNameWarning`): use ``gig.mutations[i]``
+        """
+        warn_tskit_name("mutation(i)", "gig.mutations[i]")
+        return self.mutations[i]
 
     def individual(self, i):
         """
@@ -412,6 +664,7 @@ class Graph:
         :rtype: tskit.TreeSequence
 
         """
+        self.tables._check_no_mutations("to_tree_sequence")
         for ie in self.iedges:
             if ie.child_left != ie.parent_left or ie.child_right != ie.parent_right:
                 raise ValueError(
@@ -624,6 +877,25 @@ class Node(namedtuple("Node", (*NodeTableRow._fields, "id"))):
 
     def is_sample(self):
         return bool(self.flags & Const.NODE_IS_SAMPLE)
+
+
+class Mutation(namedtuple("Mutation", (*MutationTableRow._fields, "id"))):
+    """
+    An object representing a single mutation in a :class:`Graph`. This acts like a
+    :class:`~giglib.tables.MutationTableRow` but also has an ID.
+    """
+
+    # Treat unknown (NaN) times as equal when comparing mutations
+    _comparable = MutationTableRow._comparable
+    __eq__ = MutationTableRow.__eq__
+    __ne__ = MutationTableRow.__ne__
+    __hash__ = MutationTableRow.__hash__
+
+    def is_time_known(self):
+        """
+        Return ``True`` if the time of this mutation is known
+        """
+        return not is_unknown_time(self.time)
 
 
 class Individual(namedtuple("Individual", (*IndividualTableRow._fields, "id"))):

@@ -1,3 +1,4 @@
+import msprime
 import numpy as np
 import pytest
 import tskit
@@ -693,3 +694,488 @@ class TestIEdge:
         assert ie.transform_position(17, Const.ROOTWARDS) == 22
         assert ie.transform_position(18, Const.ROOTWARDS) == 21
         assert ie.transform_position(19, Const.ROOTWARDS) == 20
+
+
+class TestMutations:
+    @staticmethod
+    def make_tables():
+        """
+        Node 1 inherits [0, 5) from node 2 (time 1) and [5, 10) from node 3 (time 2),
+        so the parent above node 1 depends on the position
+        """
+        tables = gigl.Tables()
+        for t, f in ((0, gigl.NODE_IS_SAMPLE), (0, gigl.NODE_IS_SAMPLE), (1, 0), (2, 0)):
+            tables.nodes.add_row(t, flags=f)
+        tables.add_iedge_row(0, 10, 0, 10, child=0, parent=2)
+        tables.add_iedge_row(0, 5, 0, 5, child=1, parent=2)
+        tables.add_iedge_row(5, 10, 5, 10, child=1, parent=3)
+        tables.add_iedge_row(0, 10, 0, 10, child=2, parent=3)
+        tables.sort()
+        return tables
+
+    def test_no_mutations(self):
+        gig = self.make_tables().graph()
+        assert len(gig.mutations) == 0
+        assert len(gig.mutations_for_node(0)) == 0
+
+    def test_accessors(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(1, 7, "T", time=1.5)
+        tables.mutations.add_row(3, 2, "A")  # above the root: ancestral state
+        tables.mutations.add_row(1, 2, "G", time=0.5)
+        tables.mutations.add_row(0, 0, "C", chromosome=1)  # no iedges on chr 1: allowed
+        tables.sort()
+        gig = tables.graph()
+        assert len(gig.mutations) == 4
+        assert all(isinstance(m, gigl.graph.Mutation) for m in gig.mutations)
+        assert [m.id for m in gig.mutations] == [0, 1, 2, 3]
+        view = gig.mutations_for_node(1)
+        assert len(view) == 2
+        assert [m.position for m in view] == [2, 7]
+        assert [m.node for m in view] == [1, 1]
+        assert view.ids[0] == view[0].id
+        assert len(gig.mutations_for_node(1, chromosome=1)) == 0
+        assert len(gig.mutations_for_node(2)) == 0
+        assert [m.derived_state for m in gig.mutations_for_node(gig.nodes[3])] == ["A"]
+        assert [m.chromosome for m in gig.mutations_for_node(0)] == [1]
+        root_mutation = gig.mutations_for_node(3)[0]
+        assert not root_mutation.is_time_known()
+        assert view[0].is_time_known()
+
+    def test_edited_columns_reindexed(self):
+        # Editing a column directly must not leave a stale index in the graph
+        tables = gigl.Tables()
+        tables.nodes.add_row(0)
+        tables.nodes.add_row(0)
+        tables.mutations.add_row(0, 0, "A")
+        tables.mutations.node[0] = 1
+        gig = tables.graph()
+        assert len(gig.mutations_for_node(0)) == 0
+        assert len(gig.mutations_for_node(1)) == 1
+        assert gig.allele_at(0, 0) is None
+        assert gig.allele_at(1, 0) == "A"
+
+    def test_ids_match_tables_layer(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(1, 2, "G")
+        tables.mutations.add_row(1, 7, "T")
+        gig = tables.graph()
+        assert np.array_equal(gig.mutations_for_node(1).ids, gig.tables.mutations.ids_for_node(1))
+
+    def test_bad_node(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(4, 0, "A")
+        with pytest.raises(ValueError, match="not in the node table"):
+            tables.graph()
+
+    def test_negative_position(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(0, -1, "A")
+        with pytest.raises(ValueError, match="negative positions"):
+            tables.graph()
+
+    @pytest.mark.parametrize("time", [np.inf, -np.inf, np.nan])
+    def test_bad_time(self, time):
+        # a plain NaN is not the same as UNKNOWN_TIME
+        tables = self.make_tables()
+        tables.mutations.add_row(3, 0, "A", time=time)
+        with pytest.raises(ValueError, match="neither finite nor UNKNOWN_TIME"):
+            tables.graph()
+
+    def test_unsorted(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(0, 5, "A")
+        tables.mutations.add_row(0, 4, "A")
+        with pytest.raises(ValueError, match="tables.sort"):
+            tables.graph()
+        tables.sort()
+        assert [m.position for m in tables.graph().mutations] == [4, 5]
+
+    def test_younger_than_node(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(2, 0, "A", time=0.5)
+        with pytest.raises(ValueError, match="younger than its node"):
+            tables.graph()
+
+    def test_time_equal_to_node_allowed(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(2, 0, "A", time=1)
+        assert len(tables.graph().mutations) == 1
+
+    @pytest.mark.parametrize(("position", "valid"), [(2, False), (4, False), (5, True), (9, True)])
+    def test_older_than_parent_at_position(self, position, valid):
+        # node 1's parent is node 2 (time 1) for [0, 5), node 3 (time 2) for [5, 10)
+        tables = self.make_tables()
+        tables.mutations.add_row(1, position, "A", time=1.5)
+        if valid:
+            assert len(tables.graph().mutations) == 1
+        else:
+            with pytest.raises(ValueError, match="not younger than the parent"):
+                tables.graph()
+
+    def test_time_equal_to_parent_invalid(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(0, 0, "A", time=1)
+        with pytest.raises(ValueError, match="not younger than the parent"):
+            tables.graph()
+
+    def test_above_root_has_no_upper_limit(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(3, 0, "A", time=1e9)
+        assert len(tables.graph().mutations) == 1
+
+    def test_time_order_at_same_position(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(0, 3, "A", time=0.2)
+        tables.mutations.add_row(0, 3, "C", time=0.7)  # older, but later in the table
+        with pytest.raises(ValueError, match="must be in time order"):
+            tables.graph()
+
+    def test_time_order_only_within_position(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(0, 3, "A", time=0.2)
+        tables.mutations.add_row(0, 4, "C", time=0.7)
+        assert len(tables.graph().mutations) == 2
+
+    def test_mixed_known_and_unknown_times(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(3, 3, "A")  # unknown: e.g. ancestral state
+        tables.mutations.add_row(3, 3, "C", time=5)
+        tables.mutations.add_row(3, 3, "G")
+        tables.mutations.add_row(3, 3, "T", time=4)
+        gig = tables.graph()
+        assert [m.derived_state for m in gig.mutations] == ["A", "C", "G", "T"]
+        # known times must still be in order, even with unknown times in between
+        tables = self.make_tables()
+        tables.mutations.add_row(3, 3, "C", time=4)
+        tables.mutations.add_row(3, 3, "G")
+        tables.mutations.add_row(3, 3, "T", time=5)
+        with pytest.raises(ValueError, match="must be in time order"):
+            tables.graph()
+
+    def test_to_tree_sequence_not_implemented(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(3, 0, "A")
+        with pytest.raises(NotImplementedError, match="mutations"):
+            tables.graph().to_tree_sequence()
+
+    def test_tskit_names(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(3, 0, "A")
+        gig = tables.graph()
+        with pytest.warns(gigl.TskitNameWarning, match=r"len\(gig\.mutations\)"):
+            assert gig.num_mutations == 1
+        with pytest.warns(gigl.TskitNameWarning, match=r"gig\.mutations\[i\]"):
+            assert gig.mutation(0) == gig.mutations[0]
+
+    def test_mutation_equality_with_unknown_times(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(3, 0, "A")
+        gig = tables.graph()
+        assert gig.mutations[0] == gig.mutations[0]
+        assert hash(gig.mutations[0]) == hash(gig.mutations[0])
+        assert gig.mutations[0] != gig.tables.mutations[0]  # no id in a table row
+
+
+def _all_nodes_as_samples(ts):
+    tables = ts.dump_tables()
+    tables.nodes.flags = np.full(tables.nodes.num_rows, tskit.NODE_IS_SAMPLE, dtype=np.uint32)
+    return tables.tree_sequence()
+
+
+def _remove_mutation_times(ts):
+    tables = ts.dump_tables()
+    tables.mutations.time = np.full(tables.mutations.num_rows, tskit.UNKNOWN_TIME)
+    return tables.tree_sequence()
+
+
+class TestHaplotypesVsTskit:
+    """
+    Compare haplotypes with tskit's alignments, which (with no reference sequence)
+    use "N" for positions with no site, and for isolated (missing) samples
+    """
+
+    @staticmethod
+    def assert_haplotypes_match(ts):
+        gig = gigl.Graph.from_tree_sequence(ts)
+        L = int(ts.sequence_length)
+        n = 0
+        for u, alignment in zip(ts.samples(), ts.alignments()):
+            assert gig.haplotype(u, right=L) == alignment
+            n += 1
+        assert n == ts.num_samples
+
+    @pytest.mark.parametrize("seed", [1, 2, 3])
+    def test_simple(self, seed):
+        ts = msprime.sim_ancestry(4, sequence_length=100, recombination_rate=0.01, random_seed=seed)
+        ts = msprime.sim_mutations(ts, rate=0.02, random_seed=seed)
+        assert ts.num_sites > 0
+        self.assert_haplotypes_match(ts)
+
+    def test_recurrent_mutations(self):
+        # A high rate gives multiple mutations at the same site (and node)
+        ts = msprime.sim_ancestry(3, sequence_length=20, recombination_rate=0.05, random_seed=4)
+        ts = msprime.sim_mutations(ts, rate=2, random_seed=4)
+        assert ts.num_mutations > 2 * ts.num_sites
+        self.assert_haplotypes_match(ts)
+
+    def test_binary_alleles(self):
+        ts = msprime.sim_ancestry(3, sequence_length=50, random_seed=5)
+        ts = msprime.sim_mutations(ts, rate=0.05, model=msprime.BinaryMutationModel(), random_seed=5)
+        self.assert_haplotypes_match(ts)
+
+    def test_unknown_times(self):
+        ts = msprime.sim_ancestry(3, sequence_length=50, recombination_rate=0.02, random_seed=6)
+        ts = _remove_mutation_times(msprime.sim_mutations(ts, rate=0.5, random_seed=6))
+        self.assert_haplotypes_match(ts)
+
+    def test_missing_data(self):
+        ts = msprime.sim_ancestry(3, sequence_length=50, random_seed=7)
+        ts = msprime.sim_mutations(ts, rate=0.1, random_seed=7)
+        ts = ts.delete_intervals([[10, 20]], simplify=False)
+        assert "N" * 10 in next(ts.alignments())
+        self.assert_haplotypes_match(ts)
+
+    @staticmethod
+    def short_span_ts():
+        # Sample 0's only edge ends at 5, before the end of the tree sequence (10)
+        tables = tskit.TableCollection(sequence_length=10)
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        tables.nodes.add_row(time=1)
+        tables.edges.add_row(0, 5, 2, 0)
+        tables.edges.add_row(0, 10, 2, 1)
+        tables.sites.add_row(position=2, ancestral_state="A")
+        tables.sites.add_row(position=7, ancestral_state="C")
+        tables.sort()
+        return tables.tree_sequence()
+
+    def test_shorter_node_span(self):
+        ts = self.short_span_ts()
+        gig = gigl.Graph.from_tree_sequence(ts)
+        alignment = next(ts.alignments())
+        assert alignment == "NNANNNNNNN"
+        assert gig.haplotype(0) == "NNANN"  # stops at the end of the node's edges
+        assert gig.haplotype(0, right=int(ts.sequence_length)) == alignment
+
+    def test_reference_sequence_not_converted(self):
+        tables = self.short_span_ts().dump_tables()
+        tables.reference_sequence.data = "GGGGGGGGGG"
+        ts = tables.tree_sequence()
+        gig = gigl.Graph.from_tree_sequence(ts)
+        # tskit uses the reference at positions without sites; giglib has missing data
+        assert list(ts.alignments())[1] == "GGAGGGGCGG"
+        assert gig.haplotype(1) == "NNANNNNCNN"
+
+    def test_internal_nodes(self):
+        ts = msprime.sim_ancestry(3, sequence_length=50, recombination_rate=0.02, random_seed=8)
+        ts = _all_nodes_as_samples(msprime.sim_mutations(ts, rate=0.1, random_seed=8))
+        self.assert_haplotypes_match(ts)
+
+
+class TestHaplotypes:
+    @staticmethod
+    def two_node_tables(*iedges, root_mutations=()):
+        """
+        Parent node 0 (time 1) and child node 1 (time 0), with iedges given as
+        (child_left, child_right, parent_left, parent_right), and mutations above the
+        parent given as (position, state)
+        """
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        for cl, cr, pl, pr in iedges:
+            tables.add_iedge_row(cl, cr, pl, pr, child=1, parent=0)
+        for pos, state in root_mutations:
+            tables.mutations.add_row(0, pos, state)
+        tables.sort()
+        return tables
+
+    def test_identity(self):
+        tables = self.two_node_tables((0, 5, 0, 5), root_mutations=[(0, "A"), (2, "C"), (4, "G")])
+        gig = tables.graph()
+        assert gig.haplotype(0) == "ANCNG"
+        assert gig.haplotype(1) == "ANCNG"
+        assert gig.haplotype(1, left=2, right=4) == "CN"
+        assert gig.haplotype(1, left=3, right=3) == ""
+        assert gig.haplotype(1, missing_data_character="?") == "A?C?G"
+        assert gig.allele_at(1, 2) == "C"
+        assert gig.allele_at(1, 1) is None
+        assert gig.allele_at(gig.nodes[1], 2) == "C"
+
+    def test_bad_interval(self):
+        gig = self.two_node_tables((0, 5, 0, 5)).graph()
+        for left, right in [(-1, 3), (3, 2)]:
+            with pytest.raises(ValueError, match="Invalid interval"):
+                gig.haplotype(1, left=left, right=right)
+        with pytest.raises(ValueError, match="non-negative"):
+            gig.allele_at(1, -1)
+
+    def test_no_mutations(self):
+        gig = self.two_node_tables((0, 5, 0, 5)).graph()
+        assert gig.haplotype(1) == "NNNNN"
+        assert gig.haplotype(1, chromosome=1) == ""  # no material on chromosome 1
+
+    def test_most_recent_mutation_wins(self):
+        tables = self.two_node_tables((0, 3, 0, 3), root_mutations=[(1, "A"), (1, "C")])
+        tables.mutations.add_row(1, 2, "G")
+        tables.mutations.add_row(1, 2, "T")
+        tables.sort()
+        gig = tables.graph()
+        assert gig.haplotype(0) == "NCN"
+        assert gig.haplotype(1) == "NCT"
+
+    def test_shifted_coordinates(self):
+        # child [0, 3) inherits parent [5, 8)
+        tables = self.two_node_tables((0, 3, 5, 8), root_mutations=[(5, "A"), (7, "T"), (0, "G")])
+        gig = tables.graph()
+        assert gig.haplotype(1) == "ANT"
+
+    def test_deletion(self):
+        # child loses parent positions 2 and 3
+        tables = self.two_node_tables((0, 2, 0, 2), (2, 4, 4, 6), root_mutations=list(enumerate("ACGTAC")))
+        gig = tables.graph()
+        assert gig.haplotype(0) == "ACGTAC"
+        assert gig.haplotype(1) == "ACAC"
+
+    def test_duplication(self):
+        # child has two copies of parent [0, 3)
+        tables = self.two_node_tables((0, 3, 0, 3), (3, 6, 0, 3), root_mutations=list(enumerate("ACG")))
+        tables.mutations.add_row(1, 4, "T")  # only in the second copy
+        tables.sort()
+        gig = tables.graph()
+        assert gig.haplotype(1) == "ACGATG"
+
+    def test_insertion(self):
+        # child positions [2, 4) are not inherited from the parent
+        tables = self.two_node_tables((0, 2, 0, 2), (4, 6, 2, 4), root_mutations=list(enumerate("ACGT")))
+        gig = tables.copy().graph()
+        assert gig.haplotype(1) == "ACNNGT"
+        tables.mutations.add_row(1, 2, "T")
+        tables.mutations.add_row(1, 3, "T")
+        tables.sort()
+        assert tables.graph().haplotype(1) == "ACTTGT"
+
+    def test_indel_alleles(self):
+        tables = self.two_node_tables((0, 4, 0, 4), root_mutations=list(enumerate("ACGT")))
+        tables.mutations.add_row(1, 1, "CTTG")  # insertion of TTG after the C
+        tables.mutations.add_row(1, 2, "")  # deletion of G
+        tables.sort()
+        gig = tables.graph()
+        assert gig.haplotype(1) == "ACTTGT"
+        assert gig.allele_at(1, 2) == ""
+
+    def test_multiple_generations(self):
+        ts = msprime.sim_ancestry(2, sequence_length=10, random_seed=1)
+        ts = msprime.sim_mutations(ts, rate=0.5, random_seed=1)
+        gig = gigl.Graph.from_tree_sequence(ts)
+        for u in gig.sample_nodes():
+            hap = gig.haplotype(u)
+            assert [gig.allele_at(u, x) or "N" for x in range(len(hap))] == list(hap)
+
+
+class TestInversions:
+    @staticmethod
+    def inverted_tables(*root_mutations, complements=None):
+        # child [0, 10) inherits parent [0, 10) inverted, so position x in the parent
+        # is position 9 - x in the child
+        tables = TestHaplotypes.two_node_tables((0, 10, 10, 0), root_mutations=root_mutations)
+        if complements is not None:
+            tables.allele_complements = complements
+        return tables
+
+    @pytest.mark.parametrize(
+        ("state", "expected"),
+        [
+            ("X", "X"),  # not in the map: left unchanged, without a warning
+            ("A", "T"),
+            ("C", "G"),
+            ("R", "Y"),
+            ("N", "N"),
+            ("a", "t"),
+            ("ATTG", "CAAT"),
+            ("-", "-"),
+            ("", ""),
+            ("1", "1"),
+        ],
+    )
+    def test_complement(self, state, expected):
+        gig = self.inverted_tables((2, state)).graph()
+        assert gig.allele_at(0, 2) == state
+        assert gig.allele_at(1, 7) == expected
+
+    def test_haplotype(self):
+        gig = self.inverted_tables(*enumerate("AACGTTGCAC")).graph()
+        assert gig.haplotype(0) == "AACGTTGCAC"
+        assert gig.haplotype(1) == "GTGCAACGTT"  # reverse complement
+
+    def test_partial_inversion(self):
+        tables = TestHaplotypes.two_node_tables(
+            (0, 2, 0, 2), (2, 5, 5, 2), (5, 7, 5, 7), root_mutations=list(enumerate("ACGTACG"))
+        )
+        gig = tables.graph()
+        # parent positions 2-4 ("GTA") are reverse complemented to "TAC"
+        assert gig.haplotype(1) == "AC" + "TAC" + "CG"
+
+    def test_double_inversion(self):
+        tables = TestHaplotypes.two_node_tables((0, 4, 4, 0), root_mutations=list(enumerate("ACGG")))
+        tables.nodes.add_row(-1, flags=gigl.NODE_IS_SAMPLE)  # grandchild, node 2
+        tables.add_iedge_row(0, 4, 4, 0, child=2, parent=1)
+        tables.sort()
+        gig = tables.graph()
+        assert gig.haplotype(1) == "CCGT"
+        assert gig.haplotype(2) == "ACGG"
+
+    def test_mutation_below_inversion(self):
+        tables = self.inverted_tables((2, "A"))
+        tables.mutations.add_row(1, 3, "G")  # on the child's own strand
+        tables.sort()
+        gig = tables.graph()
+        assert gig.allele_at(1, 3) == "G"
+        assert gig.allele_at(1, 7) == "T"
+
+    def test_complementing_turned_off(self):
+        with pytest.warns(UserWarning, match="ATTG"):
+            gig = self.inverted_tables((2, "A"), (3, "ATTG"), complements={}).graph()
+        assert gig.allele_at(1, 7) == "A"
+        assert gig.allele_at(1, 6) == "ATTG"
+
+    def test_explicit_entry_wins(self):
+        gig = self.inverted_tables((2, "ins1"), complements={"ins1": "ins1_rev"}).graph()
+        assert gig.allele_at(1, 7) == "ins1_rev"
+
+    def test_warning_for_uncomplementable_alleles(self):
+        # "AT" is its own reverse complement, so should not be listed
+        with pytest.warns(UserWarning, match=r"\['AXY', 'B\?'\]"):
+            self.inverted_tables((2, "AXY"), (3, "AT"), (4, "B?")).graph()
+
+    def test_no_warning(self, recwarn):
+        # complementable, single character, explicitly mapped, or no inversion
+        self.inverted_tables((2, "AT"), (3, "1"), (4, "AXY"), complements={"AXY": "AXY", "A": "T", "T": "A"}).graph()
+        TestHaplotypes.two_node_tables((0, 5, 0, 5), root_mutations=[(2, "AXY")]).graph()
+        assert len([w for w in recwarn if issubclass(w.category, UserWarning)]) == 0
+
+
+class TestAlleleComplements:
+    def test_default(self):
+        tables = gigl.Tables()
+        assert tables.allele_complements["A"] == "T"
+        assert tables.allele_complements["-"] == "-"
+        assert tables.allele_complements["y"] == "r"
+        assert tables.allele_complements is not gigl.Tables().allele_complements
+
+    def test_copy_and_equality(self):
+        tables = gigl.Tables()
+        tables.allele_complements = {"X": "Y"}
+        copy = tables.copy()
+        assert copy.allele_complements == {"X": "Y"}
+        assert copy == tables
+        copy.allele_complements["Y"] = "X"
+        assert copy != tables
+        assert tables.allele_complements == {"X": "Y"}
+
+    def test_frozen(self):
+        gig = gigl.Tables().graph()
+        with pytest.raises(TypeError):
+            gig.tables.allele_complements["A"] = "A"
+        assert gig.tables.copy().allele_complements["A"] == "T"

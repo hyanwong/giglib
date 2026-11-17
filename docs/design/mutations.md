@@ -2,7 +2,11 @@
 
 # Mutations
 
-**Status: Accepted, not yet implemented.**
+**Status: Accepted, partly implemented.** Implemented: the mutations table and the
+`gig.mutations` and `gig.mutations_for_node()` accessors, conversion from _tskit_, allele
+complements, and `gig.allele_at()` and `gig.haplotype()`. Not yet implemented: handling
+mutations when simplifying or decapitating, conversion to _tskit_, reference sequences, and
+variants.
 Discussion: {issue}`5`. Related: {issue}`140` (portable reference sequences),
 {issue}`126` (pseudo-roots), {issue}`135` (structural change without recombination),
 {issue}`141` (a position class).
@@ -150,6 +154,14 @@ ancestral state that could apply to it.
 This means that if older ancestors are added later, the "ancestral" mutation can be moved
 upwards, rather than an ancestral state being fixed for a site.
 
+An ancestral state therefore belongs to a position in the *root's* genome, not to a position in a
+sample's genome, and must be placed using the root's coordinates. Like any mutation, it is
+inherited by every copy of that position in the root's descendants. So if a descendant has a
+duplication, a single mutation above the root gives the ancestral allele at two (or more)
+positions in that descendant. This is the correct behaviour, since both copies derive from the
+same ancestral base: the positions are the same site relative to the root, even though later
+mutations below the duplication may make them differ.
+
 ### Later: reference sequences
 
 Storing a full sequence on each root node would be expensive. A human-sized genome is about
@@ -184,9 +196,25 @@ gig.allele_at(u, position, chromosome=0)
 
 This traces the position rootwards through the iedges (transforming the position at each one),
 and returns the derived state of the first mutation found, complemented if necessary (see below).
-If no mutation is found, it returns `None` (unknown). Natural extensions are `gig.alleles_at(u,
-positions)` for many positions at once, `gig.haplotype(u, chromosome, left, right)` for extracting
-sequences (see {issue}`113`), and versions accepting a position object ({issue}`141`).
+If no mutation is found, it returns `None` (unknown). Similarly,
+
+```python
+gig.haplotype(u, chromosome=0, *, left=0, right=None, missing_data_character="N")
+```
+
+returns the alleles at a range of positions as a string (see {issue}`113`), with missing data
+shown as `N`. For a sample in a tree sequence converted from _tskit_, this matches the
+corresponding output of {meth}`tskit:tskit.TreeSequence.alignments`, with two caveats:
+
+- `right` must be given as the tree sequence's length. By default, `haplotype()` stops at the
+  end of the node's genome as implied by its iedges, which may be shorter (e.g. if a sample's
+  edges end before the end of the tree sequence).
+- The tree sequence must not have a reference sequence. Reference sequences are not converted,
+  so where `alignments()` would use reference bases (at positions without sites),
+  `haplotype()` returns missing data.
+
+Natural extensions are `gig.alleles_at(u, positions)`
+for many positions at once, and versions accepting a position object ({issue}`141`).
 
 (sec_design_mutations_strands)=
 
@@ -232,6 +260,10 @@ When an allele is traced across an inversion, the rules are applied in this orde
 The default map contains the IUPAC nucleotide codes (including ambiguity codes, e.g. `R` ↔ `Y`)
 plus `-` ↔ `-`. If `A`, `C`, `G` and `T` are used as abstract labels, set the map to `{}` to turn
 complementing off.
+
+Note that rule 3 also applies to single-character alleles that are not in the map (e.g. `X`, or
+`0` and `1`): these are left unchanged without any warning, so not every allele inherited through
+an inversion is complemented.
 
 When a {class}`~giglib.Graph` is created, a warning is issued if it contains at least one
 inversion *and* any multi-character allele that falls under rule 3 (i.e. that is not in the map,
@@ -317,6 +349,7 @@ Following the {ref}`API conventions<sec_usage_consistency>`:
 | All mutations | `gig.mutations` (view of `Mutation` objects) | `tables.mutations` (the table) |
 | Mutations above a node | `gig.mutations_for_node(u, chromosome=None)` | `tables.mutations.ids_for_node(u, chromosome=None)` |
 | Allele lookup | `gig.allele_at(u, position, chromosome=0)` | |
+| Haplotypes | `gig.haplotype(u, chromosome=0, *, left=0, right=None)` | |
 | Complement map | | `tables.allele_complements` |
 
 (sec_design_mutations_open)=
