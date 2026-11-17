@@ -125,7 +125,7 @@ class IndividualTableRow(collections.namedtuple("IndividualTableRow", "flags, lo
 
 
 class MutationTableRow(
-    collections.namedtuple("MutationTableRow", "node, chromosome, position, time, derived_state, metadata")
+    collections.namedtuple("MutationTableRow", "node, position, chromosome, time, derived_state, metadata")
 ):
     """
     A row in a :class:`MutationTable`. The ``position`` is in the coordinates of
@@ -687,7 +687,7 @@ class IEdgeTable(BaseTable):
             skip_validate=skip_validate,
         )
 
-    def edges_exist_for_child(self, u, chromosome=None):
+    def edges_exist_for_child(self, u, *, chromosome=None):
         if chromosome is None:
             return u in self._id_range_for_child
         else:
@@ -696,7 +696,7 @@ class IEdgeTable(BaseTable):
             except KeyError:
                 return False
 
-    def ids_for_child(self, u, chromosome=None):
+    def ids_for_child(self, u, *, chromosome=None):
         """
         Return all the iedge ids for a child. If chromosome is not None, return
         only the iedge IDs for that chromosome.
@@ -730,7 +730,7 @@ class IEdgeTable(BaseTable):
         except KeyError:
             return np.arange(0)
 
-    def max_pos_as_child(self, u, chromosome=None):
+    def max_pos_as_child(self, u, *, chromosome=None):
         """
         Return the maximum child position for a given child ID and chromosome.
         This should be equivalent np.max(child_right[child == u]), but faster
@@ -763,7 +763,7 @@ class IEdgeTable(BaseTable):
         except KeyError:
             return None
 
-    def min_pos_as_child(self, u, chromosome=None):
+    def min_pos_as_child(self, u, *, chromosome=None):
         """
         Return the minimum child position for a given child ID and chromosome.
         This should be equivalent np.max(child_right[child == u]), but faster
@@ -1041,7 +1041,7 @@ class MutationTable(BaseExtraTable):
         num_rows = len(self._data)
         if len(self._datastore) == num_rows:
             self._expand_datastore()
-        self._datastore[num_rows] = (node, chromosome, position, time)
+        self._datastore[num_rows] = (node, position, chromosome, time)
         self._extra_data.append([derived_state, metadata])
         self._data = self._datastore[0 : num_rows + 1]
         self._update_index(int(node), int(chromosome), position, num_rows)
@@ -1084,7 +1084,7 @@ class MutationTable(BaseExtraTable):
         self._extra_data = [self._extra_data[i] for i in ids]
         self._rebuild_index()
 
-    def ids_for_node(self, u, chromosome=None):
+    def ids_for_node(self, u, *, chromosome=None):
         """
         Return the IDs of the mutations above node ``u``, ordered by chromosome then
         position (and then by the order in which they occurred).
@@ -1916,7 +1916,7 @@ class Tables:
             # chromosome order for edges, we could use sorted(chromosomes.keys())
             # here instead.
             for child_chr in chromosomes.keys():
-                for ie_id in old_iedges.ids_for_child(child, child_chr):
+                for ie_id in old_iedges.ids_for_child(child, chromosome=child_chr):
                     ie = old_iedges[ie_id]
                     parent = ie.parent
                     parent_chr = ie.parent_chromosome

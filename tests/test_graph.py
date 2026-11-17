@@ -174,14 +174,14 @@ class TestMethods:
             assert chroms == sorted(chroms)
             for c in gig.chromosomes_as_parent(u):
                 expected_c = {ie.id for ie in gig.iedges if ie.parent == u and ie.parent_chromosome == c}
-                assert {ie.id for ie in gig.iedges_for_parent(u, c)} == expected_c
+                assert {ie.id for ie in gig.iedges_for_parent(u, chromosome=c)} == expected_c
         assert len(gig.iedges_for_parent(1, chromosome=99)) == 0
         assert len(gig.iedges_for_parent(5)) == 0  # sample: not a parent
 
     def test_total_sequence_length_multi_chromosome(self, multi_chromosome_gig):
         gig = multi_chromosome_gig
-        assert gig.sequence_length(1, 1) == 10
-        assert gig.sequence_length(1, 3) == 5
+        assert gig.sequence_length(1, chromosome=1) == 10
+        assert gig.sequence_length(1, chromosome=3) == 5
         assert gig.total_sequence_length(1) == 15
         assert gig.total_sequence_length(0) == 20
 
@@ -210,7 +210,7 @@ class TestMethods:
         # root will have no upward edges
         root = len(all_sv_types_no_re_gig.nodes) - 1
         for chrom in all_sv_types_no_re_gig.chromosomes(root):
-            assert all_sv_types_no_re_gig.sequence_length(root, chrom) == 200
+            assert all_sv_types_no_re_gig.sequence_length(root, chromosome=chrom) == 200
         assert all_sv_types_no_re_gig.total_sequence_length(root) == 200
 
     def test_no_sequence_length(self):
@@ -219,9 +219,9 @@ class TestMethods:
         gig = tables.graph()
         for u in gig.tables.sample_nodes():
             # any chromosomes reported as length 0
-            assert gig.sequence_length(u, 0) == 0
-            assert gig.sequence_length(u, 1) == 0
-            assert gig.sequence_length(u, 2) == 0
+            assert gig.sequence_length(u, chromosome=0) == 0
+            assert gig.sequence_length(u, chromosome=1) == 0
+            assert gig.sequence_length(u, chromosome=2) == 0
 
     def test_samples(self, trivial_gig):
         assert np.all(trivial_gig.tables.sample_nodes() > 0)  # samples are at the end

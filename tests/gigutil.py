@@ -476,9 +476,9 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
                     parent_chromosome=lft_chrom,
                     **self.add_iedge_params(),
                 )
-            if not self.tables.iedges.edges_exist_for_child(rgt_parent, rgt_chrom):
+            if not self.tables.iedges.edges_exist_for_child(rgt_parent, chromosome=rgt_chrom):
                 raise ValueError("Must have edges for parents to get seq len")
-            seq_len = self.tables.iedges.max_pos_as_child(rgt_parent, rgt_chrom)
+            seq_len = self.tables.iedges.max_pos_as_child(rgt_parent, chromosome=rgt_chrom)
             if rgt_parent_break < seq_len:  # If break not just after the last pos
                 pL, pR = rgt_parent_break, seq_len
                 cR = brk + (pR - pL)  # child rgt must account for len of rgt parent region

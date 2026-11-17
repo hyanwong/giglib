@@ -180,7 +180,7 @@ class Graph:
         for u in range(len(self.nodes)):
             for chromosome in self.tables.iedges.chromosomes_as_child(u):
                 prev_right = -np.inf
-                for ie in self.iedges_for_child(u, chromosome):
+                for ie in self.iedges_for_child(u, chromosome=chromosome):
                     if ie.child_left < prev_right:
                         raise ValueError(f"Node {u} has multiple or duplicate parents at position" f" {ie.child_left}")
                     prev_right = ie.child_right
@@ -191,7 +191,7 @@ class Graph:
         Return the ID of the iedge above node ``u`` that contains ``position`` on the
         given chromosome of ``u`` (or None if ``u`` has no parent at that position)
         """
-        ids = self.tables.iedges.ids_for_child(u, chromosome)
+        ids = self.tables.iedges.ids_for_child(u, chromosome=chromosome)
         if len(ids) == 0:
             return None
         start, end = ids[0], ids[-1] + 1
@@ -339,7 +339,7 @@ class Graph:
                     resolved.append(x)
                     j += 1
             # Trace the unresolved intervals up through the iedges above v
-            ie_ids = iedges.ids_for_child(v, c)
+            ie_ids = iedges.ids_for_child(v, chromosome=c)
             if len(ie_ids) == 0:
                 continue  # no parents: unresolved positions remain missing
             ie_start, ie_end = ie_ids[0], ie_ids[-1] + 1
@@ -363,7 +363,7 @@ class Graph:
                     i += 1
         return result
 
-    def haplotype(self, u, chromosome=0, *, left=0, right=None, missing_data_character="N"):
+    def haplotype(self, u, *, chromosome=0, left=0, right=None, missing_data_character="N"):
         """
         Return the sequence of alleles in node ``u``'s genome, as a string. Each
         position takes the allele of the most recent mutation above it (traced up
@@ -393,13 +393,13 @@ class Graph:
         """
         u = as_id(u)
         if right is None:
-            right = self.sequence_length(u, chromosome)
+            right = self.sequence_length(u, chromosome=chromosome)
         if left < 0 or right < left:
             raise ValueError(f"Invalid interval [{left}, {right})")
         alleles = self._alleles(u, chromosome, left, right)
         return "".join(missing_data_character if a is None else a for a in alleles)
 
-    def allele_at(self, u, position, chromosome=0):
+    def allele_at(self, u, position, *, chromosome=0):
         """
         Return the allele at a position in node ``u``'s genome, given by the most recent
         mutation above that position (complemented across inversions using
@@ -496,7 +496,7 @@ class Graph:
         """
         return GIGItemIterator(self.tables.mutations, Mutation)
 
-    def mutations_for_node(self, u, chromosome=None):
+    def mutations_for_node(self, u, *, chromosome=None):
         """
         Return a sequence-like view of the :class:`~giglib.graph.Mutation` objects
         above node ``u``, ordered by chromosome, then position, then the order in
@@ -505,7 +505,9 @@ class Graph:
         :meth:`tables.MutationTable.ids_for_node`.
         """
         u = as_id(u)
-        return GIGItemIterator(self.tables.mutations, Mutation, ids=self.tables.mutations.ids_for_node(u, chromosome))
+        return GIGItemIterator(
+            self.tables.mutations, Mutation, ids=self.tables.mutations.ids_for_node(u, chromosome=chromosome)
+        )
 
     # tskit names which do not exist in giglib. These exist only to guide users
     # familiar with tskit towards the giglib equivalents, and emit a TskitNameWarning
@@ -565,7 +567,7 @@ class Graph:
         warn_tskit_name("individual(i)", "gig.individuals[i]")
         return self.individuals[i]
 
-    def iedges_for_parent(self, u, chromosome=None):
+    def iedges_for_parent(self, u, *, chromosome=None):
         """
         Return a sequence-like view of the :class:`~giglib.graph.IEdge` objects with parent ``u``,
         ordered by parent chromosome then position. If ``chromosome`` is given, only
@@ -585,7 +587,7 @@ class Graph:
             start, end = ranges.get(chromosome, (0, 0))
         return GIGItemIterator(self.tables.iedges, IEdge, ids=self._iedge_map_sorted_by_parent[start:end])
 
-    def iedges_for_child(self, u, chromosome=None):
+    def iedges_for_child(self, u, *, chromosome=None):
         """
         Return a sequence-like view of the :class:`~giglib.graph.IEdge` objects with child ``u``,
         ordered by child chromosome then left position. If ``chromosome`` is given,
@@ -593,7 +595,9 @@ class Graph:
         use :meth:`tables.IEdgeTable.ids_for_child`.
         """
         u = as_id(u)
-        return GIGItemIterator(self.tables.iedges, IEdge, ids=self.tables.iedges.ids_for_child(u, chromosome))
+        return GIGItemIterator(
+            self.tables.iedges, IEdge, ids=self.tables.iedges.ids_for_child(u, chromosome=chromosome)
+        )
 
     def chromosomes_as_child(self, u):
         u = as_id(u)
@@ -607,23 +611,23 @@ class Graph:
         u = as_id(u)
         return self.chromosomes_as_child(u) | self.chromosomes_as_parent(u)
 
-    def max_pos_as_child(self, u, chromosome=None):
+    def max_pos_as_child(self, u, *, chromosome=None):
         u = as_id(u)
         return self.tables.iedges.max_pos_as_child(u, chromosome=chromosome)
 
-    def max_pos_as_parent(self, u, chromosome=None):
+    def max_pos_as_parent(self, u, *, chromosome=None):
         u = as_id(u)
         if u not in self._id_range_for_parent:
             return None
         if chromosome is None:
-            return max(self.max_pos_as_parent(u, c) for c in self._id_range_for_parent[u].keys())
+            return max(self.max_pos_as_parent(u, chromosome=c) for c in self._id_range_for_parent[u].keys())
         else:
             if chromosome not in self._id_range_for_parent[u]:
                 return None
             idx = self._id_range_for_parent[u][chromosome][1] - 1  # index of last iedge
             return self.tables.iedges[self._iedge_map_sorted_by_parent[idx]].parent_max
 
-    def max_pos(self, u, chromosome=None):
+    def max_pos(self, u, *, chromosome=None):
         """
         Return the maximum position in the edges above or below this node.
         This defines the known sequence length of the node u for a given
@@ -640,7 +644,7 @@ class Graph:
             return max_parent
         return max(max_child, max_parent)
 
-    def min_pos_as_child(self, u, chromosome=None):
+    def min_pos_as_child(self, u, *, chromosome=None):
         u = as_id(u)
         return self.tables.iedges.min_pos_as_child(u, chromosome=chromosome)
 
@@ -648,14 +652,15 @@ class Graph:
     # _iedge_map_sorted_by_parent is not sorted by lowest position, so
     # we would have to iterate through all the edges for this parent
 
-    def sequence_length(self, u, chromosome):
+    def sequence_length(self, u, *, chromosome=0):
         """
-        Return the known sequence length of the node u: equivalent to
-        max_position(u) but returns 0 rather than None if this is an
-        isolated node (with no associated edges).
+        Return the known sequence length of the given chromosome (default 0) of
+        node u: equivalent to ``max_pos(u, chromosome=chromosome)`` but returns 0
+        rather than None if this is an isolated node (with no associated edges).
+        See :meth:`total_sequence_length` for the length over all chromosomes.
         """
         u = as_id(u)
-        return self.max_pos(u, chromosome) or 0
+        return self.max_pos(u, chromosome=chromosome) or 0
 
     def total_sequence_length(self, u):
         """
@@ -663,7 +668,7 @@ class Graph:
         its chromosomes (0 if the node is isolated)
         """
         u = as_id(u)
-        return sum(self.sequence_length(u, c) for c in self.chromosomes(u))
+        return sum(self.sequence_length(u, chromosome=c) for c in self.chromosomes(u))
 
     def to_tree_sequence(self, sequence_length=None):
         """

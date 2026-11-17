@@ -904,8 +904,8 @@ class TestFindMrcas:
         tree1 = degree2_2_tip_ts.last()
         assert T[tree0.root] != T[tree1.root]
         gig = gigl.Graph.from_tree_sequence(degree2_2_tip_ts)
-        assert gig.sequence_length(0, 0) == degree2_2_tip_ts.sequence_length
-        assert gig.sequence_length(1, 0) == degree2_2_tip_ts.sequence_length
+        assert gig.sequence_length(0, chromosome=0) == degree2_2_tip_ts.sequence_length
+        assert gig.sequence_length(1, chromosome=0) == degree2_2_tip_ts.sequence_length
         cutoff = (T[[tree0.root, tree1.root]]).mean()
         shared_regions = gig.tables.find_mrca_regions(0, 1, time_cutoff=cutoff)
         assert len(shared_regions) == 1
@@ -1178,7 +1178,7 @@ class TestMutationTable:
         assert mutations.time[1] == 1.5
         row = mutations[1]
         assert isinstance(row, gigl.tables.MutationTableRow)
-        assert row == (0, 2, 3, 1.5, "T", b"x")
+        assert row == (0, 3, 2, 1.5, "T", b"x")
 
     @pytest.mark.parametrize("state", [b"A", 1, None, ["A"]])
     def test_derived_state_must_be_string(self, state):
@@ -1461,7 +1461,7 @@ class TestDecapitateWithMutations:
         new_gig = gig.decapitate(1)  # removes R and A
         assert len(new_gig.nodes) == 1
         # S now has no iedges, so its sequence length (taken from iedges) is 0
-        assert new_gig.sequence_length(0, 0) == 0
+        assert new_gig.sequence_length(0, chromosome=0) == 0
         assert new_gig.haplotype(0, right=10) == "ACGCGCGTAC"
         # inherited alleles have unknown times, and come before S's own mutation at 3
         at_3 = [m for m in new_gig.mutations if m.position == 3]
