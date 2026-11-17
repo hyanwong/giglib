@@ -160,7 +160,13 @@ class BaseTable:
     def __setattr__(self, attr, value):
         if self._frozen:
             raise AttributeError("Trying to set attribute on a frozen (read-only) instance")
-        return super().__setattr__(attr, value)
+        super().__setattr__(attr, value)
+        if attr == "_datastore":
+            # Whenever the storage array is replaced, make read-only views of its
+            # columns (in-place changes to the storage are seen through these views)
+            read_only = value.view()
+            read_only.flags.writeable = False
+            super().__setattr__("_read_only_columns", {name: read_only[name] for name in read_only.dtype.names})
 
     def __eq__(self, other):
         return np.all(self._data == other._data) and self._extra_data == other._extra_data
@@ -193,6 +199,20 @@ class BaseTable:
 
     def __len__(self):
         return len(self._data)
+
+    def _column(self, name):
+        """
+        Return a read-only view of the named column. Columns are read-only because
+        editing them directly would bypass the table's indexes and validity flags
+        (e.g. ``iedges.child[0] = 2`` would leave ``ids_for_child()`` returning the
+        wrong iedges). Code in this library that needs to edit a column should use
+        ``self._data[name]``, and then update any indexes and flags.
+
+        For speed, this slices a read-only view of the whole column in the storage
+        array, which is only created when the storage array is replaced (see
+        ``__setattr__``), rather than setting the read-only flag on every access.
+        """
+        return self._read_only_columns[name][: len(self._data)]
 
     @property
     def _num_preallocated_rows(self):
@@ -314,39 +334,39 @@ class IEdgeTable(BaseTable):
     # define each property by hand, for speed
     @property
     def child_left(self):
-        return self._data["child_left"]
+        return self._column("child_left")
 
     @property
     def child_right(self):
-        return self._data["child_right"]
+        return self._column("child_right")
 
     @property
     def parent_left(self):
-        return self._data["parent_left"]
+        return self._column("parent_left")
 
     @property
     def parent_right(self):
-        return self._data["parent_right"]
+        return self._column("parent_right")
 
     @property
     def child(self):
-        return self._data["child"]
+        return self._column("child")
 
     @property
     def parent(self):
-        return self._data["parent"]
+        return self._column("parent")
 
     @property
     def child_chromosome(self):
-        return self._data["child_chromosome"]
+        return self._column("child_chromosome")
 
     @property
     def parent_chromosome(self):
-        return self._data["parent_chromosome"]
+        return self._column("parent_chromosome")
 
     @property
     def edge(self):
-        return self._data["edge"]
+        return self._column("edge")
 
     def __init__(self, initial_size=None):
         super().__init__(initial_size=initial_size)
@@ -789,15 +809,15 @@ class NodeTable(BaseExtraTable):
     # define each property by hand, for speed
     @property
     def time(self) -> npt.NDArray[np.float64]:
-        return self._data["time"]
+        return self._column("time")
 
     @property
     def flags(self) -> npt.NDArray[np.uint32]:
-        return self._data["flags"]
+        return self._column("flags")
 
     @property
     def individual(self):
-        return self._data["individual"]
+        return self._column("individual")
 
     def add_row(self, time, *, flags=None, individual=None, metadata=None) -> int:
         """
@@ -864,7 +884,7 @@ class IndividualTable(BaseExtraTable):
 
     @property
     def flags(self) -> npt.NDArray[np.uint32]:
-        return self._data["flags"]
+        return self._column("flags")
 
     @property
     def parents(self):
@@ -1561,9 +1581,9 @@ class Tables:
         self.nodes._extra_data = [ed[i] for i in mapping]
 
         iedges = self.iedges
-        iedges.child[:] = inv_mapping[iedges.child]
+        iedges._data["child"] = inv_mapping[iedges.child]
         assert np.all(iedges.child >= 0)
-        iedges.parent[:] = inv_mapping[iedges.parent]
+        iedges._data["parent"] = inv_mapping[iedges.parent]
         assert np.all(iedges.parent >= 0)
 
         # must change the built-in indexes. However, edges are in the samme order,
