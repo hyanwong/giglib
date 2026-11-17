@@ -15,7 +15,7 @@ kernelspec:
 
 # Installation
 
-Python 3.8 or greater is required. As the current Genetic Inheritance Graph Library
+Python 3.12 or greater is required. As the current Genetic Inheritance Graph Library
 API is not stable, you are currently encouraged to install the latest version from
 [Github](https://github.com/hyanwong/giglib), as follows
 

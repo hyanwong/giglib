@@ -6,7 +6,7 @@ import pathlib
 import subprocess
 import sys
 
-import pytest
+import tomllib
 
 
 def test_not_imported_by_giglib():
@@ -24,7 +24,6 @@ def test_importable():
 
 def test_packaged():
     # The packages are listed explicitly, so a subpackage is left out of wheels unless listed
-    tomllib = pytest.importorskip("tomllib")
     root = pathlib.Path(__file__).parent.parent
     with open(root / "pyproject.toml", "rb") as f:
         config = tomllib.load(f)
