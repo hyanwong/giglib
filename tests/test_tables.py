@@ -140,7 +140,7 @@ class TestCopy:
     def test_iedges_cache(self, trivial_gig):
         tables = trivial_gig.tables
         assert tables.iedges.flags == ValidFlags.GIG
-        sample = trivial_gig.sample_ids[0]
+        sample = trivial_gig.tables.sample_nodes()[0]
         chrom = 0
         tables_copy = tables.copy()
         assert tables_copy.iedges == tables.iedges
@@ -186,7 +186,7 @@ class TestExtractColumn:
 class TestMethods:
     def test_samples(self, simple_ts):
         tables = gigl.Tables.from_tree_sequence(simple_ts)
-        assert np.array_equal(tables.sample_ids, simple_ts.samples())
+        assert np.array_equal(tables.sample_nodes(), simple_ts.samples())
 
     def test_sort(self):
         tables = gigl.Tables()
@@ -769,8 +769,8 @@ class TestFindMrcas:
         assert simple_ts.num_samples >= 2
         max_trees = 0
         gig = gigl.Graph.from_tree_sequence(simple_ts)
-        for u in range(len(gig.sample_ids)):
-            for v in range(u + 2, len(gig.sample_ids)):
+        for u in range(len(gig.tables.sample_nodes())):
+            for v in range(u + 2, len(gig.tables.sample_nodes())):
                 mrcas = gig.tables.find_mrca_regions(u, v)
                 equiv_ts = simple_ts.simplify([u, v], filter_nodes=False)
                 max_trees = max(max_trees, equiv_ts.num_trees)
@@ -791,7 +791,7 @@ class TestFindMrcas:
 
     def test_double_inversion(self, double_inversion_gig):
         chrom = 0
-        assert double_inversion_gig.num_samples == 2
+        assert len(double_inversion_gig.sample_nodes()) == 2
         iedges = list(double_inversion_gig.iedges_for_child(0))
         assert len(iedges) == 1
         assert iedges[0].is_inversion()
@@ -810,7 +810,7 @@ class TestFindMrcas:
         gig = extended_inversion_gig
         if sample_resolve:
             gig = gig.sample_resolve()
-        assert set(gig.sample_ids) == {0, 1}
+        assert set(gig.tables.sample_nodes()) == {0, 1}
         assert gig.min_pos_as_child(0) == 20
         assert gig.max_pos(0) == 155
         assert gig.min_pos_as_child(1) == 0
@@ -832,7 +832,7 @@ class TestFindMrcas:
 
     def test_inverted_duplicate(self, inverted_duplicate_gig):
         chrom = 0
-        assert inverted_duplicate_gig.num_samples == 2
+        assert len(inverted_duplicate_gig.sample_nodes()) == 2
         mrcas = inverted_duplicate_gig.tables.find_mrca_regions(0, 1)
         assert len(mrcas) == 1
         assert 3 in mrcas
@@ -849,7 +849,7 @@ class TestFindMrcas:
 
     def test_inverted_duplicate_with_missing(self, inverted_duplicate_with_missing_gig):
         chrom = 0
-        assert inverted_duplicate_with_missing_gig.num_samples == 2
+        assert len(inverted_duplicate_with_missing_gig.sample_nodes()) == 2
         mrcas = inverted_duplicate_with_missing_gig.tables.find_mrca_regions(0, 1)
         assert len(mrcas) == 1
         assert 3 in mrcas
@@ -866,7 +866,7 @@ class TestFindMrcas:
 
     def test_no_recomb_sv_dup_del(self, all_sv_types_no_re_gig):
         chrom = 0
-        assert all_sv_types_no_re_gig.num_samples >= 2
+        assert len(all_sv_types_no_re_gig.sample_nodes()) >= 2
         sample_u = 8
         sample_v = 10
         mrcas = all_sv_types_no_re_gig.tables.find_mrca_regions(sample_u, sample_v)
@@ -895,7 +895,7 @@ class TestFindMrcas:
 
     def test_no_recomb_sv_dup_inv(self, all_sv_types_no_re_gig):
         chrom = 0
-        assert all_sv_types_no_re_gig.num_samples >= 2
+        assert len(all_sv_types_no_re_gig.sample_nodes()) >= 2
         sample_u = 10
         sample_v = 12
         mrcas = all_sv_types_no_re_gig.tables.find_mrca_regions(sample_u, sample_v)
@@ -924,8 +924,8 @@ class TestFindMrcas:
         rng = np.random.default_rng(1)
         ts = simple_ts.keep_intervals([(0, 2)]).trim()
         gig = gigl.Graph.from_tree_sequence(ts)
-        assert gig.sample_ids[0] == 0
-        assert gig.sample_ids[1] == 1
+        assert gig.tables.sample_nodes()[0] == 0
+        assert gig.tables.sample_nodes()[1] == 1
         mrcas = gig.tables.find_mrca_regions(0, 1)
         all_breaks = set()
         for _ in range(20):

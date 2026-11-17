@@ -1,6 +1,56 @@
 import itertools
+import warnings
 
 import matplotlib.patches as patches
+import numpy as np
+
+
+class TskitNameWarning(UserWarning):
+    """
+    Warning issued when a name that exists in tskit (but not in giglib) is used
+    on a giglib object, e.g. ``gig.num_nodes``. The tskit-like behaviour is
+    provided, but the warning suggests the giglib equivalent.
+    """
+
+
+def warn_tskit_name(name, suggestion):
+    """
+    Warn that ``gig.<name>`` does not exist in giglib, and suggest the giglib
+    equivalent of the tskit ``ts.<name>``.
+    """
+    warnings.warn(
+        f"gig.{name} does not exist in giglib: for the equivalent of tskit's ts.{name}, try {suggestion}",
+        TskitNameWarning,
+        stacklevel=3,
+    )
+
+
+def as_id(x):
+    """
+    Convert a single item to an integer ID. ``x`` can either be an integer,
+    or an object with an integer ``.id`` attribute (e.g. a :class:`~giglib.graph.Node`).
+    """
+    if isinstance(x, (int, np.integer)) and not isinstance(x, (bool, np.bool_)):
+        return x
+    try:
+        x_id = x.id
+    except AttributeError:
+        raise TypeError(f"Expected an integer ID or an object with an .id attribute, not {x!r}") from None
+    return as_id(x_id)
+
+
+def as_ids(x):
+    """
+    Convert a collection of items to a numpy array of integer IDs. ``x`` can be
+    an array of IDs, a view of objects returned by a :class:`~giglib.Graph` method
+    (which has an ``.ids`` attribute), or any iterable of integers or of objects
+    with an ``.id`` attribute.
+    """
+    if hasattr(x, "ids") and not hasattr(x, "id"):
+        return x.ids
+    if isinstance(x, np.ndarray) and np.issubdtype(x.dtype, np.integer):
+        return x
+    return np.array([as_id(i) for i in x], dtype=np.int64)
 
 
 def truncate_rows(num_rows, limit=None):

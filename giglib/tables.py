@@ -109,7 +109,7 @@ class NodeTableRow(
     )
 ):
     def is_sample(self):
-        return (self.flags & NODE_IS_SAMPLE) == NODE_IS_SAMPLE
+        return bool(self.flags & NODE_IS_SAMPLE)
 
 
 class IndividualTableRow(collections.namedtuple("IndividualTableRow", "flags, location, parents, metadata")):
@@ -801,6 +801,37 @@ class NodeTable(BaseExtraTable):
     def append(self, obj) -> int:
         return self.add_row(**{k: v for k, v in self.to_dict(obj).items() if k in self._RowClass._fields})
 
+    def filter(self, flags=None, time=None, *, candidates=None):
+        """
+        Return the IDs of nodes matching all the given criteria.
+
+        :param int flags: If not ``None``, only return nodes for which *all* the
+            bits in ``flags`` are set, e.g. ``flags=giglib.NODE_IS_SAMPLE``
+            returns sample nodes.
+        :param time: If not ``None``, only return nodes at this time. This can be
+            a single number, in which case node times must be exactly equal to this
+            value, or a ``(start, end)`` pair, in which case node times must satisfy
+            ``start <= time < end``.
+        :param numpy.ndarray candidates: If not ``None``, an array of node IDs
+            to filter, rather than all the nodes in the table (mainly for internal use).
+        :return: An array of matching node IDs, in the same order as ``candidates``
+            (i.e. increasing order, if ``candidates`` is ``None``)
+        :rtype: numpy.ndarray
+        """
+        ids = np.arange(len(self), dtype=np.int64) if candidates is None else np.asarray(candidates)
+        if flags is not None:
+            ids = ids[(self.flags[ids] & flags) == flags]
+        if time is not None:
+            times = self.time[ids]
+            if np.ndim(time) == 0:
+                ids = ids[times == time]
+            else:
+                start, end = time
+                if start > end:
+                    raise ValueError("time interval must have start <= end")
+                ids = ids[np.logical_and(times >= start, times < end)]
+        return ids
+
 
 class IndividualTable(BaseExtraTable):
     _RowClass = IndividualTableRow
@@ -1283,16 +1314,25 @@ class Tables:
 
         return Graph(self)
 
-    @property
-    def sample_ids(self):
+    def filter_nodes(self, flags=None, time=None):
         """
-        Return the IDs of all samples in the nodes table
+        Return the IDs of nodes matching the given criteria. Like other ``Tables``
+        accessors, this returns IDs: to get :class:`~giglib.graph.Node` objects
+        instead, use :meth:`Graph.filter_nodes`. See :meth:`~giglib.tables.NodeTable.filter`
+        for the meaning of the parameters.
 
         :rtype: numpy.ndarray
         """
-        if len(self.nodes) == 0:
-            return np.array([], dtype=np.int32)
-        return np.where(self.nodes.flags & NODE_IS_SAMPLE)[0]
+        return self.nodes.filter(flags=flags, time=time)
+
+    def sample_nodes(self, time=None):
+        """
+        Return the IDs of sample nodes. This is an alias for
+        ``filter_nodes(flags=giglib.NODE_IS_SAMPLE, time=time)``.
+
+        :rtype: numpy.ndarray
+        """
+        return self.filter_nodes(flags=NODE_IS_SAMPLE, time=time)
 
     def change_times(self, timedelta):
         """
