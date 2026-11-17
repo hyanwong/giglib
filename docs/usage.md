@@ -39,9 +39,13 @@ compatibility with _tskit_. In particular:
 - **Same names on both layers** As far as possible, the same query has the same name on `Graph`
   and `Tables` objects, so the object you call it on determines whether you get objects or IDs.
 - **Lenient inputs** Methods on a `Graph` that take a node accept either a node ID or a `Node` object.
-- **Nodes by keyword** Where a row refers to more than one node, the nodes are given by keyword,
-  e.g. `tables.iedges.add_row(0, 100, child=1, parent=0)`, so they cannot be swapped by mistake.
-  (_tskit_'s `edges.add_row(left, right, parent, child)` is easy to get the wrong way round.)
+- **Nodes first, iedge coordinates by keyword** Methods that add a row take the node(s) first, e.g.
+  `tables.mutations.add_row(u, 100, "A")` or `tables.iedges.add_row(child, parent, ...)`. An
+  iedge has four coordinates, which are easy to confuse, so they must be given by keyword, e.g.
+  `tables.iedges.add_row(1, 0, child_left=0, child_right=100)`. The fields of an iedge row are in
+  the same order, starting with `child` and `parent`. This also means that code written for
+  _tskit_'s `edges.add_row(left, right, parent, child)` fails, rather than silently creating the
+  wrong edges.
 - **Positions and chromosomes** A position always comes before the chromosome it refers to, and
   the chromosome is always given by keyword, e.g. `gig.allele_at(u, 100, chromosome=1)`,
   `gig.haplotype(u, chromosome=1, left=0, right=50)` or
@@ -72,7 +76,10 @@ compatibility with _tskit_. In particular:
   parent and child coordinates that represent an `edge` in the graph. That means a single graph edge
   can be represented by multiple disjoint intervals in the `iedges` table. If the parent
   coordinates are the same as the child's (i.e. the interval is not moved or inverted), they can
-  be omitted, e.g. `tables.iedges.add_row(0, 100, child=1, parent=0)`.
+  be omitted, and `child_left` defaults to 0, so e.g. `tables.iedges.add_row(1, 0, child_right=100)`
+  means that node 1 inherits positions 0 to 100 from node 0, unchanged. If no coordinates are given,
+  the iedge covers position 0 only (like the default sequence length of 1 in _msprime_), which is
+  handy for building simple trees, e.g. `tables.iedges.add_row(1, 0)`.
 - **Tables and Graphs** giglib provides a `Tables` and `Graph` class, corresponding
   to `TableCollection` and `TreeSequence` classes in _tskit_. Thus to create a GIG from scratch,
   you do `gig = tables.graph()`
@@ -119,9 +126,7 @@ tables = gigl.Tables()
 tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
 tables.nodes.add_row(1, flags=0)
 # Add an inversion
-tables.iedges.add_row(
-    parent=1, child=0, child_left=0, child_right=1, parent_left=1, parent_right=0
-)
+tables.iedges.add_row(0, 1, child_left=0, child_right=1, parent_left=1, parent_right=0)
 gig = tables.graph()
 assert len(gig.nodes) == 2
 assert len(gig.iedges) == 1
@@ -168,9 +173,10 @@ tables = gigl.Tables()
 root = tables.nodes.add_row(time=2)
 parent = tables.nodes.add_row(time=1)
 child = tables.nodes.add_row(time=0, flags=gigl.NODE_IS_SAMPLE)
-tables.add_iedge_row(0, 10, 0, 10, child=parent, parent=root)
-tables.add_iedge_row(0, 10, 0, 10, child=child, parent=parent)
-tables.add_iedge_row(10, 15, 0, 5, child=child, parent=parent)  # a duplicated copy of 0-5
+tables.add_iedge_row(parent, root, child_right=10)
+tables.add_iedge_row(child, parent, child_right=10)
+# a duplicated copy of parent positions 0-5
+tables.add_iedge_row(child, parent, child_left=10, child_right=15, parent_left=0, parent_right=5)
 for position, base in enumerate("ACGTACGTAC"):
     tables.mutations.add_row(root, position, base)  # ancestral states (with unknown times)
 tables.mutations.add_row(parent, 2, "T", time=1.5)

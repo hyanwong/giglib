@@ -11,12 +11,7 @@ def make_iedges_table(arr, tables):
     """
     for row in arr:
         tables.iedges.add_row(
-            child_left=row[0],
-            child_right=row[1],
-            parent_left=row[2],
-            parent_right=row[3],
-            child=row[4],
-            parent=row[5],
+            row[4], row[5], child_left=row[0], child_right=row[1], parent_left=row[2], parent_right=row[3]
         )
     return tables.iedges
 
@@ -25,7 +20,7 @@ def add_iedge(tables, cl, cr, pl, pr, *, c, p, **kwargs):
     """
     A helper function to make an IEdgeTableRow using 'c' and 'p' abbreviations.
     """
-    return tables.add_iedge_row(cl, cr, pl, pr, child=c, parent=p, **kwargs)
+    return tables.add_iedge_row(c, p, child_left=cl, child_right=cr, parent_left=pl, parent_right=pr, **kwargs)
 
 
 def make_nodes_table(arr, tables):
@@ -251,12 +246,10 @@ class DTWF_no_recombination_sim(DTWF_simulator):
         for idx, (chrom, rgt) in zip(rand_parent, seq_lens.items()):
             parent = parent_nodes[idx]
             self.tables.add_iedge_row(
-                lft,
-                rgt,
-                lft,
-                rgt,
-                child=child,
-                parent=parent,
+                child,
+                parent,
+                child_left=lft,
+                child_right=rgt,
                 child_chromosome=chrom,
                 parent_chromosome=chrom,
                 **self.add_iedge_params(),
@@ -298,12 +291,9 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
                 for chrom, L in seq_lens.items():
                     print(u, self.grand_mrca)
                     self.tables.add_iedge_row(
-                        0,
-                        L,
-                        0,
-                        L,
-                        child=u,
-                        parent=self.grand_mrca,
+                        u,
+                        self.grand_mrca,
+                        child_right=L,
                         child_chromosome=chrom,
                         parent_chromosome=chrom,
                         **self.add_iedge_params(),
@@ -331,12 +321,12 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         for ie in self.tables.iedges:
             try:
                 output_tables.add_iedge_row(
-                    ie.child_left,
-                    ie.child_right,
-                    ie.parent_left,
-                    ie.parent_right,
-                    child=node_map[ie.child],
-                    parent=node_map[ie.parent],
+                    node_map[ie.child],
+                    node_map[ie.parent],
+                    child_left=ie.child_left,
+                    child_right=ie.child_right,
+                    parent_left=ie.parent_left,
+                    parent_right=ie.parent_right,
                     child_chromosome=ie.child_chromosome,
                     parent_chromosome=ie.parent_chromosome,
                 )
@@ -466,12 +456,12 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
             if brk > 0:  # If break not placed just before position 0
                 pL, pR = 0, brk  # parent left and right start at the same pos as child
                 self.tables.add_iedge_row(
-                    0,
-                    brk,
-                    pL,
-                    pR,
-                    child=child,
-                    parent=lft_parent,
+                    child,
+                    lft_parent,
+                    child_left=0,
+                    child_right=brk,
+                    parent_left=pL,
+                    parent_right=pR,
                     child_chromosome=chrom,
                     parent_chromosome=lft_chrom,
                     **self.add_iedge_params(),
@@ -483,12 +473,12 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
                 pL, pR = rgt_parent_break, seq_len
                 cR = brk + (pR - pL)  # child rgt must account for len of rgt parent region
                 self.tables.add_iedge_row(
-                    brk,
-                    cR,
-                    pL,
-                    pR,
-                    child=child,
-                    parent=rgt_parent,
+                    child,
+                    rgt_parent,
+                    child_left=brk,
+                    child_right=cR,
+                    parent_left=pL,
+                    parent_right=pR,
                     child_chromosome=chrom,
                     parent_chromosome=rgt_chrom,
                     **self.add_iedge_params(),
