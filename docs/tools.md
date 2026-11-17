@@ -13,10 +13,30 @@ _giglib_, but is **not part of the core API**:
   depend on how _giglib_ stores its data internally (see {ref}`sec_design_storage`).
 - **Tested.** Tools are tested along with the rest of _giglib_.
 
-There are no tools yet. Planned tools include converting simple GIGs with structural
-variants into tree sequences
-([#139](https://github.com/hyanwong/giglib/issues/139)).
-
 ```{eval-rst}
 .. automodule:: giglib.tools
+```
+
+(sec_tools_alignment)=
+
+## Alignments
+
+The `giglib.tools.alignment` module converts between GIGs with insertions and deletions,
+and tree sequences whose coordinates are the columns of a multiple sequence alignment
+([#139](https://github.com/hyanwong/giglib/issues/139)). Gaps are written as `-`, and a
+site can span several columns, so that e.g. a deletion of three bases is a single
+mutation from `ATCG` to `A---`. Only conversion from a tree sequence to a GIG is
+implemented so far.
+
+```python
+import giglib.tools.alignment
+
+gig = giglib.tools.alignment.from_tree_sequence(ts)
+for u, row in zip(ts.samples(), giglib.tools.alignment.alignments(ts)):
+    assert gig.haplotype(u, right=len(row.replace("-", ""))) == row.replace("-", "")
+```
+
+```{eval-rst}
+.. automodule:: giglib.tools.alignment
+  :members:
 ```
