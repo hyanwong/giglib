@@ -93,24 +93,28 @@ def split_sites(ts):
     tables.sites.clear()
     tables.mutations.clear()
     derived_state = {}
-    for site in ts.sites():
-        position = int(site.position)
-        site_ids = [
-            tables.sites.add_row(position=position + j, ancestral_state=char, metadata=site.metadata)
-            for j, char in enumerate(site.ancestral_state)
-        ]
-        for mutation in site.mutations:
-            previous = site.ancestral_state if mutation.parent == tskit.NULL else derived_state[mutation.parent]
-            derived_state[mutation.id] = mutation.derived_state
-            for site_id, char, previous_char in zip(site_ids, mutation.derived_state, previous):
-                if char != previous_char:
-                    tables.mutations.add_row(
-                        site=site_id,
-                        node=mutation.node,
-                        derived_state=char,
-                        time=mutation.time,
-                        metadata=mutation.metadata,
-                    )
+    for tree in ts.trees():
+        for site in tree.sites():
+            position = int(site.position)
+            site_ids = [
+                tables.sites.add_row(position=position + j, ancestral_state=char, metadata=site.metadata)
+                for j, char in enumerate(site.ancestral_state)
+            ]
+            for mutation in site.mutations:
+                previous = site.ancestral_state if mutation.parent == tskit.NULL else derived_state[mutation.parent]
+                derived_state[mutation.id] = mutation.derived_state
+                # A mutation above an isolated node establishes its state in every
+                # column (otherwise its unchanged columns would be missing data)
+                isolated = _is_isolated(tree, mutation.node)
+                for site_id, char, previous_char in zip(site_ids, mutation.derived_state, previous):
+                    if isolated or char != previous_char:
+                        tables.mutations.add_row(
+                            site=site_id,
+                            node=mutation.node,
+                            derived_state=char,
+                            time=mutation.time,
+                            metadata=mutation.metadata,
+                        )
     tables.sort()
     tables.build_index()
     tables.compute_mutation_parents()
@@ -142,8 +146,12 @@ def alignments(ts, *, missing_data_character=None):
     # not an allele, and replace it afterwards.
     used = set(split.tables.sites.ancestral_state.tobytes()) | set(split.tables.mutations.derived_state.tobytes())
     placeholder = next(chr(c) for c in range(1, 128) if c not in used)
+    # Pass a reference sequence of placeholders, so that columns without sites are always
+    # missing data (otherwise tskit would use any reference sequence in the tree sequence)
+    reference = placeholder * int(ts.sequence_length)
     return [
-        row.replace(placeholder, missing_data_character) for row in split.alignments(missing_data_character=placeholder)
+        row.replace(placeholder, missing_data_character)
+        for row in split.alignments(missing_data_character=placeholder, reference_sequence=reference)
     ]
 
 
@@ -192,18 +200,28 @@ def _check_sites(ts):
     return spans
 
 
+def _is_isolated(tree, u):
+    return tree.parent(u) == tskit.NULL and tree.num_children(u) == 0
+
+
 def _node_states(tree, site, num_nodes):
     """
-    Return a list of the allele of every node at a site
+    Return a list of the allele of every node at a site. As in tskit, the state of an
+    isolated node (with no parent or children in the tree) with no mutation is unknown,
+    so is all ``N`` (which does not change its coordinates), rather than the ancestral
+    state.
     """
     mutation_state = {}
     for mutation in site.mutations:  # mutations are ordered so that later ones are more recent
         mutation_state[mutation.node] = mutation.derived_state
-    states = [mutation_state.get(u, site.ancestral_state) for u in range(num_nodes)]
+    unknown = UNKNOWN * len(site.ancestral_state)
+    states = [mutation_state.get(u, unknown) for u in range(num_nodes)]
     for u in tree.nodes(order="preorder"):
         parent = tree.parent(u)
         if parent != tskit.NULL:
             states[u] = mutation_state.get(u, states[parent])
+        elif tree.num_children(u) > 0:  # a root that is not isolated
+            states[u] = mutation_state.get(u, site.ancestral_state)
     return states
 
 
@@ -220,7 +238,10 @@ def from_tree_sequence(ts):
     instead represented by the change in coordinates). As in
     :meth:`giglib.Graph.from_tree_sequence`, the ancestral state of each site becomes
     mutations above the roots of the local tree. Inserted bases whose state is
-    unknown (``N``) are left as missing data.
+    unknown become mutations to ``N``, so are shown as missing data. As in tskit, an
+    isolated node (with no parent or children in a tree) that has no mutation at a site
+    has an unknown state there (``N``, not a gap), while a mutation above an isolated
+    node gives its state in every column of the site.
 
     The haplotype of each sample in the resulting GIG is the alignment of that sample
     (see :func:`alignments`) with the gaps removed.
@@ -286,7 +307,8 @@ def from_tree_sequence(ts):
                 )
             start = column + 1
 
-    # Mutations, one per changed (non-gap) column
+    # Mutations, one per changed column that the node has (a change to a gap is instead
+    # represented by the change in coordinates)
     mutation_derived_state = {}
     for tree in ts.trees():
         if tree.num_sites == 0:
@@ -308,12 +330,17 @@ def from_tree_sequence(ts):
                 previous = ancestral if mutation.parent == tskit.NULL else mutation_derived_state[mutation.parent]
                 mutation_derived_state[mutation.id] = mutation.derived_state
                 time = None if tskit.is_unknown_time(mutation.time) else mutation.time
+                # A mutation above an isolated node establishes its state in every column
+                isolated = _is_isolated(tree, mutation.node)
                 for j, (char, previous_char) in enumerate(zip(mutation.derived_state, previous)):
-                    if char == GAP or char == previous_char or (char == UNKNOWN and previous_char == GAP):
+                    column = position + j
+                    if char == GAP or (char == previous_char and not isolated):
                         continue
+                    if _has_gap(gaps[mutation.node], column):
+                        continue  # deleted by a later mutation above the same node
                     tables.mutations.add_row(
                         mutation.node,
-                        node_position(mutation.node, position + j),
+                        node_position(mutation.node, column),
                         char,
                         time=time,
                         metadata=mutation.metadata,

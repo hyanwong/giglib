@@ -106,6 +106,43 @@ def mutate(state, rng):
     return "".join(state)
 
 
+def isolated_sample_ts(sites, *, sequence_length=6):
+    """
+    Samples 0 and 1 have parent 3 over the whole sequence, and sample 2 is isolated.
+    Each site is (position, ancestral_state, [(node, derived_state), ...]), with the
+    mutations listed oldest first.
+    """
+    tables = tskit.TableCollection(sequence_length=sequence_length)
+    for _ in range(3):
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+    tables.nodes.add_row(time=1)
+    for child in (0, 1):
+        tables.edges.add_row(left=0, right=sequence_length, parent=3, child=child)
+    for position, ancestral, mutations in sites:
+        site = tables.sites.add_row(position=position, ancestral_state=ancestral)
+        for node, derived in mutations:
+            tables.mutations.add_row(site=site, node=node, derived_state=derived)
+    tables.sort()
+    tables.build_index()
+    tables.compute_mutation_parents()
+    return tables.tree_sequence()
+
+
+def column_states(ts):
+    """
+    The state of each sample in each column, decoded directly from the variants (with
+    missing data as None), for comparing tree sequences without using alignments()
+    """
+    states = [[None] * int(ts.sequence_length) for _ in range(ts.num_samples)]
+    for variant in ts.variants():
+        position = int(variant.site.position)
+        for i, genotype in enumerate(variant.genotypes):
+            allele = variant.alleles[genotype] if genotype != tskit.MISSING_DATA else None
+            for j in range(len(variant.site.ancestral_state)):
+                states[i][position + j] = None if allele is None else allele[j]
+    return states
+
+
 def assert_haplotypes_match(gig, ts):
     for u, row in zip(ts.samples(), alignment.alignments(ts)):
         expected = row.replace("-", "")
@@ -154,9 +191,13 @@ class TestSplitSites:
     def test_genotypes_unchanged(self, seed):
         ts = random_indel_ts(seed)
         assert ts.num_sites > 5
-        assert list(alignment.split_sites(ts).alignments(missing_data_character="?")) == alignment.alignments(
-            ts, missing_data_character="?"
-        )
+        assert column_states(alignment.split_sites(ts)) == column_states(ts)
+
+    def test_isolated_sample_unchanged_columns(self):
+        # A mutation above an isolated sample establishes its state in every column
+        ts = isolated_sample_ts([(0, "AC", [(2, "AT")])])
+        assert column_states(alignment.split_sites(ts)) == column_states(ts)
+        assert alignment.alignments(ts)[2] == "ATNNNN"
 
 
 class TestFromTreeSequence:
@@ -189,6 +230,57 @@ class TestFromTreeSequence:
         # Columns where both child and parent have a gap don't break an iedge
         gig = alignment.from_tree_sequence(simple_ts())
         assert len(gig.iedges_for_child(0)) == 1  # 0 and its parent 3 both lack 6-8 and 13-15
+
+
+class TestEdgeCases:
+    """
+    Cases raised in review of the first version
+    """
+
+    def test_isolated_sample_unchanged_columns(self):
+        ts = isolated_sample_ts([(0, "AC", [(2, "AT")])])
+        gig = alignment.from_tree_sequence(ts)
+        assert gig.haplotype(2, right=6) == "ATNNNN"
+
+    def test_isolated_sample_unknown_is_not_a_gap(self):
+        # Sample 2 is isolated, with no mutation at the first site, whose ancestral state is
+        # a gap. Its state there is unknown (not a gap), so the column is kept.
+        ts = isolated_sample_ts([(0, "-", []), (1, "A", [(2, "C")])])
+        assert alignment.alignments(ts)[2] == "NCNNNN"
+        gig = alignment.from_tree_sequence(ts)
+        assert gig.haplotype(2, right=6) == "NCNNNN"
+
+    def test_reference_sequence_ignored(self):
+        tables = isolated_sample_ts([]).dump_tables()
+        tables.reference_sequence.data = "ACGTAC"
+        ts = tables.tree_sequence()
+        assert ts.has_reference_sequence()
+        assert alignment.alignments(ts) == ["NNNNNN"] * 3
+        gig = alignment.from_tree_sequence(ts)
+        assert [gig.haplotype(u, right=6) for u in ts.samples()] == ["NNNNNN"] * 3
+
+    def test_unknown_reinsertion(self):
+        # Ancestral A is deleted above node 3, and an unknown base reinserted above
+        # sample 0, which must not inherit the A
+        ts = isolated_sample_ts([(0, "A", [(3, "-"), (0, "N")])])
+        assert alignment.alignments(ts)[0] == "NNNNNN"
+        gig = alignment.from_tree_sequence(ts)
+        assert_haplotypes_match(gig, ts)
+        assert gig.allele_at(0, 0) == "N"
+
+    def test_deleted_by_a_later_mutation_on_the_same_node(self):
+        # AC becomes TC and then -C above the same node, so its first column is deleted
+        tables = isolated_sample_ts([]).dump_tables()
+        site = tables.sites.add_row(position=0, ancestral_state="AC")
+        tables.mutations.add_row(site=site, node=0, derived_state="TC", time=0.8)
+        tables.mutations.add_row(site=site, node=0, derived_state="-C", time=0.3)
+        tables.sort()
+        tables.build_index()
+        tables.compute_mutation_parents()
+        ts = tables.tree_sequence()
+        assert alignment.alignments(ts)[0] == "-CNNNN"
+        gig = alignment.from_tree_sequence(ts)
+        assert gig.haplotype(0) == "CNNNN"
 
 
 class TestErrors:
