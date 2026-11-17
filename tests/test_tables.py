@@ -317,8 +317,19 @@ class TestIEdgeTable:
         iedges = gigl.Tables().iedges
         with pytest.raises(TypeError):
             iedges.add_row(0, 100, 1, 0)  # tskit order: left, right, parent, child
-        with pytest.raises(TypeError):
-            iedges.add_row(1, 0)  # child_right is required
+        assert len(iedges) == 0
+
+    def test_default_coords(self):
+        iedges = gigl.Tables().iedges
+        iedges.add_row(1, 0)  # a single position, as in a default msprime simulation
+        iedges.add_row(2, 0, child_right=10)
+        assert list(iedges.child_left) == list(iedges.parent_left) == [0, 0]
+        assert list(iedges.child_right) == list(iedges.parent_right) == [1, 10]
+
+    def test_child_left_without_child_right(self):
+        iedges = gigl.Tables().iedges
+        with pytest.raises(ValueError, match="child_right must be given"):
+            iedges.add_row(1, 0, child_left=5)
         assert len(iedges) == 0
 
     def test_row_fields_as_keywords(self):

@@ -518,8 +518,8 @@ class IEdgeTable(BaseTable):
         child,
         parent,
         *,
-        child_left=0,
-        child_right,
+        child_left=None,
+        child_right=None,
         parent_left=None,
         parent_right=None,
         child_chromosome=0,
@@ -539,10 +539,14 @@ class IEdgeTable(BaseTable):
         :param int child: The ID of the child node
         :param int parent: The ID of the parent node
         :param int child_left: The left (inclusive) position of the interval, in the
-            child's coordinates (default 0). This and the other coordinates must be
-            given by keyword.
+            child's coordinates. This and the other coordinates must be given by
+            keyword. If ``None`` (default), this is 0.
         :param int child_right: The right (exclusive) position of the interval, in the
-            child's coordinates (required)
+            child's coordinates. If ``None`` (default), this is 1, as for the default
+            sequence length in msprime, so that ``add_row(c, p)`` can be used to build
+            simple examples. It must be given if ``child_left`` is given. These defaults
+            may change if lengths are stored for each chromosome (see
+            https://github.com/hyanwong/giglib/issues/158).
         :param int parent_left: The position in the parent's coordinates corresponding
             to ``child_left``. If ``parent_left > parent_right``, the interval is
             inverted. If ``parent_left`` and ``parent_right`` are both ``None``
@@ -602,6 +606,12 @@ class IEdgeTable(BaseTable):
                 validate=ValidFlags.IEDGES_INTERVALS,
             )
         """
+        if child_right is None:
+            if child_left is not None:
+                raise ValueError("child_right must be given if child_left is given")
+            child_right = 1
+        if child_left is None:
+            child_left = 0
         if parent_left is None and parent_right is None:
             parent_left, parent_right = child_left, child_right
         elif parent_left is None or parent_right is None:
