@@ -12,7 +12,14 @@ import sortedcontainers
 import tskit
 
 from .constants import Const, ValidFlags
-from .util import add_rectangle, add_row_label, add_triangle, is_unknown_time, truncate_rows
+from .util import (
+    DEFAULT_ALLELE_COMPLEMENTS,
+    add_rectangle,
+    add_row_label,
+    add_triangle,
+    is_unknown_time,
+    truncate_rows,
+)
 
 NULL = Const.NULL  # alias for tskit.NULL
 NODE_IS_SAMPLE = Const.NODE_IS_SAMPLE  # alias for tskit.NODE_IS_SAMPLE
@@ -1305,12 +1312,19 @@ class Tables:
         for name, cls in zip(self.table_classes._fields, self.table_classes):
             setattr(self, name, cls(initial_size=initial_sizes.get(name, None)))
         self.time_units = "unknown" if time_units is None else time_units
+        #: A dict mapping alleles to their complements, used when decoding alleles
+        #: that are inherited through an inversion (see
+        #: :ref:`sec_design_mutations_strands`). Defaults to the IUPAC nucleotide
+        #: codes plus ``"-"``. Set to ``{}`` to turn complementing off.
+        self.allele_complements = dict(DEFAULT_ALLELE_COMPLEMENTS)
 
     def __eq__(self, other) -> bool:
         for name in self.table_classes._fields:
             if getattr(self, name) != getattr(other, name):
                 return False
         if self.time_units != other.time_units:
+            return False
+        if dict(self.allele_complements) != dict(other.allele_complements):
             return False
         return True
 
@@ -1396,6 +1410,7 @@ class Tables:
         """
         for name in self.table_classes._fields:
             getattr(self, name).freeze()
+        self.allele_complements = types.MappingProxyType(dict(self.allele_complements))
         self._frozen = True
 
     def __setattr__(self, attr, value):
@@ -1425,6 +1440,7 @@ class Tables:
             else:
                 setattr(copy, name, getattr(self, name).copy())
         copy.time_units = self.time_units
+        copy.allele_complements = dict(self.allele_complements)
         return copy
 
     def __str__(self):
@@ -1625,9 +1641,17 @@ class Tables:
         Create a Tables object from a :class:`tskit:tskit.TreeSequence`. To create a GIG
         directly, use :func:`Graph.from_tree_sequence` which simply wraps this method.
 
+        Sites and mutations are converted as described in :ref:`sec_design_mutations`.
+        Each mutation is placed above the same node, at the position of its site.
+        Since a GIG has no sites table, each site's ancestral state becomes a mutation
+        with unknown time above each root of the local tree at that position. Isolated
+        nodes (roots with no children) get no such mutation, so their state is missing
+        data, matching the default treatment of isolated samples in tskit.
+
         :param tskit.TreeSequence ts: The tree sequence on which to base the Tables
-            object
+            object. Site positions must be integers.
         :param int chromosome: The chromosome number to use for all interval edges
+            and mutations (default: 0)
         :param kwargs: Other parameters passed to the Tables constructor
         :return: A Tables object representing the tree sequence
         :rtype: Tables
@@ -1643,10 +1667,9 @@ class Tables:
         )
         if ts_tables.migrations.num_rows > 0:
             raise NotImplementedError
-        if ts_tables.mutations.num_rows > 0:
-            raise NotImplementedError
-        if ts_tables.sites.num_rows > 0:
-            raise NotImplementedError
+        site_positions = ts_tables.sites.position
+        if not np.all(np.floor(site_positions) == site_positions):
+            raise ValueError("Site positions must be integers to convert to a GIG")
         if ts_tables.populations.num_rows > 1:
             # If there is only one population, ignore it
             raise NotImplementedError
@@ -1661,6 +1684,30 @@ class Tables:
         for row in ts_tables.individuals:
             obj = dataclasses.asdict(row)
             tables.individuals.append(obj)
+        if ts.num_sites > 0:
+            mut_chromosome = 0 if chromosome is None else chromosome
+            for tree in ts.trees():
+                if tree.num_sites == 0:
+                    continue
+                # Roots with children (excluding the virtual root at the end of the arrays)
+                parent = tree.parent_array[:-1]
+                num_children = tree.num_children_array[:-1]
+                roots = np.flatnonzero((parent == NULL) & (num_children > 0))
+                for site in tree.sites():
+                    position = int(site.position)
+                    # Ancestral states first: the (stable) sort keeps them before any
+                    # other mutations at the same node and position
+                    for root in roots:
+                        tables.mutations.add_row(root, position, site.ancestral_state, chromosome=mut_chromosome)
+                    for mut in site.mutations:
+                        tables.mutations.add_row(
+                            mut.node,
+                            position,
+                            mut.derived_state,
+                            chromosome=mut_chromosome,
+                            time=None if tskit.is_unknown_time(mut.time) else mut.time,
+                            metadata=mut.metadata,
+                        )
         tables.sort()
         # A valid tree sequence guarantees these properties of its edges (the
         # sort above guarantees the canonical iedge ordering flags)

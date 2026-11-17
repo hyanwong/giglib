@@ -5,6 +5,7 @@ efficient access.
 """
 
 import json
+import warnings
 from collections import namedtuple
 
 import numpy as np
@@ -12,7 +13,7 @@ import tskit
 
 from .constants import Const, ValidFlags
 from .tables import IEdgeTableRow, IndividualTableRow, MutationTableRow, NodeTableRow, Tables
-from .util import as_id, is_unknown_time, warn_tskit_name
+from .util import as_id, complement_allele, is_unknown_time, warn_tskit_name
 
 
 def _read_only(arr):
@@ -42,6 +43,7 @@ class Graph:
         self.tables = tables
         self._validate()
         self._validate_mutations()
+        self._check_allele_complements()
         self.tables.freeze()
         # Cached arrays: read-only, so they can safely be shared between views
         self._iedge_map_sorted_by_parent = _read_only(self._iedge_map_sorted_by_parent)
@@ -251,6 +253,142 @@ class Graph:
                             f"Mutation {i} has time {time[i]}, which is not younger than the parent "
                             f"of node {node[i]} at that position (time {parent_time})"
                         )
+
+    def _check_allele_complements(self):
+        """
+        Warn if there are inversions and multi-character alleles that cannot be
+        complemented using the allele complements map
+        """
+        iedges = self.tables.iedges
+        if len(self.tables.mutations) == 0 or not np.any(iedges.parent_right < iedges.parent_left):
+            return
+        complements = self.tables.allele_complements
+        # Rule 3 of the complement rules: multi-character, not in the map, and with
+        # some characters that are not in the map
+        uncomplementable = sorted(
+            {
+                a
+                for a in self.tables.mutations.derived_state
+                if len(a) > 1 and a not in complements and not all(c in complements for c in a)
+            }
+        )
+        if len(uncomplementable) > 0:
+            warnings.warn(
+                f"This GIG contains inversions, but the alleles {uncomplementable} cannot be "
+                "complemented using tables.allele_complements, so will be treated as "
+                "strand-symmetric. To silence this warning, add them to the map (mapping an "
+                "allele to itself if it really is symmetric).",
+                UserWarning,
+                stacklevel=4,  # point to the caller of Tables.graph()
+            )
+
+    def _alleles(self, u, chromosome, left, right):
+        """
+        Return a list of the alleles at positions ``left`` to ``right - 1`` of node
+        ``u``'s genome, with ``None`` for unknown (missing) alleles.
+
+        Each position is traced rootwards until it reaches a mutation (the most recent
+        one at that node and position), or a node with no parent at that position.
+        Each position has at most one parent, so tracing never branches. We track
+        intervals in the coordinates of the current node, with an affine map
+        ``index = m * x + k`` back to the index in the result, where ``m == -1`` if
+        the interval has passed through an odd number of inversions.
+        """
+        result = [None] * (right - left)
+        complements = self.tables.allele_complements
+        iedges = self.tables.iedges
+        mutations = self.tables.mutations
+        mut_position = mutations.position
+        state_col = mutations._extra_data_cols["derived_state"]
+        stack = [(u, chromosome, left, right, 1, -left)]
+        while stack:
+            v, c, a, b, m, k = stack.pop()
+            # Resolve positions with mutations above v. The last mutation at a position
+            # is the most recent, so determines the allele inherited from v.
+            resolved = []
+            ids = mutations.ids_for_node(v, c)
+            if len(ids) > 0:
+                start, end = ids[0], ids[-1] + 1
+                j = start + np.searchsorted(mut_position[start:end], a, side="left")
+                hi = start + np.searchsorted(mut_position[start:end], b, side="left")
+                while j < hi:
+                    x = mut_position[j]
+                    while j + 1 < hi and mut_position[j + 1] == x:
+                        j += 1
+                    state = mutations._extra_data[j][state_col]
+                    result[m * x + k] = state if m == 1 else complement_allele(state, complements)
+                    resolved.append(x)
+                    j += 1
+            # Trace the unresolved intervals up through the iedges above v
+            ie_ids = iedges.ids_for_child(v, c)
+            if len(ie_ids) == 0:
+                continue  # no parents: unresolved positions remain missing
+            ie_start, ie_end = ie_ids[0], ie_ids[-1] + 1
+            child_left = iedges.child_left[ie_start:ie_end]
+            child_right = iedges.child_right[ie_start:ie_end]
+            for p, q in zip([a, *(x + 1 for x in resolved)], [*resolved, b]):
+                if p >= q:
+                    continue
+                i = np.searchsorted(child_right, p, side="right")
+                while i < len(child_left) and child_left[i] < q:
+                    ov_a, ov_b = max(p, child_left[i]), min(q, child_right[i])
+                    if ov_a < ov_b:
+                        ie = iedges[ie_start + i]
+                        if ie.parent_left < ie.parent_right:
+                            d = ie.parent_left - ie.child_left
+                            stack.append((ie.parent, ie.parent_chromosome, ov_a + d, ov_b + d, m, k - m * d))
+                        else:
+                            # Inversion: parent position x' = s - x
+                            s = ie.child_left + ie.parent_left - 1
+                            stack.append((ie.parent, ie.parent_chromosome, s - ov_b + 1, s - ov_a + 1, -m, k + m * s))
+                    i += 1
+        return result
+
+    def haplotype(self, u, chromosome=0, *, left=0, right=None, missing_data_character="N"):
+        """
+        Return the sequence of alleles in node ``u``'s genome, as a string. Each
+        position takes the allele of the most recent mutation above it (traced up
+        through the iedges, and complemented across inversions using
+        ``tables.allele_complements``). Positions with no mutation above them are
+        missing data. See :ref:`sec_design_mutations`.
+
+        If any alleles have more or less than one character (e.g. representing small
+        indels), the length of the returned string will differ from ``right - left``.
+
+        :param int u: The node (or a :class:`~giglib.graph.Node` object)
+        :param int chromosome: The chromosome in ``u``'s genome (default: 0)
+        :param int left: The first position to return (default: 0)
+        :param int right: The position after the last one to return. If ``None``
+            (default), use the sequence length of ``u`` for this chromosome.
+        :param str missing_data_character: The string to use for positions with
+            unknown alleles (default: ``"N"``, as for :meth:`tskit:tskit.TreeSequence.alignments`)
+        :return: The haplotype
+        :rtype: str
+        """
+        u = as_id(u)
+        if right is None:
+            right = self.sequence_length(u, chromosome)
+        if left < 0 or right < left:
+            raise ValueError(f"Invalid interval [{left}, {right})")
+        alleles = self._alleles(u, chromosome, left, right)
+        return "".join(missing_data_character if a is None else a for a in alleles)
+
+    def allele_at(self, u, position, chromosome=0):
+        """
+        Return the allele at a position in node ``u``'s genome, given by the most recent
+        mutation above that position (complemented across inversions using
+        ``tables.allele_complements``). See :ref:`sec_design_mutations`.
+
+        :param int u: The node (or a :class:`~giglib.graph.Node` object)
+        :param int position: The position, in ``u``'s coordinates
+        :param int chromosome: The chromosome in ``u``'s genome (default: 0)
+        :return: The allele, or ``None`` if it is unknown (missing data)
+        :rtype: str
+        """
+        u = as_id(u)
+        if position < 0:
+            raise ValueError("position must be non-negative")
+        return self._alleles(u, chromosome, position, position + 1)[0]
 
     @property
     def time_units(self):

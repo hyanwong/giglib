@@ -35,12 +35,56 @@ class TestCreation:
         tables.change_times(timedelta=time)
         assert tables.nodes[0].time == simple_ts.node(0).time + time
 
-    def test_mutations_not_implemented_error(self, simple_ts_with_mutations):
-        ts_tables = simple_ts_with_mutations.tables
-        assert ts_tables.mutations.num_rows > 0
-        assert ts_tables.sites.num_rows > 0
-        with pytest.raises(NotImplementedError):
-            gigl.Tables.from_tree_sequence(simple_ts_with_mutations)
+    def test_mutations(self, simple_ts_with_mutations):
+        ts = simple_ts_with_mutations
+        assert ts.num_mutations > 0
+        tables = gigl.Tables.from_tree_sequence(ts)
+        # one mutation per ancestral state, above the root(s) of each local tree
+        num_ancestral = sum(tree.num_sites * len(tree.roots) for tree in ts.trees())
+        assert len(tables.mutations) == ts.num_mutations + num_ancestral
+        unknown = gigl.is_unknown_time(tables.mutations.time)
+        assert np.sum(~unknown) == ts.num_mutations
+        for mut in ts.mutations():
+            matches = [
+                m
+                for m in tables.mutations
+                if m.node == mut.node and m.position == ts.site(mut.site).position and m.time == mut.time
+            ]
+            assert len(matches) == 1
+            assert matches[0].derived_state == mut.derived_state
+        tables.graph()  # passes validation
+
+    def test_ancestral_state_mutations(self, simple_ts_with_mutations):
+        ts = simple_ts_with_mutations
+        tables = gigl.Tables.from_tree_sequence(ts, chromosome=3)
+        assert np.all(tables.mutations.chromosome == 3)
+        for tree in ts.trees():
+            for site in tree.sites():
+                for root in tree.roots:
+                    ids = tables.mutations.ids_for_node(root, chromosome=3)
+                    at_site = [tables.mutations[i] for i in ids if tables.mutations[i].position == site.position]
+                    # the ancestral state comes first, with unknown time
+                    assert at_site[0].derived_state == site.ancestral_state
+                    assert gigl.is_unknown_time(at_site[0].time)
+
+    def test_isolated_nodes_have_no_ancestral_state(self):
+        tables = tskit.TableCollection(sequence_length=10)
+        for _ in range(3):
+            tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        root = tables.nodes.add_row(time=1)
+        tables.edges.add_row(0, 10, root, 0)
+        tables.edges.add_row(0, 10, root, 1)  # node 2 is isolated
+        tables.sites.add_row(position=4, ancestral_state="A")
+        ts = tables.tree_sequence()
+        gig_tables = gigl.Tables.from_tree_sequence(ts)
+        assert [m.node for m in gig_tables.mutations] == [root]
+
+    def test_non_integer_site_positions(self):
+        tables = tskit.TableCollection(sequence_length=10)
+        tables.nodes.add_row(flags=tskit.NODE_IS_SAMPLE, time=0)
+        tables.sites.add_row(position=4.5, ancestral_state="A")
+        with pytest.raises(ValueError, match="integers"):
+            gigl.Tables.from_tree_sequence(tables.tree_sequence())
 
     def test_populations_not_implemented_error(self, ts_with_multiple_pops):
         # No need to test for migrations, since they necessarily

@@ -91,6 +91,28 @@ A deletion simply occurs when no material from the parent is transmitted to any 
 {parent: P, child: C, child_left: 5, child_right: 10, parent_left: 15, parent_right: 20}
 ```
 
+## Mutations
+
+Mutations are stored in a mutations table. Since a GIG has no shared coordinate system, there is
+no sites table: each mutation records its position in the coordinates of the node it lies above.
+The allele of any genome at a position is given by the most recent mutation above it, found by
+tracing the position up through the iedges (see {meth}`~giglib.Graph.allele_at` and
+{meth}`~giglib.Graph.haplotype`). There is no per-site ancestral state: instead, an ancestral state is
+given by a mutation above a root. Positions with no mutations above them are treated as missing
+data.
+
+Each mutation is at a single position, and never changes the coordinate system. A mutation's
+derived state is usually a single base, but can be any string, so small insertions (e.g. `A` →
+`ATTG`) and deletions (e.g. `A` → `` ) *can* be represented as mutations. However, it is
+preferable to represent indels, like other structural variants, using iedges with different
+parent and child coordinates, as above: this keeps each genome's coordinates matching the
+bases in its sequence.
+
+Alleles inherited through an inversion are read from the opposite strand, so are complemented
+(e.g. `A` → `T`, or `ATTG` → `CAAT`) when decoded, using the map in `tables.allele_complements`.
+
+See {ref}`sec_design_mutations` for the full design, and the reasons behind it.
+
 ## Simulations
 
 Giglib does not provide explicit functions for simulating genomes.
