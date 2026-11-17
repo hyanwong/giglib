@@ -111,8 +111,8 @@ assert gig.iedges[0].is_inversion()
 
 Examples of code that runs simulations are provided in the test suite. Currently they are based on a relatively simple extension
 of the boilerplate forward-simulation code in the _tskit_ [forward-time simulation tutorial](https://tskit.dev/tutorials/forward_sims.html). The important
-difference is that the [find_mrca_regions](https://github.com/hyanwong/giglib/blob/3385f5149f7028cb2b5bfd8c236774b926f79de9/giglib/tables.py#L841)
-method is used to locate breakpoints for recombination.
+difference is that the {meth}`~giglib.Tables.find_mrca_regions` method is used to locate breakpoints
+for recombination.
 
 For more details the [sim.py file](https://github.com/hyanwong/giglib/blob/main/tests/sim.py)
 is a convenience wrapper that links out to other files containing simulation code.
@@ -120,3 +120,7 @@ Currently only forward simulation code is provided. Nevertheless, it is conceptu
 general enough to form the basis of a pangenome simulator (this would however require
 substantial effort in fixing reasonable parameters before realistic-looking pangenomes
 could be created).
+
+For a hacky example of how to use the simulation code directly from the test suite, see
+[this comment](https://github.com/hyanwong/giglib/issues/86#issuecomment-1970029273)
+or [this one](https://github.com/hyanwong/giglib/issues/82#issuecomment-1972153550).
