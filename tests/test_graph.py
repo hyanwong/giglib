@@ -1297,7 +1297,15 @@ class TestToTreeSequenceWithMutations:
         tables.mutations.add_row(2, 4, "A")
         tables.mutations.add_row(0, 4, "A", chromosome=1)
         tables.sort()
-        with pytest.raises(ValueError, match="more than one chromosome"):
+        with pytest.raises(ValueError, match="all be on one chromosome"):
+            tables.graph().to_tree_sequence()
+
+    def test_mutations_on_different_chromosome_to_iedges(self):
+        # The only mutation is on chromosome 1, but the iedges are on chromosome 0
+        tables = self.two_root_tables()
+        tables.mutations.add_row(2, 4, "A", chromosome=1)
+        tables.sort()
+        with pytest.raises(ValueError, match="all be on one chromosome"):
             tables.graph().to_tree_sequence()
 
     def test_position_beyond_sequence_length(self):

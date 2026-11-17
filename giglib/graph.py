@@ -293,21 +293,34 @@ class Graph:
         """
         Return a list of the alleles at positions ``left`` to ``right - 1`` of node
         ``u``'s genome, with ``None`` for unknown (missing) alleles.
+        See :meth:`_known_alleles`.
+        """
+        result = [None] * (right - left)
+        for x, allele in self._known_alleles(u, chromosome, left, right).items():
+            result[x - left] = allele
+        return result
+
+    def _known_alleles(self, u, chromosome, left, right):
+        """
+        Return a dict mapping positions (between ``left`` and ``right - 1``) of node
+        ``u``'s genome to their alleles, omitting positions whose allele is unknown
+        (missing). The time taken depends on the number of mutations and iedges
+        traversed, not on the length of the interval.
 
         Each position is traced rootwards until it reaches a mutation (the most recent
         one at that node and position), or a node with no parent at that position.
         Each position has at most one parent, so tracing never branches. We track
         intervals in the coordinates of the current node, with an affine map
-        ``index = m * x + k`` back to the index in the result, where ``m == -1`` if
+        ``position = m * x + k`` back to the position in ``u``, where ``m == -1`` if
         the interval has passed through an odd number of inversions.
         """
-        result = [None] * (right - left)
+        result = {}
         complements = self.tables.allele_complements
         iedges = self.tables.iedges
         mutations = self.tables.mutations
         mut_position = mutations.position
         state_col = mutations._extra_data_cols["derived_state"]
-        stack = [(u, chromosome, left, right, 1, -left)]
+        stack = [(u, chromosome, left, right, 1, 0)]
         while stack:
             v, c, a, b, m, k = stack.pop()
             # Resolve positions with mutations above v. The last mutation at a position
@@ -656,7 +669,8 @@ class Graph:
         """
         Convert this GIG to a tree sequence. This can only be done if
         each iedge has the same child_left as parent_left and the same
-        child_right as parent_right. This is mainly intended for testing.
+        child_right as parent_right, and all iedges and mutations are on the
+        same chromosome. This is mainly intended for testing.
 
         Mutations are grouped into sites by position. Since a GIG stores ancestral
         states as mutations above roots (see :ref:`sec_design_mutations`), the first
@@ -679,6 +693,12 @@ class Graph:
                     f"Cannot convert to tree sequence: iedge {ie.id}: child "
                     f"and parent intervals are not the same in all iedges ({ie})"
                 )
+        iedges = self.tables.iedges
+        chromosomes = np.unique(
+            np.concatenate((iedges.child_chromosome, iedges.parent_chromosome, self.tables.mutations.chromosome))
+        )
+        if len(chromosomes) > 1:
+            raise ValueError("Cannot convert to tree sequence: iedges and mutations must all be on one chromosome")
         if sequence_length is None:
             sequence_length = self.tables.iedges.child_right.max()
         tables = tskit.TableCollection(sequence_length)
@@ -719,8 +739,6 @@ class Graph:
         the nodes and edges of this GIG (see :meth:`to_tree_sequence`)
         """
         mutations = self.tables.mutations
-        if len(np.unique(mutations.chromosome)) > 1:
-            raise ValueError("Cannot convert mutations on more than one chromosome to a tree sequence")
         if mutations.position.max() >= tables.sequence_length:
             raise ValueError("Mutation positions must be less than the sequence length")
         by_position = {}

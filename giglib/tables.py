@@ -1635,10 +1635,11 @@ class Tables:
         Mutations above removed nodes, and mutations whose (known) time is at least
         ``time``, are removed. Since a GIG has no per-site ancestral states (see
         :ref:`sec_design_mutations`), information about alleles would then be lost.
-        So by default, wherever a remaining node loses its parent, mutations with unknown
-        time are added above that node, recording the alleles it inherited from above
-        at those positions. This means that the haplotypes of all remaining nodes are
-        unchanged by decapitation.
+        So by default, wherever a remaining node loses its parent or its own old
+        mutations, mutations with unknown time are added above that node, recording the
+        alleles it inherited from above at those positions (and any mutations at that
+        node and position that came before the removed ones are also removed). This
+        means that the haplotypes of all remaining nodes are unchanged by decapitation.
 
         :param float time: The time at or before which nodes should be removed
         :param bool discard_old_mutations: If False (default), the alleles produced by
@@ -1657,9 +1658,9 @@ class Tables:
         :rtype: numpy.ndarray
 
         """
-        inherited = []
+        replacements, superseded = {}, []
         if not discard_old_mutations and len(self.mutations) > 0:
-            inherited = self._alleles_inherited_across(time)
+            replacements, superseded = self._alleles_inherited_across(time)
         individuals = IndividualTable()
         individual_map = {NULL: NULL}
         nodes = NodeTable()
@@ -1692,11 +1693,12 @@ class Tables:
 
         old_mutations = self.mutations
         mutations = MutationTable()
-        # Inherited alleles come first, so that they precede (i.e. are older than) any
-        # existing mutations at the same node and position after the (stable) sort
-        for u, chromosome, position, allele in inherited:
+        # Replacements come first, so that they precede (i.e. are older than) any
+        # retained mutations at the same node and position after the (stable) sort
+        for (u, chromosome, position), allele in sorted(replacements.items()):
             mutations.add_row(node_map[u], position, allele, chromosome=chromosome)
         keep = (node_map[old_mutations.node] != NULL) & ~(old_mutations.time >= time)  # unknown times are NaN
+        keep[superseded] = False
         for i in np.flatnonzero(keep):
             m = old_mutations[i]
             mutations.add_row(
@@ -1713,44 +1715,60 @@ class Tables:
 
     def _alleles_inherited_across(self, time):
         """
-        Return a list of (node, chromosome, position, allele) for the alleles inherited
-        by nodes younger than ``time`` through iedges from parents at least as old as
-        ``time`` (i.e. the iedges removed by decapitation). This includes the effect of
-        mutations above the child that are at least as old as ``time`` (which are
-        removed by decapitation). Missing alleles are omitted. Requires the tables to
-        form a valid GIG.
+        Work out the mutations needed by :meth:`decapitate` to keep the haplotypes of
+        nodes younger than ``time`` unchanged. Requires the tables to form a valid GIG.
+
+        Returns a tuple ``(replacements, superseded)``. ``replacements`` is a dict
+        mapping ``(node, chromosome, position)`` to the allele that should be recorded
+        by a new (unknown-time) mutation above that node, to precede any mutations that
+        are kept at that node and position. These record:
+
+        1. The effect of mutations at least as old as ``time`` above nodes younger than
+           ``time`` (these mutations are removed by decapitation). Only the last such
+           mutation at a node and position is needed.
+        2. Otherwise, the alleles inherited through iedges from parents at least as old
+           as ``time`` (these iedges are removed by decapitation). Missing alleles are
+           omitted.
+
+        ``superseded`` is a list of the IDs of mutations that precede (in table order)
+        the last removed mutation at the same node and position. Their effect is
+        overwritten by that mutation, so they should also be removed, as otherwise they
+        would follow the replacement.
         """
         from .graph import Graph
 
-        gig = Graph(self.copy())
         node_time = self.nodes.time
         complements = self.allele_complements
         mutations = self.mutations
-        # Old mutations above nodes that will be kept: {(node, chromosome, position): allele}
-        # (mutations are in time order, so the last at a position is the most recent)
-        old_alleles = {}
-        old = (mutations.time >= time) & (node_time[mutations.node] < time)
-        for i in np.flatnonzero(old):
+        replacements = {}
+        last_removed = {}
+        removed = (mutations.time >= time) & (node_time[mutations.node] < time)
+        for i in np.flatnonzero(removed):  # in table order, so the last one wins
             m = mutations[i]
-            old_alleles[(m.node, m.chromosome, m.position)] = m.derived_state
-        result = []
+            key = (m.node, m.chromosome, m.position)
+            last_removed[key] = i
+            replacements[key] = m.derived_state
+        superseded = []
+        if len(last_removed) > 0:
+            nodes = np.unique([key[0] for key in last_removed])
+            for j in np.flatnonzero(np.isin(mutations.node, nodes)):
+                key = (mutations.node[j], mutations.chromosome[j], mutations.position[j])
+                if j < last_removed.get(key, -1):
+                    superseded.append(j)
+
+        gig = Graph(self.copy())
         for ie in gig.iedges:
             if node_time[ie.child] >= time or node_time[ie.parent] < time:
                 continue
-            lo, hi = ie.parent_min, ie.parent_max
-            parent_alleles = gig._alleles(ie.parent, ie.parent_chromosome, lo, hi)
-            for i in range(ie.child_right - ie.child_left):
+            known = gig._known_alleles(ie.parent, ie.parent_chromosome, ie.parent_min, ie.parent_max)
+            for x, allele in known.items():
                 if ie.is_inversion():
-                    allele = parent_alleles[ie.parent_left - 1 - i - lo]
-                    if allele is not None:
-                        allele = complement_allele(allele, complements)
+                    position = ie.child_left + ie.parent_left - 1 - x
+                    allele = complement_allele(allele, complements)
                 else:
-                    allele = parent_alleles[ie.parent_left + i - lo]
-                position = ie.child_left + i
-                allele = old_alleles.get((ie.child, ie.child_chromosome, position), allele)
-                if allele is not None:
-                    result.append((ie.child, ie.child_chromosome, position, allele))
-        return result
+                    position = ie.child_left + x - ie.parent_left
+                replacements.setdefault((ie.child, ie.child_chromosome, position), allele)
+        return replacements, superseded
 
     @classmethod
     def from_tree_sequence(cls, ts, *, chromosome=None, **kwargs):

@@ -1544,6 +1544,34 @@ class TestDecapitateWithMutations:
         new_gig = gig.decapitate(10)
         assert new_gig.tables.mutations == gig.tables.mutations
 
+    def test_unknown_time_mutation_before_removed_one(self):
+        # S has an unknown-time mutation, followed (in table order) by an old one that is
+        # removed. The old one overwrites the unknown-time one, so both are replaced.
+        tables = self.three_generation_tables()
+        tables.mutations.add_row(2, 3, "C")
+        tables.mutations.add_row(2, 3, "G", time=1.5)
+        tables.sort()
+        gig = tables.graph()
+        assert gig.allele_at(2, 3) == "G"
+        new_gig = gig.decapitate(1)
+        assert new_gig.haplotype(0, right=10) == gig.haplotype(2)
+        assert [m.derived_state for m in new_gig.mutations_for_node(0) if m.position == 3] == ["G"]
+
+    def test_old_mutation_above_kept_root(self):
+        # A root younger than the cutoff loses its own (old) mutations
+        tables = gigl.Tables()
+        tables.nodes.add_row(2)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.add_iedge_row(0, 10, 0, 10, child=1, parent=0)
+        tables.mutations.add_row(0, 4, "A", time=4)
+        tables.mutations.add_row(0, 5, "C")
+        tables.sort()
+        gig = tables.graph()
+        new_gig = gig.decapitate(3)
+        assert len(new_gig.nodes) == 2
+        assert new_gig.haplotype(1) == gig.haplotype(1) == "NNNNACNNNN"
+        assert all(not m.is_time_known() for m in new_gig.mutations)
+
     def test_iedge_chromosomes_kept(self):
         tables = gigl.Tables()
         tables.nodes.add_row(3)
@@ -1561,3 +1589,15 @@ class TestDecapitateWithMutations:
             assert np.all(new_gig.tables.iedges.child_chromosome == 1)
             assert np.all(new_gig.tables.iedges.parent_chromosome == 1)
             assert new_gig.allele_at(node_map[2], 4, chromosome=1) == "A"
+
+    def test_long_iedge_with_few_mutations(self):
+        # The time taken should depend on the number of mutations, not the iedge length
+        L = 10**9
+        tables = gigl.Tables()
+        tables.nodes.add_row(3)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.add_iedge_row(0, L, 0, L, child=1, parent=0)
+        tables.mutations.add_row(0, L - 1, "A")
+        tables.sort()
+        new_gig = tables.graph().decapitate(1)
+        assert [(m.node, m.position, m.derived_state) for m in new_gig.mutations] == [(0, L - 1, "A")]

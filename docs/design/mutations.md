@@ -324,10 +324,13 @@ an inversion.
 above the remaining nodes. As in _tskit_, it removes mutations at least as old as that time, as
 well as mutations above removed nodes. But because ancestral states are themselves mutations
 above roots, removing them would turn known alleles into missing data. So by default
-(`discard_old_mutations=False`), wherever a remaining node loses its parent, mutations with
-unknown time are added above it, recording the alleles it inherited there. These include the effect of
-any removed mutations on the node's own branch, and come before the node's other mutations at
-the same position, so the haplotypes of all remaining nodes are unchanged. With
+(`discard_old_mutations=False`), wherever a remaining node loses its parent or some of its own
+(old) mutations, mutations with unknown time are added above it, recording the alleles it
+inherited there. These include the effect of any removed mutations on the node's own branch,
+and come before the node's other mutations at the same position. Any of those other mutations
+that came before a removed one are overwritten by it, so they are removed too. The haplotypes of
+all remaining nodes are therefore unchanged. Only positions with mutations above them are
+examined, so the time taken does not depend on the lengths of the iedges. With
 `discard_old_mutations=True`, old mutations are simply removed, as in _tskit_, so haplotypes may
 gain missing data.
 
@@ -344,9 +347,10 @@ gain missing data.
   each (non-isolated) root of the local tree gives the site's ancestral state: every root must
   have such a mutation, and they must all agree, otherwise an error is raised. All other
   mutations become _tskit_ mutations, and must either all have known times or all have unknown
-  times. The iedges must also be convertible (i.e. there are no rearrangements). Converting a
-  tree sequence to a GIG and back gives the same sites and mutations (although if times are
-  unknown, mutations at a site may be reordered).
+  times. The iedges must also be convertible (i.e. there are no rearrangements), and all iedges
+  and mutations must be on the same chromosome. Converting a tree sequence to a GIG and back
+  gives the same sites and mutations (although if times are unknown, mutations at a site may be
+  reordered).
 
 (sec_design_mutations_future)=
 
