@@ -341,6 +341,53 @@ class TestMethods:
             gig.iedges_for_child("1")
 
 
+class TestChromosomes:
+    @staticmethod
+    def make_graph():
+        # Root 0 passes on chromosomes 2 and 0 (in that order) to child 1, and 1 to child 2
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.iedges.add_row(1, 0, child_right=5, child_chromosome=2, parent_chromosome=2)
+        tables.iedges.add_row(1, 0, child_right=5, child_chromosome=0, parent_chromosome=0)
+        tables.iedges.add_row(2, 0, child_right=5, child_chromosome=1, parent_chromosome=1)
+        return tables
+
+    def test_tables_ascending_tuple(self):
+        tables = self.make_graph()
+        # Not yet sorted, so the iedges for node 1 are not in chromosome order
+        assert tables.iedges.chromosomes_as_child(1) == (0, 2)
+        assert tables.iedges.chromosomes_as_child(0) == ()
+        tables.sort()
+        assert tables.iedges.chromosomes_as_child(1) == (0, 2)
+
+    def test_graph_ascending_tuples(self):
+        tables = self.make_graph()
+        tables.sort()
+        gig = tables.graph()
+        assert gig.chromosomes_as_child(1) == (0, 2)
+        assert gig.chromosomes_as_parent(1) == ()
+        assert gig.chromosomes(1) == (0, 2)
+        # A root's chromosomes are only known from its children
+        assert gig.chromosomes_as_child(0) == ()
+        assert gig.chromosomes_as_parent(0) == (0, 1, 2)
+        assert gig.chromosomes(0) == (0, 1, 2)
+        for method in (gig.chromosomes_as_child, gig.chromosomes_as_parent, gig.chromosomes):
+            for u in gig.nodes:
+                result = method(u)
+                assert isinstance(result, tuple)
+                assert all(isinstance(c, int) for c in result)
+
+    def test_independent_of_index(self):
+        # The result is a copy, so does not change when rows are added
+        tables = self.make_graph()
+        before = tables.iedges.chromosomes_as_child(2)
+        tables.iedges.add_row(2, 0, child_right=5, child_chromosome=3, parent_chromosome=3)
+        assert before == (1,)
+        assert tables.iedges.chromosomes_as_child(2) == (1, 3)
+
+
 class TestRowsAndObjectsConsistent:
     """
     Table rows (e.g. ``tables.iedges[i]``) and graph objects (e.g. ``gig.iedges[i]``)

@@ -616,16 +616,30 @@ class Graph:
         )
 
     def chromosomes_as_child(self, u):
+        """
+        Return the chromosome IDs of node ``u`` that it inherits from its parents
+        (i.e. those with iedges above ``u``), as a tuple in ascending order. See
+        :meth:`tables.IEdgeTable.chromosomes_as_child`.
+        """
         u = as_id(u)
         return self.tables.iedges.chromosomes_as_child(u)
 
     def chromosomes_as_parent(self, u):
+        """
+        Return the chromosome IDs of node ``u`` that it passes on to its children
+        (i.e. those with iedges below ``u``), as a tuple in ascending order. This is
+        needed e.g. for roots, which have no iedges above them.
+        """
         u = as_id(u)
-        return self._id_range_for_parent.get(u, {}).keys()
+        return tuple(sorted(self._id_range_for_parent.get(u, {})))
 
     def chromosomes(self, u):
+        """
+        Return the chromosome IDs of node ``u`` that are traced by any iedge above
+        or below it, as a tuple in ascending order.
+        """
         u = as_id(u)
-        return self.chromosomes_as_child(u) | self.chromosomes_as_parent(u)
+        return tuple(sorted(set(self.chromosomes_as_child(u)) | set(self.chromosomes_as_parent(u))))
 
     def max_pos_as_child(self, u, *, chromosome=None):
         u = as_id(u)
