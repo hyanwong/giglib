@@ -799,6 +799,15 @@ class TestIedgesValidation:
         tables.add_iedge_row(2, 1, child_right=1, validate=flags)
 
 
+class TestFromTreeSequenceFlags:
+    def test_flags(self):
+        ts = msprime.sim_ancestry(4, sequence_length=50, recombination_rate=0.01, random_seed=1)
+        tables = gigl.Tables.from_tree_sequence(ts)
+        assert tables.iedges.has_all_bitflags(ValidFlags.IEDGES_FROM_TSKIT)
+        # Integer coordinates are checked, and sorting gives the ordering flags
+        assert tables.iedges.flags == ValidFlags.GIG
+
+
 class TestZeroInitialSize:
     # Tables preallocated with no rows (e.g. converted from a tree sequence with no
     # edges) must still be able to grow

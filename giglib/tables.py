@@ -2052,13 +2052,7 @@ class Tables:
         tables.sort()
         # A valid tree sequence guarantees these properties of its edges (the
         # sort above guarantees the canonical iedge ordering flags)
-        tables.iedges.set_bitflag(
-            ValidFlags.IEDGES_INTERVALS
-            | ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING
-            | ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD
-            | ValidFlags.IEDGES_SAME_PARENT_CHILD_FOR_EDGE
-            | ValidFlags.IEDGES_CHILD_INTERVAL_POSITIVE
-        )
+        tables.iedges.set_bitflag(ValidFlags.IEDGES_FROM_TSKIT)
         return tables
 
     def sample_resolve(self, sort=True):
