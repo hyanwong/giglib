@@ -1092,8 +1092,26 @@ class IndividualTable(BaseExtraTable):
         return [row[idx] for row in self._extra_data]
 
     def add_row(self, *, flags=None, location=None, parents=None, metadata=None) -> int:
+        """
+        Add an individual to the table.
+
+        :param int flags: The flags for this individual (default: ``None``, treated as 0)
+        :param location: The location of this individual, as a sequence of numbers
+            (default: ``None``). This is stored as a tuple of floats.
+        :param parents: The IDs of the parents of this individual, as a sequence of
+            integers (default: ``None``). This is stored as a tuple of ints.
+        :param metadata: Any metadata for this individual (default: ``None``)
+        :return: The ID of the newly added individual
+        :rtype: int
+        """
         if flags is None:
             flags = 0
+        # Store sequences (e.g. numpy arrays from tskit) as tuples of Python numbers, so
+        # that rows compare equal by value, and print nicely
+        if location is not None:
+            location = tuple(float(x) for x in location)
+        if parents is not None:
+            parents = tuple(int(x) for x in parents)
         num_rows = len(self._data)
         if len(self._datastore) == num_rows:
             self._expand_datastore()
