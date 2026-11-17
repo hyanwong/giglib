@@ -825,6 +825,27 @@ class TestZeroInitialSize:
         assert len(tables.iedges) == 1
 
 
+class TestIndividualTable:
+    def test_sequences_stored_as_tuples(self):
+        individuals = gigl.Tables().individuals
+        individuals.add_row(location=np.array([1.5, 2]), parents=np.array([0, 1], dtype=np.int32))
+        individuals.add_row()
+        row = individuals[0]
+        assert row.location == (1.5, 2.0)
+        assert row.parents == (0, 1)
+        assert all(isinstance(x, float) for x in row.location)
+        assert all(isinstance(x, int) for x in row.parents)
+        assert individuals[1].location is None
+        assert individuals[1].parents is None
+
+    def test_separately_converted_tables_equal(self):
+        # Individuals from tskit have (empty) numpy arrays for location and parents,
+        # which previously made comparing tables raise an error
+        ts = msprime.sim_ancestry(2, sequence_length=10, random_seed=1)
+        assert ts.num_individuals > 0
+        assert gigl.Tables.from_tree_sequence(ts) == gigl.Tables.from_tree_sequence(ts)
+
+
 class TestNodeTable:
     def test_times(self):
         nodes = gigl.tables.NodeTable()
