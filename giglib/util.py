@@ -3,6 +3,7 @@ import warnings
 
 import matplotlib.patches as patches
 import numpy as np
+import tskit
 
 
 class TskitNameWarning(UserWarning):
@@ -23,6 +24,18 @@ def warn_tskit_name(name, suggestion):
         TskitNameWarning,
         stacklevel=3,
     )
+
+
+def is_unknown_time(time):
+    """
+    Test whether a time (or an array of times) is :data:`~giglib.UNKNOWN_TIME`. This is
+    needed because ``UNKNOWN_TIME`` is a NaN value, so ``time == UNKNOWN_TIME`` is
+    always False.
+
+    :param time: A single time, or an array of times
+    :return: A boolean (or an array of booleans)
+    """
+    return tskit.is_unknown_time(time)
 
 
 def as_id(x):

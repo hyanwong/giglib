@@ -693,3 +693,171 @@ class TestIEdge:
         assert ie.transform_position(17, Const.ROOTWARDS) == 22
         assert ie.transform_position(18, Const.ROOTWARDS) == 21
         assert ie.transform_position(19, Const.ROOTWARDS) == 20
+
+
+class TestMutations:
+    @staticmethod
+    def make_tables():
+        """
+        Node 1 inherits [0, 5) from node 2 (time 1) and [5, 10) from node 3 (time 2),
+        so the parent above node 1 depends on the position
+        """
+        tables = gigl.Tables()
+        for t, f in ((0, gigl.NODE_IS_SAMPLE), (0, gigl.NODE_IS_SAMPLE), (1, 0), (2, 0)):
+            tables.nodes.add_row(t, flags=f)
+        tables.add_iedge_row(0, 10, 0, 10, child=0, parent=2)
+        tables.add_iedge_row(0, 5, 0, 5, child=1, parent=2)
+        tables.add_iedge_row(5, 10, 5, 10, child=1, parent=3)
+        tables.add_iedge_row(0, 10, 0, 10, child=2, parent=3)
+        tables.sort()
+        return tables
+
+    def test_no_mutations(self):
+        gig = self.make_tables().graph()
+        assert len(gig.mutations) == 0
+        assert len(gig.mutations_for_node(0)) == 0
+
+    def test_accessors(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(1, 7, "T", time=1.5)
+        tables.mutations.add_row(3, 2, "A")  # above the root: ancestral state
+        tables.mutations.add_row(1, 2, "G", time=0.5)
+        tables.mutations.add_row(0, 0, "C", chromosome=1)  # no iedges on chr 1: allowed
+        tables.sort()
+        gig = tables.graph()
+        assert len(gig.mutations) == 4
+        assert all(isinstance(m, gigl.graph.Mutation) for m in gig.mutations)
+        assert [m.id for m in gig.mutations] == [0, 1, 2, 3]
+        view = gig.mutations_for_node(1)
+        assert len(view) == 2
+        assert [m.position for m in view] == [2, 7]
+        assert [m.node for m in view] == [1, 1]
+        assert view.ids[0] == view[0].id
+        assert len(gig.mutations_for_node(1, chromosome=1)) == 0
+        assert len(gig.mutations_for_node(2)) == 0
+        assert [m.derived_state for m in gig.mutations_for_node(gig.nodes[3])] == ["A"]
+        assert [m.chromosome for m in gig.mutations_for_node(0)] == [1]
+        root_mutation = gig.mutations_for_node(3)[0]
+        assert not root_mutation.is_time_known()
+        assert view[0].is_time_known()
+
+    def test_ids_match_tables_layer(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(1, 2, "G")
+        tables.mutations.add_row(1, 7, "T")
+        gig = tables.graph()
+        assert np.array_equal(gig.mutations_for_node(1).ids, gig.tables.mutations.ids_for_node(1))
+
+    def test_bad_node(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(4, 0, "A")
+        with pytest.raises(ValueError, match="not in the node table"):
+            tables.graph()
+
+    def test_negative_position(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(0, -1, "A")
+        with pytest.raises(ValueError, match="negative positions"):
+            tables.graph()
+
+    @pytest.mark.parametrize("time", [np.inf, -np.inf, np.nan])
+    def test_bad_time(self, time):
+        # a plain NaN is not the same as UNKNOWN_TIME
+        tables = self.make_tables()
+        tables.mutations.add_row(3, 0, "A", time=time)
+        with pytest.raises(ValueError, match="neither finite nor UNKNOWN_TIME"):
+            tables.graph()
+
+    def test_unsorted(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(0, 5, "A")
+        tables.mutations.add_row(0, 4, "A")
+        with pytest.raises(ValueError, match="tables.sort"):
+            tables.graph()
+        tables.sort()
+        assert [m.position for m in tables.graph().mutations] == [4, 5]
+
+    def test_younger_than_node(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(2, 0, "A", time=0.5)
+        with pytest.raises(ValueError, match="younger than its node"):
+            tables.graph()
+
+    def test_time_equal_to_node_allowed(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(2, 0, "A", time=1)
+        assert len(tables.graph().mutations) == 1
+
+    @pytest.mark.parametrize(("position", "valid"), [(2, False), (4, False), (5, True), (9, True)])
+    def test_older_than_parent_at_position(self, position, valid):
+        # node 1's parent is node 2 (time 1) for [0, 5), node 3 (time 2) for [5, 10)
+        tables = self.make_tables()
+        tables.mutations.add_row(1, position, "A", time=1.5)
+        if valid:
+            assert len(tables.graph().mutations) == 1
+        else:
+            with pytest.raises(ValueError, match="not younger than the parent"):
+                tables.graph()
+
+    def test_time_equal_to_parent_invalid(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(0, 0, "A", time=1)
+        with pytest.raises(ValueError, match="not younger than the parent"):
+            tables.graph()
+
+    def test_above_root_has_no_upper_limit(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(3, 0, "A", time=1e9)
+        assert len(tables.graph().mutations) == 1
+
+    def test_time_order_at_same_position(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(0, 3, "A", time=0.2)
+        tables.mutations.add_row(0, 3, "C", time=0.7)  # older, but later in the table
+        with pytest.raises(ValueError, match="must be in time order"):
+            tables.graph()
+
+    def test_time_order_only_within_position(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(0, 3, "A", time=0.2)
+        tables.mutations.add_row(0, 4, "C", time=0.7)
+        assert len(tables.graph().mutations) == 2
+
+    def test_mixed_known_and_unknown_times(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(3, 3, "A")  # unknown: e.g. ancestral state
+        tables.mutations.add_row(3, 3, "C", time=5)
+        tables.mutations.add_row(3, 3, "G")
+        tables.mutations.add_row(3, 3, "T", time=4)
+        gig = tables.graph()
+        assert [m.derived_state for m in gig.mutations] == ["A", "C", "G", "T"]
+        # known times must still be in order, even with unknown times in between
+        tables = self.make_tables()
+        tables.mutations.add_row(3, 3, "C", time=4)
+        tables.mutations.add_row(3, 3, "G")
+        tables.mutations.add_row(3, 3, "T", time=5)
+        with pytest.raises(ValueError, match="must be in time order"):
+            tables.graph()
+
+    def test_to_tree_sequence_not_implemented(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(3, 0, "A")
+        with pytest.raises(NotImplementedError, match="mutations"):
+            tables.graph().to_tree_sequence()
+
+    def test_tskit_names(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(3, 0, "A")
+        gig = tables.graph()
+        with pytest.warns(gigl.TskitNameWarning, match=r"len\(gig\.mutations\)"):
+            assert gig.num_mutations == 1
+        with pytest.warns(gigl.TskitNameWarning, match=r"gig\.mutations\[i\]"):
+            assert gig.mutation(0) == gig.mutations[0]
+
+    def test_mutation_equality_with_unknown_times(self):
+        tables = self.make_tables()
+        tables.mutations.add_row(3, 0, "A")
+        gig = tables.graph()
+        assert gig.mutations[0] == gig.mutations[0]
+        assert hash(gig.mutations[0]) == hash(gig.mutations[0])
+        assert gig.mutations[0] != gig.tables.mutations[0]  # no id in a table row

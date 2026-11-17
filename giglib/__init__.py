@@ -20,10 +20,12 @@ from .tables import (
 )
 from .util import (
     TskitNameWarning,  # noqa: F401
+    is_unknown_time,  # noqa: F401
     set_print_options,  # noqa: F401
 )
 
 NULL = Const.NULL
 NODE_IS_SAMPLE = Const.NODE_IS_SAMPLE
+UNKNOWN_TIME = Const.UNKNOWN_TIME
 
 _print_options = {"max_lines": 40}

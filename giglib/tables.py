@@ -12,7 +12,7 @@ import sortedcontainers
 import tskit
 
 from .constants import Const, ValidFlags
-from .util import add_rectangle, add_row_label, add_triangle, truncate_rows
+from .util import add_rectangle, add_row_label, add_triangle, is_unknown_time, truncate_rows
 
 NULL = Const.NULL  # alias for tskit.NULL
 NODE_IS_SAMPLE = Const.NODE_IS_SAMPLE  # alias for tskit.NODE_IS_SAMPLE
@@ -114,6 +114,35 @@ class NodeTableRow(
 
 class IndividualTableRow(collections.namedtuple("IndividualTableRow", "flags, location, parents, metadata")):
     pass
+
+
+class MutationTableRow(
+    collections.namedtuple("MutationTableRow", "node, chromosome, position, time, derived_state, metadata")
+):
+    """
+    A row in a :class:`MutationTable`. The ``position`` is in the coordinates of
+    ``node`` for the given ``chromosome``, and the ``derived_state`` replaces the
+    base at that position. See :ref:`sec_design_mutations` for details.
+    """
+
+    # Unknown times are NaNs, which would otherwise make identical rows compare unequal
+    def _comparable(self):
+        return tuple(
+            "unknown" if (i == self._fields.index("time") and is_unknown_time(x)) else x for i, x in enumerate(self)
+        )
+
+    def __eq__(self, other):
+        if not isinstance(other, tuple) or len(self) != len(other):
+            return False
+        if not hasattr(other, "_comparable"):
+            return tuple.__eq__(self, other)
+        return self._comparable() == other._comparable()
+
+    def __ne__(self, other):
+        return not self.__eq__(other)
+
+    def __hash__(self):
+        return hash(self._comparable())
 
 
 class BaseTable:
@@ -886,6 +915,164 @@ class IndividualTable(BaseExtraTable):
         return self.add_row(**{k: v for k, v in self.to_dict(obj).items() if k in self._RowClass._fields})
 
 
+class MutationTable(BaseExtraTable):
+    """
+    A table of mutations. Each mutation lies above a node, at a single position in
+    that node's own coordinates (there is no sites table). See
+    :ref:`sec_design_mutations` for the design.
+
+    Mutations for the same node must be adjacent in the table, and ordered by
+    chromosome then position, for :meth:`ids_for_node` to work: :meth:`~giglib.Tables.sort`
+    puts mutations into this order. Mutations at the same node, chromosome and
+    position are assumed to have occurred in table order.
+    """
+
+    _RowClass = MutationTableRow
+    _non_int64_fieldtypes = types.MappingProxyType({"chromosome": np.int16, "time": np.float64})
+    _extra_names = ("derived_state", "metadata")
+
+    def __init__(self, initial_size=None):
+        super().__init__(initial_size=initial_size)
+        self._reset_index()
+
+    def _reset_index(self):
+        # As for the iedges table, maintain an index of {node: {chromosome: [start, end]}}
+        # row ranges, updated as rows are added. This is only meaningful if mutations
+        # are grouped by node and ordered by chromosome then position, which is
+        # recorded in ``_node_ranges_valid``.
+        self._id_range_for_node = {}
+        self._node_ranges_valid = True
+
+    def _update_index(self, node, chromosome, position, row):
+        ranges = self._id_range_for_node
+        if row > 0:
+            prev = self._data[row - 1]
+            prev_node = prev["node"]
+            if prev_node == node:
+                prev_chrom = prev["chromosome"]
+                if chromosome < prev_chrom or (chromosome == prev_chrom and position < prev["position"]):
+                    self._node_ranges_valid = False
+            elif node in ranges:
+                self._node_ranges_valid = False  # mutations for this node are not adjacent
+        chrom_ranges = ranges.setdefault(node, {})
+        if chromosome in chrom_ranges:
+            chrom_ranges[chromosome][1] = row + 1
+        else:
+            chrom_ranges[chromosome] = [row, row + 1]
+
+    def _rebuild_index(self):
+        self._reset_index()
+        for row, (node, chromosome, position) in enumerate(
+            zip(self.node.tolist(), self.chromosome.tolist(), self.position.tolist())
+        ):
+            self._update_index(node, chromosome, position, row)
+
+    # define each property by hand, for speed
+    @property
+    def node(self):
+        return self._data["node"]
+
+    @property
+    def chromosome(self):
+        return self._data["chromosome"]
+
+    @property
+    def position(self):
+        return self._data["position"]
+
+    @property
+    def time(self) -> npt.NDArray[np.float64]:
+        return self._data["time"]
+
+    @property
+    def derived_state(self):
+        idx = self._extra_data_cols["derived_state"]
+        return [row[idx] for row in self._extra_data]
+
+    def add_row(self, node, position, derived_state, *, chromosome=0, time=None, metadata=None) -> int:
+        """
+        Add a mutation to the table.
+
+        :param int node: The ID of the node above which the mutation occurs
+        :param int position: The position of the mutation, in the coordinates of
+            ``node`` for the given ``chromosome``
+        :param str derived_state: The allele produced by the mutation, which replaces
+            the base at ``position``. This is usually a single character, but can be
+            any string, e.g. to represent a small indel (see :ref:`sec_design_mutations`)
+        :param int chromosome: The chromosome in ``node``'s genome (default: 0)
+        :param float time: The time of the mutation. If ``None`` (default), the time is
+            :data:`~giglib.UNKNOWN_TIME`.
+        :param metadata: Any metadata for the mutation
+        :return: The ID of the newly added mutation
+        :rtype: int
+        """
+        if not isinstance(derived_state, str):
+            raise TypeError(f"derived_state must be a string, not {derived_state!r}")
+        if time is None:
+            time = Const.UNKNOWN_TIME
+        num_rows = len(self._data)
+        if len(self._datastore) == num_rows:
+            self._expand_datastore()
+        self._datastore[num_rows] = (node, chromosome, position, time)
+        self._extra_data.append([derived_state, metadata])
+        self._data = self._datastore[0 : num_rows + 1]
+        self._update_index(int(node), int(chromosome), position, num_rows)
+        return num_rows
+
+    def append(self, obj) -> int:
+        return self.add_row(**{k: v for k, v in self.to_dict(obj).items() if k in self._RowClass._fields})
+
+    def clear(self):
+        super().clear()
+        self._reset_index()
+
+    def copy(self):
+        copy = super().copy()
+        copy._rebuild_index()
+        return copy
+
+    def __eq__(self, other):
+        # Unknown times are NaNs, so must be compared specially
+        if len(self) != len(other):
+            return False
+        for name in self._data.dtype.names:
+            if not np.array_equal(self._data[name], other._data[name], equal_nan=(name == "time")):
+                return False
+        return self._extra_data == other._extra_data
+
+    def _reorder(self, order):
+        """
+        Reorder the rows of the table using an array of row indexes
+        """
+        self._datastore[0 : len(self)] = self._data[order]
+        self._extra_data = [self._extra_data[i] for i in order]
+        self._rebuild_index()
+
+    def ids_for_node(self, u, chromosome=None):
+        """
+        Return the IDs of the mutations above node ``u``, ordered by chromosome then
+        position (and then by the order in which they occurred).
+
+        :param int u: The node ID
+        :param int chromosome: If not ``None``, only return mutations on this chromosome
+        :return: A numpy array of mutation IDs
+        :raises ValueError: If the mutations for a node are not adjacent in the table,
+            or are not ordered by chromosome then position (use :meth:`~giglib.Tables.sort`)
+        """
+        if not self._node_ranges_valid:
+            raise ValueError(
+                "Mutations for the same node must be adjacent in the table, and ordered by "
+                "chromosome, then position: call tables.sort() first"
+            )
+        ranges = self._id_range_for_node.get(u, {})
+        if chromosome is None:
+            if len(ranges) == 0:
+                return np.arange(0)
+            # chromosome ranges are adjacent and in increasing chromosome order
+            return np.arange(next(iter(ranges.values()))[0], next(reversed(ranges.values()))[1])
+        return np.arange(*ranges.get(chromosome, (0, 0)))
+
+
 class MRCAdict(dict):
     """
     A dictionary to store the results of the MRCA finder. This is a dict of dicts
@@ -1087,7 +1274,7 @@ class MRCAdict(dict):
         ax.yaxis.set_visible(False)
 
 
-TableClasses = collections.namedtuple("TableClasses", "nodes iedges individuals")
+TableClasses = collections.namedtuple("TableClasses", "nodes iedges individuals mutations")
 
 
 class Tables:
@@ -1098,7 +1285,7 @@ class Tables:
 
     _frozen = False
 
-    table_classes = TableClasses(NodeTable, IEdgeTable, IndividualTable)
+    table_classes = TableClasses(NodeTable, IEdgeTable, IndividualTable, MutationTable)
 
     def __init__(
         self,
@@ -1110,7 +1297,7 @@ class Tables:
         :param str time_units: The units of time used, e.g. "generations" or "years"
         :param dict initial_sizes: A dictionary of the initial number of rows
             expected for each table,
-            e.g. ``{"nodes": 1000, "iedges": 1000, "individuals": 1000}``. Missing
+            e.g. ``{"nodes": 1000, "iedges": 1000, "mutations": 1000}``. Missing
             keys will be set to the default ``initial_size`` for that type of table.
         """
         if initial_sizes is None:
@@ -1246,15 +1433,21 @@ class Tables:
             [
                 "== NODES ==\n" + str(self.nodes),
                 "== I-EDGES ==\n" + str(self.iedges),
+                "== MUTATIONS ==\n" + str(self.mutations),
             ]
         )
 
     def sort(self, shrink_memory=False):
         """
-        Sort the tables in place. Currently only affects the iedges table. Sorting
-        criteria match those used in tskit (see
-        https://tskit.dev/tskit/docs/stable/data-model.html#edge-requirements).
+        Sort the tables in place. This affects the iedges and mutations tables.
+        Iedges are grouped by child, in order of decreasing child time (then
+        increasing child ID), and within each child are ordered by chromosome then
+        left position. Mutations are grouped by node in the same way, and within each
+        node are ordered by chromosome then position. The sort is stable, so mutations
+        at the same node, chromosome and position keep their existing order (which
+        defines the order in which they occurred).
         """
+        self._sort_mutations()
         # index to sort edges so they are sorted by child time
         # and grouped by child id. Within each group with the same child ID,
         # the edges are sorted by child_left
@@ -1279,6 +1472,25 @@ class Tables:
             iedges._increment_id_range_for_child(c, c_chr, i)
 
         iedges.set_bitflag(ValidFlags.IEDGES_SORTED)
+
+    def _mutation_sort_order(self):
+        """
+        Return the (stable) order of mutations, grouped by node in order of decreasing
+        node time then increasing node ID, then by chromosome, then by position
+        """
+        mutations = self.mutations
+        node = mutations.node
+        if len(node) > 0 and (node.min() < 0 or node.max() >= len(self.nodes)):
+            raise ValueError("Mutations refer to nodes that are not in the node table")
+        return np.lexsort((mutations.position, mutations.chromosome, node, -self.nodes.time[node]))
+
+    def _sort_mutations(self):
+        if len(self.mutations) > 0:
+            self.mutations._reorder(self._mutation_sort_order())
+
+    def _check_no_mutations(self, method):
+        if len(self.mutations) > 0:
+            raise NotImplementedError(f"{method} does not yet support tables with mutations")
 
     def graph(self):
         """
@@ -1313,7 +1525,7 @@ class Tables:
 
         To create a valid GIG, the iedges must also be sorted into a canonical order
         such that the following conditions are met (you can also accomplish this by
-        calling :meth:`Tables.sort` on the tables first):
+        calling :meth:`~giglib.Tables.sort` on the tables first):
 
             * The iedges must be grouped by child ID. This corresponds to the flag
               :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_ADJACENT`
@@ -1363,7 +1575,8 @@ class Tables:
         Add a value to all times (nodes and mutations)
         """
         self.nodes._data["time"] += timedelta
-        # TODO - same for mutations, when we implement them
+        known = ~is_unknown_time(self.mutations.time)
+        self.mutations._data["time"][known] += timedelta
 
     def decapitate(self, time):
         """
@@ -1375,6 +1588,7 @@ class Tables:
         :rtype: numpy.ndarray
 
         """
+        self._check_no_mutations("decapitate")
         individuals = IndividualTable()
         individual_map = {NULL: NULL}
         nodes = NodeTable()
@@ -1473,6 +1687,7 @@ class Tables:
         ensures that we have collected all the intervals with that node as a
         parent, before passing inheritance information upwards
         """
+        self._check_no_mutations("sample_resolve")
         # == Implementation details ==
         # A. Rather than representing the intervals for a node as a list of
         #    (left, right) tuples, the "portion" library is used, allowing multiple
@@ -1547,6 +1762,7 @@ class Tables:
         Subset the node table to remove any nonsample nodes that are not referenced
         in the iedges table
         """
+        self._check_no_mutations("remove_non_ancestral_nodes")
         if not self.iedges.has_all_bitflags(ValidFlags.IEDGES_INTEGERS):
             raise ValueError("Requires edges to contain non-negative child & parent ids")
         keep_nodes = np.zeros(len(self.nodes), dtype=bool)
@@ -1570,7 +1786,6 @@ class Tables:
         # so just chnage the keys
         iedges._id_range_for_child = {inv_mapping[child]: data for child, data in iedges._id_range_for_child.items()}
 
-        # TODO also change node IDs for mutations, when we have them
         return mapping
 
     def find_mrca_regions(self, u, v, *, u_chromosomes=None, v_chromosomes=None, time_cutoff=None):

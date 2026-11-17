@@ -27,6 +27,15 @@ This page provides formal documentation for the {ref}`giglib<sec_welcome>` Pytho
   :members:
 
 .. autoclass:: giglib.TskitNameWarning
+
+.. py:data:: UNKNOWN_TIME
+    :module: giglib
+
+    The value used for an unknown mutation time (identical to
+    :data:`tskit:tskit.UNKNOWN_TIME`). As this is a NaN, test for it using
+    :func:`giglib.is_unknown_time`, not ``==``.
+
+.. autofunction:: giglib.is_unknown_time
 ```
 
 
@@ -80,6 +89,13 @@ Validity requirements for a GIG are described in {meth}`Tables.graph`.
   :members:
 ```
 
+### The **MutationTable** class
+
+```{eval-rst}
+.. autoclass:: giglib.tables.MutationTable
+  :members:
+```
+
 ### Table rows
 
 ```{eval-rst}
@@ -91,6 +107,8 @@ Validity requirements for a GIG are described in {meth}`Tables.graph`.
 
 .. autoclass:: giglib.tables.IndividualTableRow
   :members:
+
+.. autoclass:: giglib.tables.MutationTableRow
 ```
 
 ## The **Graph** class
@@ -114,6 +132,9 @@ and iteration.
   :members:
 
 .. autoclass:: giglib.graph.Individual
+  :members:
+
+.. autoclass:: giglib.graph.Mutation
   :members:
 
 .. autoclass:: giglib.graph.GIGItemIterator

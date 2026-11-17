@@ -11,8 +11,8 @@ import numpy as np
 import tskit
 
 from .constants import Const, ValidFlags
-from .tables import IEdgeTableRow, IndividualTableRow, NodeTableRow, Tables
-from .util import as_id, warn_tskit_name
+from .tables import IEdgeTableRow, IndividualTableRow, MutationTableRow, NodeTableRow, Tables
+from .util import as_id, is_unknown_time, warn_tskit_name
 
 
 def _read_only(arr):
@@ -41,6 +41,7 @@ class Graph:
             raise ValueError("tables must be a giglib.Tables object")
         self.tables = tables
         self._validate()
+        self._validate_mutations()
         self.tables.freeze()
         # Cached arrays: read-only, so they can safely be shared between views
         self._iedge_map_sorted_by_parent = _read_only(self._iedge_map_sorted_by_parent)
@@ -183,6 +184,74 @@ class Graph:
                     prev_right = ie.child_right
         self.tables.iedges.flags = ValidFlags.GIG
 
+    def _iedge_id_above(self, u, chromosome, position):
+        """
+        Return the ID of the iedge above node ``u`` that contains ``position`` on the
+        given chromosome of ``u`` (or None if ``u`` has no parent at that position)
+        """
+        ids = self.tables.iedges.ids_for_child(u, chromosome)
+        if len(ids) == 0:
+            return None
+        start, end = ids[0], ids[-1] + 1
+        j = np.searchsorted(self.tables.iedges.child_left[start:end], position, side="right") - 1
+        if j >= 0 and position < self.tables.iedges.child_right[start + j]:
+            return start + j
+        return None
+
+    def _validate_mutations(self):
+        """
+        Check the mutations table (requires the iedges to have been validated)
+        """
+        tables = self.tables
+        mutations = tables.mutations
+        n = len(mutations)
+        if n == 0:
+            return
+        node = mutations.node
+        chromosome = mutations.chromosome
+        position = mutations.position
+        time = mutations.time
+        node_time = tables.nodes.time
+        if node.min() < 0 or node.max() >= len(tables.nodes):
+            bad = np.flatnonzero((node < 0) | (node >= len(tables.nodes)))
+            raise ValueError(f"Mutations {bad} refer to nodes that are not in the node table")
+        if position.min() < 0:
+            raise ValueError(f"Mutations {np.flatnonzero(position < 0)} have negative positions")
+        known = ~is_unknown_time(time)
+        if not np.all(np.isfinite(time[known])):
+            bad = np.flatnonzero(known & ~np.isfinite(time))
+            raise ValueError(f"Mutations {bad} have times that are neither finite nor UNKNOWN_TIME")
+        if not np.array_equal(tables._mutation_sort_order(), np.arange(n)):
+            raise ValueError("Mutations are not in the required order: call tables.sort() first")
+
+        too_young = known & (time < node_time[node])
+        if np.any(too_young):
+            i = np.argmax(too_young)
+            raise ValueError(f"Mutation {i} has time {time[i]}, younger than its node ({node_time[node[i]]})")
+
+        prev_key = None
+        prev_time = np.inf
+        for i in np.arange(n):
+            key = (node[i], chromosome[i], position[i])
+            if key != prev_key:
+                prev_key = key
+                prev_time = np.inf
+            if known[i]:
+                if time[i] > prev_time:
+                    raise ValueError(
+                        f"Mutation {i} has time {time[i]}, older than a previous mutation at the same "
+                        "node and position: mutations at the same position must be in time order"
+                    )
+                prev_time = time[i]
+                ie_id = self._iedge_id_above(node[i], chromosome[i], position[i])
+                if ie_id is not None:
+                    parent_time = node_time[tables.iedges.parent[ie_id]]
+                    if time[i] >= parent_time:
+                        raise ValueError(
+                            f"Mutation {i} has time {time[i]}, which is not younger than the parent "
+                            f"of node {node[i]} at that position (time {parent_time})"
+                        )
+
     @property
     def time_units(self):
         return self.tables.time_units
@@ -254,6 +323,25 @@ class Graph:
         """
         return GIGItemIterator(self.tables.iedges, IEdge)
 
+    @property
+    def mutations(self):
+        """
+        A sequence-like view of all the :class:`~giglib.graph.Mutation` objects
+        in this GIG, supporting ``len()``, indexing, and iteration.
+        """
+        return GIGItemIterator(self.tables.mutations, Mutation)
+
+    def mutations_for_node(self, u, chromosome=None):
+        """
+        Return a sequence-like view of the :class:`~giglib.graph.Mutation` objects
+        above node ``u``, ordered by chromosome, then position, then the order in
+        which they occurred. If ``chromosome`` is given, only return mutations on that
+        chromosome of ``u``. To get mutation IDs instead, use
+        :meth:`tables.MutationTable.ids_for_node`.
+        """
+        u = as_id(u)
+        return GIGItemIterator(self.tables.mutations, Mutation, ids=self.tables.mutations.ids_for_node(u, chromosome))
+
     # tskit names which do not exist in giglib. These exist only to guide users
     # familiar with tskit towards the giglib equivalents, and emit a TskitNameWarning
 
@@ -271,6 +359,11 @@ class Graph:
     def num_individuals(self):
         warn_tskit_name("num_individuals", "len(gig.individuals)")
         return len(self.individuals)
+
+    @property
+    def num_mutations(self):
+        warn_tskit_name("num_mutations", "len(gig.mutations)")
+        return len(self.mutations)
 
     @property
     def num_samples(self):
@@ -292,6 +385,13 @@ class Graph:
         """
         warn_tskit_name("node(u)", "gig.nodes[u]")
         return self.nodes[u]
+
+    def mutation(self, i):
+        """
+        Not part of the giglib API (emits a :class:`~giglib.TskitNameWarning`): use ``gig.mutations[i]``
+        """
+        warn_tskit_name("mutation(i)", "gig.mutations[i]")
+        return self.mutations[i]
 
     def individual(self, i):
         """
@@ -412,6 +512,7 @@ class Graph:
         :rtype: tskit.TreeSequence
 
         """
+        self.tables._check_no_mutations("to_tree_sequence")
         for ie in self.iedges:
             if ie.child_left != ie.parent_left or ie.child_right != ie.parent_right:
                 raise ValueError(
@@ -624,6 +725,25 @@ class Node(namedtuple("Node", (*NodeTableRow._fields, "id"))):
 
     def is_sample(self):
         return bool(self.flags & Const.NODE_IS_SAMPLE)
+
+
+class Mutation(namedtuple("Mutation", (*MutationTableRow._fields, "id"))):
+    """
+    An object representing a single mutation in a :class:`Graph`. This acts like a
+    :class:`~giglib.tables.MutationTableRow` but also has an ID.
+    """
+
+    # Treat unknown (NaN) times as equal when comparing mutations
+    _comparable = MutationTableRow._comparable
+    __eq__ = MutationTableRow.__eq__
+    __ne__ = MutationTableRow.__ne__
+    __hash__ = MutationTableRow.__hash__
+
+    def is_time_known(self):
+        """
+        Return ``True`` if the time of this mutation is known
+        """
+        return not is_unknown_time(self.time)
 
 
 class Individual(namedtuple("Individual", (*IndividualTableRow._fields, "id"))):

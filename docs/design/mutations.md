@@ -2,7 +2,8 @@
 
 # Mutations
 
-**Status: Accepted, not yet implemented.**
+**Status: Accepted, partly implemented** (the mutations table and the `gig.mutations` and
+`gig.mutations_for_node()` accessors).
 Discussion: {issue}`5`. Related: {issue}`140` (portable reference sequences),
 {issue}`126` (pseudo-roots), {issue}`135` (structural change without recombination),
 {issue}`141` (a position class).
