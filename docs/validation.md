@@ -219,8 +219,9 @@ currently need, and the flags they leave on their output (given valid input):
 
 So after `sample_resolve()` or `decapitate()`, the tables lose guarantees (e.g. that parents are
 older than children) that in fact still hold, as the output is built from valid input. Until these
-methods keep the flags that their output satisfies by construction, the tables must be validated
-again (e.g. with {meth}`~giglib.Tables.validate`) before running algorithms that need them.
+methods keep the flags that their output satisfies by construction ({issue}`181`), the tables
+must be validated again (e.g. with {meth}`~giglib.Tables.validate`) before running algorithms that
+need them.
 
 Locating homologous positions efficiently is also the purpose of the proposed "homology table"
 ({issue}`140`; see {ref}`sec_design_simplification`), which would need the same guarantees.
@@ -237,7 +238,8 @@ stored values are non-negative.
 
 ## Other checks
 
-Some properties have no flag, and are always checked when creating a `Graph`:
+Some properties have no flag yet, and are always checked when creating a `Graph`. Flags for
+mutations are planned ({issue}`182`):
 
 - The mutations refer to existing nodes, and are grouped by node and ordered by chromosome and
   position (as after {meth}`~giglib.Tables.sort`). See {ref}`sec_design_mutations`.
@@ -262,6 +264,8 @@ Some properties have no flag, and are always checked when creating a `Graph`:
   `IEDGES_INTEGERS` can be fully checked in bulk.
 - **Keeping flags through table algorithms:** {meth}`~giglib.Tables.sample_resolve` and
   {meth}`~giglib.Tables.decapitate` (and, later, simplification) could keep the flags that their
-  output satisfies by construction, given valid input, rather than only the ordering flags.
-- **More flags,** e.g. for mutations, or for "every position of a non-root genome has a parent"
-  (see {ref}`sec_design_insertions`).
+  output satisfies by construction, given valid input, rather than only the ordering flags
+  ({issue}`181`).
+- **More flags:** for mutations ({issue}`182`), e.g. that their times are valid and in order,
+  and that they are grouped and ordered by node. And perhaps for "every position of a non-root
+  genome has a parent" (see {ref}`sec_design_insertions`).
