@@ -316,7 +316,8 @@ an inversion.
   The current {meth}`~giglib.Tables.sample_resolve` does this, and never removes nodes, so
   other mutations stay above the same nodes. Mutations above sample nodes are always kept.
   Simplification that removes (e.g. unary) nodes is not yet implemented: it would need to
-  move mutations above a removed node down to the corresponding positions in its child.
+  move mutations above a removed node down to the corresponding positions in its child. See
+  {ref}`sec_design_simplification`.
 
 ## Decapitation
 
