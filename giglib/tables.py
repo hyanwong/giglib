@@ -3,10 +3,8 @@ import dataclasses
 import logging
 import types
 
-import matplotlib.pyplot as plt
 import numpy as np
 import numpy.typing as npt
-import pandas as pd
 import portion as P
 import sortedcontainers
 import tskit
@@ -414,13 +412,6 @@ class BaseTable:
             except TypeError:
                 pass
         return obj
-
-    def _df(self):
-        """
-        Temporary hack to convert the table to a Pandas dataframe.
-        Shouldn't be used for anything besides exploratory work!
-        """
-        return pd.DataFrame([row._asdict() for row in self._data])
 
 
 class BaseExtraTable(BaseTable):
@@ -1477,6 +1468,8 @@ class MRCAdict(dict):
             to be calculated automatically instead.
         """
         if ax is None:
+            import matplotlib.pyplot as plt  # optional: only needed for plotting
+
             _, ax = plt.subplots(1)
         x_max = 0
         y_pos = 3
