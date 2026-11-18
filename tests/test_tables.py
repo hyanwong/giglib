@@ -1121,6 +1121,58 @@ class TestIndividualTable:
         assert gigl.Tables.from_tree_sequence(ts) == gigl.Tables.from_tree_sequence(ts)
 
 
+class TestFlagsKeptByTableAlgorithms:
+    """
+    Table algorithms that build new iedges from valid ones keep the guarantees that their
+    output satisfies by construction (see https://github.com/hyanwong/giglib/issues/181)
+    """
+
+    @staticmethod
+    def ts_tables():
+        ts = msprime.sim_ancestry(5, sequence_length=100, recombination_rate=0.01, random_seed=1)
+        return gigl.Tables.from_tree_sequence(msprime.sim_mutations(ts, rate=0.01, random_seed=1))
+
+    @staticmethod
+    def run(name, tables):
+        if name == "sample_resolve":
+            tables.sample_resolve()
+        else:
+            # (a late enough cutoff to keep some iedges: an empty table satisfies everything)
+            tables.decapitate(np.quantile(tables.nodes.time, 0.9))
+
+    @pytest.mark.parametrize("name", ["sample_resolve", "decapitate"])
+    def test_valid_input_keeps_all_flags(self, name, all_sv_types_2re_gig):
+        for tables in (self.ts_tables(), all_sv_types_2re_gig.tables.copy()):
+            assert tables.iedges.flags == ValidFlags.GIG
+            self.run(name, tables)
+            assert len(tables.iedges) > 0
+            assert tables.iedges.flags == ValidFlags.GIG
+            tables.validate(recheck=True)  # the flags are correct
+
+    def test_find_mrca_regions_after_sample_resolve(self):
+        # e.g. in a simulation that simplifies regularly, without validating again
+        tables = self.ts_tables()
+        tables.sample_resolve()
+        u, v = tables.sample_nodes()[:2]
+        assert len(tables.find_mrca_regions(u, v)) > 0
+
+    @pytest.mark.parametrize("name", ["sample_resolve", "decapitate"])
+    def test_flags_not_added(self, name):
+        tables = self.ts_tables()
+        tables.iedges.unset_bitflag(ValidFlags.IEDGES_SAME_PARENT_CHILD_FOR_EDGE)
+        self.run(name, tables)
+        assert len(tables.iedges) > 0
+        # Not claimed, as the input didn't have it (the others are still kept)
+        assert not tables.iedges.has_all_bitflags(ValidFlags.IEDGES_SAME_PARENT_CHILD_FOR_EDGE)
+        assert tables.iedges.has_all_bitflags(ValidFlags.IEDGES_FOR_TRACING)
+
+    def test_sample_resolve_without_sorting(self):
+        tables = self.ts_tables()
+        tables.sample_resolve(sort=False)
+        assert tables.iedges.has_all_bitflags(ValidFlags.IEDGES_ORDER_INDEPENDENT)
+        tables.validate(ValidFlags.IEDGES_ORDER_INDEPENDENT, recheck=True)
+
+
 class TestNodeTable:
     def test_times(self):
         nodes = gigl.tables.NodeTable()

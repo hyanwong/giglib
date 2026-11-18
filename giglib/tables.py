@@ -2039,6 +2039,10 @@ class Tables:
         replacements, superseded = {}, []
         if not discard_old_mutations and len(self.mutations) > 0:
             replacements, superseded = self._alleles_inherited_across(time)
+        # The kept iedges are copies of old ones, between nodes whose times are unchanged,
+        # so keep the guarantees that don't depend on the order of the iedges (sorting
+        # gives those that do)
+        kept_flags = self.iedges.flags & ValidFlags.IEDGES_ORDER_INDEPENDENT
         individuals = IndividualTable()
         individual_map = {NULL: NULL}
         nodes = NodeTable()
@@ -2089,6 +2093,7 @@ class Tables:
             )
         self.mutations = mutations
         self.sort()
+        self.iedges.set_bitflag(kept_flags)
         return node_map
 
     def _alleles_inherited_across(self, time):
@@ -2271,6 +2276,9 @@ class Tables:
 
         stack = {c: collections.defaultdict(P.interval.Interval) for c in reversed(np.argsort(self.nodes.time))}
         old_iedges = self.iedges
+        # The new iedges are trimmed copies of the old ones, so keep the guarantees that
+        # don't depend on the order of the iedges (sorting gives those that do)
+        kept_flags = old_iedges.flags & ValidFlags.IEDGES_ORDER_INDEPENDENT
         self.iedges = IEdgeTable()  # Make a new one
         # The regions of each (non-sample) node inherited by samples, for filtering mutations
         ancestral_regions = {}
@@ -2321,6 +2329,7 @@ class Tables:
         self._remove_non_ancestral_mutations(ancestral_regions)
         if sort:
             self.sort()
+        self.iedges.set_bitflag(kept_flags)
 
     def _remove_non_ancestral_mutations(self, ancestral_regions):
         """

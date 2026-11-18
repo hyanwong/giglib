@@ -224,20 +224,22 @@ Two improvements would make bulk validation suitable for simulations (see
 ### Other algorithms on tables
 
 Simulations also run other algorithms on their tables, e.g. regular simplification. What these
-currently need, and the flags they leave on their output (given valid input):
+need, and the flags they leave on their output:
 
 | Method | Requires | Leaves |
 |---|---|---|
-| {meth}`~giglib.Tables.sample_resolve` | `IEDGES_FOR_TRACING` | only the ordering flags |
-| {meth}`~giglib.Tables.decapitate` | (none checked) | only the ordering flags |
+| {meth}`~giglib.Tables.sample_resolve` | `IEDGES_FOR_TRACING` | the input's order-independent flags, plus the ordering flags (from sorting) |
+| {meth}`~giglib.Tables.decapitate` | (none checked) | the input's order-independent flags, plus the ordering flags |
 | {meth}`~giglib.Tables.remove_non_ancestral_nodes` | `IEDGES_INTEGERS` | all the flags |
 | {meth}`~giglib.Tables.sort` | (none) | adds the ordering flags |
 
-So after `sample_resolve()` or `decapitate()`, the tables lose guarantees (e.g. that parents are
-older than children) that in fact still hold, as the output is built from valid input. Until these
-methods keep the flags that their output satisfies by construction ({issue}`181`), the tables
-must be validated again (e.g. with {meth}`~giglib.Tables.validate`) before running algorithms that
-need them.
+The "order-independent" flags ({data}`~giglib.ValidFlags.IEDGES_ORDER_INDEPENDENT`) are the
+guarantees that still hold if iedges are removed, reordered, or trimmed to part of their interval,
+with node times unchanged, e.g. that parents are older than children. `sample_resolve()` and
+`decapitate()` build their output from the input iedges in this way, so they keep any of these
+flags that the input had ({issue}`181`). So, given valid tables, they give valid tables, and
+algorithms such as {meth}`~giglib.Tables.find_mrca_regions` can be run straight after simplifying,
+without validating again.
 
 Locating homologous positions efficiently is also the purpose of the proposed "homology table"
 ({issue}`140`; see {ref}`sec_design_simplification`), which would need the same guarantees.
@@ -283,10 +285,8 @@ mutations are planned ({issue}`182`):
   `Graph`) always checks these again, but algorithms that only look at the flags (e.g.
   {meth}`~giglib.Tables.find_mrca_regions`) do not. Changes to the node table could instead
   remove those flags from the iedges table.
-- **Keeping flags through table algorithms:** {meth}`~giglib.Tables.sample_resolve` and
-  {meth}`~giglib.Tables.decapitate` (and, later, simplification) could keep the flags that their
-  output satisfies by construction, given valid input, rather than only the ordering flags
-  ({issue}`181`).
+- **Keeping flags through future table algorithms:** like `sample_resolve()` and `decapitate()`,
+  node-removing simplification should keep the flags that its output satisfies by construction.
 - **More flags:** for mutations ({issue}`182`), e.g. that their times are valid and in order,
   and that they are grouped and ordered by node. And perhaps for "every position of a non-root
   genome has a parent" (see {ref}`sec_design_insertions`).
