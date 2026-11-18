@@ -142,6 +142,16 @@ offsets in the actual DNA sequence: a haplotype can be longer or shorter than th
 length, and haplotypes from different genomes cannot be compared base by base using coordinates.
 They are therefore best kept small and isolated, and coding indels using iedges is preferable.
 
+In particular, the sequence length of a node (e.g. {meth}`~giglib.Graph.sequence_length`), which
+comes from its iedges, counts *positions*, not bases ({issue}`5`). A deleted base (`-` or the
+empty string) keeps its position, so the sequence length overstates the number of bases, and
+{meth}`~giglib.Graph.haplotype` includes the `-` characters (which can be removed to give the
+actual sequence). Conversely, a multi-character insertion adds bases without adding positions,
+so the sequence length understates the number of bases. Coding a deletion as a gap is still
+convenient for some purposes, e.g. to mirror an alignment. But note that the alignment tool in
+{ref}`giglib.tools <sec_tools>` (which reads tree sequences whose alleles contain `-`) instead
+converts gaps into changes of coordinates, so the GIGs it creates do not have this problem.
+
 ## Ancestral states
 
 There is no per-site ancestral state. Instead, the state at a position is defined by the
