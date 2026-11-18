@@ -854,12 +854,50 @@ class TestValidate:
 
     def test_trusts_set_flags_unless_rechecked(self):
         tables = self.valid_tables()
-        tables.nodes.add_row(5)  # 4
-        tables.iedges.add_row(0, 4, child_right=10)  # breaks the child time ordering
-        tables.iedges.set_bitflag(ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC)  # a false claim
-        tables.validate(ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC)  # trusted, so not checked
-        with pytest.raises(ValueError, match="not sorted by child time"):
-            tables.validate(ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC, recheck=True)
+        tables.iedges.add_row(1, 0, child_left=10, child_right=11)  # child 1 is no longer adjacent
+        tables.iedges.set_bitflag(ValidFlags.IEDGES_FOR_CHILD_ADJACENT)  # a false claim
+        tables.validate(ValidFlags.IEDGES_FOR_CHILD_ADJACENT)  # trusted, so not checked
+        with pytest.raises(ValueError, match="not adjacent"):
+            tables.validate(ValidFlags.IEDGES_FOR_CHILD_ADJACENT, recheck=True)
+
+    def test_node_dependent_flags_always_rechecked(self):
+        # The node table can change without the iedges knowing, e.g. by being cleared and
+        # refilled, so guarantees that depend on node times are always rechecked
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0)
+        tables.add_iedge_row(1, 0, child_right=1, validate=ValidFlags.GIG)
+        assert tables.iedges.flags == ValidFlags.GIG
+        tables.nodes.clear()
+        tables.nodes.add_row(0)
+        tables.nodes.add_row(1)  # now the parent is younger than the child
+        with pytest.raises(ValueError, match="not older than child"):
+            tables.validate()
+        with pytest.raises(ValueError, match="not older than child"):
+            tables.graph()
+
+    def test_self_edge_with_unknown_time(self):
+        # NaN times are not valid node times, so can't satisfy the parent-age check
+        tables = gigl.Tables()
+        tables.nodes.add_row(gigl.UNKNOWN_TIME)
+        tables.iedges.add_row(0, 0, child_right=1)
+        with pytest.raises(ValueError, match="not older than child"):
+            tables.validate(ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD)
+
+    def test_negative_chromosomes_allowed(self):
+        tables = self.valid_tables()
+        tables.iedges.add_row(3, 1, child_left=0, child_right=5, child_chromosome=-1, parent_chromosome=-1)
+        tables.validate(ValidFlags.IEDGES_INTEGERS)
+
+    @pytest.mark.parametrize("method", ["find_mrca_regions", "sample_resolve"])
+    def test_tracing_requires_all_its_flags(self, method):
+        tables = self.valid_tables()
+        tables.validate(ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD)  # but not e.g. adjacency
+        args = (2, 3) if method == "find_mrca_regions" else ()
+        with pytest.raises(ValueError, match="FOR_CHILD_ADJACENT"):
+            getattr(tables, method)(*args)
+        tables.validate(ValidFlags.IEDGES_FOR_TRACING)
+        getattr(tables, method)(*args)
 
     def test_frozen(self):
         gig = self.valid_tables().graph()

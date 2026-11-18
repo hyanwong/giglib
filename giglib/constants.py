@@ -128,6 +128,18 @@ class ValidFlags(IntFlag):
         | IEDGES_CHILD_INTERVAL_POSITIVE
     )
 
+    #: The requirements of algorithms that trace intervals up through the iedges on a
+    #: set of tables, such as :meth:`~giglib.Tables.find_mrca_regions` and
+    #: :meth:`~giglib.Tables.sample_resolve`: parents older than children, valid
+    #: intervals, and the iedges for each child adjacent and ordered by chromosome (so
+    #: that the iedges above a node can be found).
+    IEDGES_FOR_TRACING = (
+        IEDGES_PARENT_OLDER_THAN_CHILD
+        | IEDGES_INTERVALS
+        | IEDGES_FOR_CHILD_ADJACENT
+        | IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
+    )
+
     NONE = 0
 
     @classmethod

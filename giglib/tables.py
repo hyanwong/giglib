@@ -733,7 +733,7 @@ class IEdgeTable(BaseTable):
                 ):
                     if int(val) != val:
                         raise ValueError("Iedge data must be integers")
-                    if i < 6 and val < 0:
+                    if i < 6 and val < 0:  # chromosome IDs (6, 7) and edge ID (8) can be negative
                         raise ValueError("Iedge data must be non-negative (except edge ID)")
             self._validate_add_row(validate, self._RowClass(*self._datastore[num_rows].tolist()))
 
@@ -1752,9 +1752,9 @@ class Tables:
 
             * The child_left, child_right, parent_left, parent_right, parent, and child
               values must all be provided and be non-negative integers. If
-              ``child_chromosome`` and ``parent_chromosome`` are provided, they also
-              must be non-negative integers (otherwise a default chromosome ID of 0 is
-              assumed). This corresponds to the flag
+              ``child_chromosome`` and ``parent_chromosome`` are provided, they must be
+              integers, which may be negative (e.g. for circular chromosomes); otherwise
+              a default chromosome ID of 0 is assumed. This corresponds to the flag
               :data:`~giglib.ValidFlags.IEDGES_INTEGERS`.
             * The intervals must be valid (i.e. ``abs(child_left - child_right)`` is
               finite, nonzero, and equal to ``abs(parent_left - parent_right)``. This
@@ -1831,12 +1831,29 @@ class Tables:
             flags = ValidFlags.GIG
         iedges = self.iedges
         to_check = flags if recheck else flags & ~iedges.flags
+        # The node table can change independently of the iedges (e.g. it can be cleared
+        # and refilled), so guarantees that depend on node times are always rechecked.
+        # These checks are cheap, as they work on whole columns.
+        to_check |= flags & ValidFlags.IEDGES_COMBO_NODE_TABLE
         if to_check == 0:
             return
         if len(iedges) > 0:
             self._check_iedges(to_check)
         if not iedges.has_all_bitflags(to_check):  # (frozen tables cannot be changed)
             iedges.set_bitflag(to_check)
+
+    def _require_iedge_flags(self, flags, method):
+        """
+        Raise a ValueError naming the missing flags, if the iedges table does not have
+        all of the given validity flags
+        """
+        missing = ValidFlags(flags & ~self.iedges.flags)
+        if missing:
+            names = ", ".join(flag.name for flag in ValidFlags if flag in missing and flag.bit_count() == 1)
+            raise ValueError(
+                f"{method} requires the iedges to have these validity flags, which are not set: {names}. "
+                "Use tables.validate() to check and set them (see the Validation page of the docs)."
+            )
 
     def _check_iedges(self, flags):
         """
@@ -1866,14 +1883,15 @@ class Tables:
                 fail_if(nodes < 0, f"Iedge {{first}} contains negative {name} ID")
                 fail_if(nodes >= len(self.nodes), f"Iedge {{first}} contains {name} ID >= num nodes")
         if flags & ValidFlags.IEDGES_INTEGERS:
-            # Values are stored as integers, so only non-negativity needs checking
+            # Values are stored as integers, so only non-negativity needs checking.
+            # Chromosome IDs may be negative (e.g. for circular chromosomes), as may the
+            # edge ID (NULL), as when checking rows as they are added.
             for name in ("child_left", "child_right", "parent_left", "parent_right"):
-                fail_if(getattr(iedges, name) < 0, f"Iedge {{first}} has a negative {name}")
-            for name in ("child_chromosome", "parent_chromosome"):
                 fail_if(getattr(iedges, name) < 0, f"Iedge {{first}} has a negative {name}")
         times = self.nodes.time
         if flags & ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD:
-            bad = np.flatnonzero(times[parent] <= times[child])
+            # (written so that NaN times, and so self-edges with NaN times, also fail)
+            bad = np.flatnonzero(~(times[parent] > times[child]))
             if len(bad) > 0:
                 i = int(bad[0])
                 raise ValueError(f"Edge {i}: parent node {parent[i]} not older than child {child[i]}")
@@ -2212,8 +2230,7 @@ class Tables:
         #    `.simplify(filter_nodes=False, keep_unary=True)`, because it does not
         #    squash adjacent edges together. It should therefore preserve
         #    "recombination diamonds". This could be useful for some applications,
-        if not self.iedges.has_all_bitflags(ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD):
-            raise ValueError("Can only run if children younger than parents")
+        self._require_iedge_flags(ValidFlags.IEDGES_FOR_TRACING, "sample_resolve()")
 
         stack = {c: collections.defaultdict(P.interval.Interval) for c in reversed(np.argsort(self.nodes.time))}
         old_iedges = self.iedges
@@ -2387,8 +2404,7 @@ class Tables:
         if u == v:
             raise ValueError("u and v must be different nodes")
 
-        if not self.iedges.has_all_bitflags(ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD):
-            raise ValueError("Must guarantee each iedge has child younger than parent")
+        self._require_iedge_flags(ValidFlags.IEDGES_FOR_TRACING, "find_mrca_regions()")
 
         if time_cutoff is None:
             time_cutoff = np.inf

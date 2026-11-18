@@ -58,7 +58,7 @@ Each flag records one guarantee about the iedges table:
 
 | Flag | Guarantees | Needs node times? |
 |---|---|---|
-| `IEDGES_INTEGERS` | All values are non-negative integers (except a `NULL` edge ID) | |
+| `IEDGES_INTEGERS` | All values are integers, and node IDs and coordinates are non-negative (chromosome IDs may be negative, e.g. for circular chromosomes, and the edge ID may be `NULL`) | |
 | `IEDGES_INTERVALS` | Each iedge's child and parent intervals have the same length | |
 | `IEDGES_CHILD_INTERVAL_POSITIVE` | `child_left < child_right` (only parent intervals can be reversed, for inversions) | |
 | `IEDGES_FOR_CHILD_NONOVERLAPPING` | Each position of a child's chromosome has at most one parent | |
@@ -82,6 +82,9 @@ Some useful combinations are also defined, such as:
   (added in {pr}`176`).
 - {data}`~giglib.ValidFlags.IEDGES_SORTED`: the full canonical order, as produced by
   {meth}`~giglib.Tables.sort`.
+- {data}`~giglib.ValidFlags.IEDGES_FOR_TRACING`: what is needed to trace intervals up through
+  the iedges of a set of tables (parents older than children, valid intervals, and the iedges for
+  each child adjacent and ordered by chromosome).
 - {data}`~giglib.ValidFlags.IEDGES_COMBO_NODE_TABLE`: the flags that need the node table.
 
 Some examples of what methods require:
@@ -89,8 +92,8 @@ Some examples of what methods require:
 | Method | Requires |
 |---|---|
 | `tables.iedges.ids_for_child()` | `IEDGES_FOR_CHILD_ADJACENT`, `IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC` |
-| `tables.find_mrca_regions()` | `IEDGES_PARENT_OLDER_THAN_CHILD` |
-| `tables.sample_resolve()` | `IEDGES_PARENT_OLDER_THAN_CHILD` |
+| `tables.find_mrca_regions()` | `IEDGES_FOR_TRACING` |
+| `tables.sample_resolve()` | `IEDGES_FOR_TRACING` |
 | `tables.iedges.squash()` ({pr}`176`) | `IEDGES_WITHIN_CHILD_SORTED` |
 | `tables.graph()` | `GIG` (everything) |
 
@@ -131,7 +134,10 @@ except ValueError as e:
 
 **Bulk validation** with {meth}`~giglib.Tables.validate` checks the whole table, setting the
 flag of each guarantee that holds, and raising an error for the first that doesn't. Guarantees
-that are already flagged are not checked again, unless `recheck=True`:
+that are already flagged are not checked again, unless `recheck=True`. The exception is the
+guarantees that depend on node times (e.g. parents being older than children), which are always
+checked again, as the node table can change without the iedges table knowing (e.g. by being
+cleared and refilled):
 
 ```{code-cell}
 tables.iedges.add_row(child, parent, child_left=100, child_right=200)  # removes the flags
@@ -149,15 +155,23 @@ Other ways that flags are set:
   removes flags.
 
 Algorithms refuse to run if the flags they need are missing, even if the tables happen to be
-valid:
+valid, and the error names the missing flags:
 
 ```{code-cell}
-tables.iedges.add_row(child, parent, child_left=200, child_right=300)  # flags removed
+other_child = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+tables.iedges.add_row(other_child, parent, child_right=300)  # flags removed
 try:
-    tables.find_mrca_regions(child, parent)
+    tables.find_mrca_regions(child, other_child)
 except ValueError as e:
     print("Error:", e)
-tables.validate(ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD)  # just what the algorithm needs
+```
+
+Validating just what the algorithm needs is enough:
+
+```{code-cell}
+tables.validate(ValidFlags.IEDGES_FOR_TRACING)
+mrcas = tables.find_mrca_regions(child, other_child)
+print("MRCA nodes:", list(mrcas.keys()))
 ```
 
 (sec_validation_choosing)=
@@ -212,7 +226,7 @@ currently need, and the flags they leave on their output (given valid input):
 
 | Method | Requires | Leaves |
 |---|---|---|
-| {meth}`~giglib.Tables.sample_resolve` | `IEDGES_PARENT_OLDER_THAN_CHILD` | only the ordering flags |
+| {meth}`~giglib.Tables.sample_resolve` | `IEDGES_FOR_TRACING` | only the ordering flags |
 | {meth}`~giglib.Tables.decapitate` | (none checked) | only the ordering flags |
 | {meth}`~giglib.Tables.remove_non_ancestral_nodes` | `IEDGES_INTEGERS` | all the flags |
 | {meth}`~giglib.Tables.sort` | (none) | adds the ordering flags |
@@ -232,7 +246,7 @@ added at once. Approach 3 is best avoided unless the speed is really needed.
 One thing can *only* be checked as rows are added: whether values are integers. Iedge
 coordinates and IDs are stored as integers, so a non-integer value (e.g. `10.5`) is silently
 truncated when added. Validating `IEDGES_INTEGERS` in bulk can therefore only check that the
-stored values are non-negative.
+stored node IDs and coordinates are non-negative.
 
 (sec_validation_other)=
 
@@ -262,6 +276,11 @@ mutations are planned ({issue}`182`):
   be set by checking (or by an explicit `set_bitflag()`).
 - **Refusing non-integer values** when rows are added without validation, so that
   `IEDGES_INTEGERS` can be fully checked in bulk.
+- **Tracking changes to the node table:** clearing and refilling the node table can break the
+  guarantees that depend on node times. {meth}`~giglib.Tables.validate` (and so creating a
+  `Graph`) always checks these again, but algorithms that only look at the flags (e.g.
+  {meth}`~giglib.Tables.find_mrca_regions`) do not. Changes to the node table could instead
+  remove those flags from the iedges table.
 - **Keeping flags through table algorithms:** {meth}`~giglib.Tables.sample_resolve` and
   {meth}`~giglib.Tables.decapitate` (and, later, simplification) could keep the flags that their
   output satisfies by construction, given valid input, rather than only the ordering flags
