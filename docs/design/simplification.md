@@ -52,6 +52,11 @@ way: the composed iedge goes from A's child chromosome to B's parent chromosome.
 This is exact: the haplotypes of the remaining nodes are unchanged, as long as any mutations
 above `u` are moved down (see {ref}`sec_design_simplification_mutations`).
 
+Composing leaves many pieces that abut in both the child and the parent (e.g. where `u` had
+several iedges above it, all from the same parent, or where both pieces of a split come from
+the same ancestor). These can be merged with {meth}`~giglib.tables.IEdgeTable.squash`, as
+_tskit_'s `simplify()` does with edges.
+
 ## One core, different rules for which nodes to keep
 
 | | Keeps | Removes |
@@ -167,7 +172,10 @@ ancestors, and so would allow a much wider range of times.
 
 Proposed in {issue}`140`. It would be used by a "homologous location" method, e.g.
 `gig.homologous_location(source_node, source_position, target_node)`, returning the equivalent
-position (and orientation) in the target genome. Open questions:
+position (and orientation) in the target genome. It could also speed up other methods that trace
+positions up the graph, such as {meth}`~giglib.Graph.ancestral_allele_at` (which only needs to
+reach the root of a position), and {meth}`~giglib.Graph.allele_at` (although that also needs the
+mutations on the skipped nodes). Open questions:
 
 - **Several equivalent positions.** A position can have more than one equivalent in the same
   target genome. For example, after a tandem duplication of a parent's positions 10 to 20 to make
@@ -300,6 +308,8 @@ conversation about the giglib API, mutations, and storage (November 2026), and i
 
 **Starting points in the code:**
 
+- {meth}`~giglib.tables.IEdgeTable.squash`: merges adjacent iedges, which simplification will
+  need after composing iedges.
 - {meth}`~giglib.Tables.sample_resolve` (in `giglib/tables.py`): passes intervals of ancestral
   material up the graph, oldest node last, using the `portion` library to merge intervals. It
   does not remove nodes, but its structure (a stack of nodes ordered by time) is close to what

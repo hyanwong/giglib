@@ -85,7 +85,7 @@ Further considerations:
   they record that material is new or of unknown origin), or record the same information in
   another way. See {ref}`sec_design_simplification`.
 - **Mutations.** With (b) and (c), the inserted bases are ancestral states of the source node, so
-  are found by `gig.ancestral_allele_at()` (added in {pr}`176`), like any other ancestral state.
+  are found by {meth}`~giglib.Graph.ancestral_allele_at`, like any other ancestral state.
 - **Pseudo-roots ({issue}`126`)** are a different idea: a cached ancestral *sequence* at a node,
   to avoid tracing further up the graph. A source node is a real root, for material whose ancestry
   is unknown.

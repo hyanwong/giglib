@@ -152,6 +152,8 @@ convenient for some purposes, e.g. to mirror an alignment. But note that the ali
 {ref}`giglib.tools <sec_tools>` (which reads tree sequences whose alleles contain `-`) instead
 converts gaps into changes of coordinates, so the GIGs it creates do not have this problem.
 
+(sec_design_mutations_ancestral)=
+
 ## Ancestral states
 
 There is no per-site ancestral state. Instead, the state at a position is defined by the
@@ -201,7 +203,7 @@ Nothing in the mutations table should prevent reference sequences being added la
 The allele of a genome at a position will be returned by
 
 ```python
-gig.allele_at(u, position, chromosome=0)
+gig.allele_at(u, position, *, chromosome=0)
 ```
 
 This traces the position rootwards through the iedges (transforming the position at each one),
@@ -209,7 +211,7 @@ and returns the derived state of the first mutation found, complemented if neces
 If no mutation is found, it returns `None` (unknown). Similarly,
 
 ```python
-gig.haplotype(u, chromosome=0, *, left=0, right=None, missing_data_character="N")
+gig.haplotype(u, *, chromosome=0, left=0, right=None, missing_data_character="N")
 ```
 
 returns the alleles at a range of positions as a string (see {issue}`113`), with missing data
@@ -222,6 +224,17 @@ corresponding output of {meth}`tskit:tskit.TreeSequence.alignments`, with two ca
 - The tree sequence must not have a reference sequence. Reference sequences are not converted,
   so where `alignments()` would use reference bases (at positions without sites),
   `haplotype()` returns missing data.
+
+The ancestral allele of a genome at a position is returned by
+
+```python
+gig.ancestral_allele_at(u, position, *, chromosome=0)
+```
+
+This traces the position up to a node with no parent there (its root), and returns the derived
+state of the *first* mutation above the root at that position, which by convention gives the
+ancestral state (see {ref}`sec_design_mutations_ancestral`). Mutations below the root are
+ignored, and the allele is complemented across inversions, as for `allele_at()`.
 
 Natural extensions are `gig.alleles_at(u, positions)`
 for many positions at once, and versions accepting a position object ({issue}`141`).
@@ -383,9 +396,10 @@ Following the {ref}`API conventions<sec_usage_consistency>`:
 | | `Graph` (objects) | `Tables` (IDs and arrays) |
 |---|---|---|
 | All mutations | `gig.mutations` (view of `Mutation` objects) | `tables.mutations` (the table) |
-| Mutations above a node | `gig.mutations_for_node(u, chromosome=None)` | `tables.mutations.ids_for_node(u, chromosome=None)` |
-| Allele lookup | `gig.allele_at(u, position, chromosome=0)` | |
-| Haplotypes | `gig.haplotype(u, chromosome=0, *, left=0, right=None)` | |
+| Mutations above a node | `gig.mutations_for_node(u, *, chromosome=None)` | `tables.mutations.ids_for_node(u, *, chromosome=None)` |
+| Allele lookup | `gig.allele_at(u, position, *, chromosome=0)` | |
+| Ancestral allele lookup | `gig.ancestral_allele_at(u, position, *, chromosome=0)` | |
+| Haplotypes | `gig.haplotype(u, *, chromosome=0, left=0, right=None)` | |
 | Complement map | | `tables.allele_complements` |
 
 (sec_design_mutations_open)=

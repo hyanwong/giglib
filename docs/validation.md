@@ -80,8 +80,8 @@ Some useful combinations are also defined, such as:
 - {data}`~giglib.ValidFlags.GIG` (the same as `IEDGES_ALL`): everything, as needed to create a
   `Graph`.
 - {data}`~giglib.ValidFlags.IEDGES_WITHIN_CHILD_SORTED`: the iedges for each child are adjacent,
-  and ordered by chromosome and then position. Needed e.g. by `tables.iedges.squash()`
-  (added in {pr}`176`).
+  and ordered by chromosome and then position. Needed e.g. by
+  {meth}`~giglib.tables.IEdgeTable.squash`.
 - {data}`~giglib.ValidFlags.IEDGES_SORTED`: the full canonical order, as produced by
   {meth}`~giglib.Tables.sort`.
 - {data}`~giglib.ValidFlags.IEDGES_FOR_TRACING`: what is needed to trace intervals up through
@@ -96,7 +96,7 @@ Some examples of what methods require:
 | `tables.iedges.ids_for_child()` | `IEDGES_FOR_CHILD_ADJACENT`, `IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC` |
 | `tables.find_mrca_regions()` | `IEDGES_FOR_TRACING` |
 | `tables.sample_resolve()` | `IEDGES_FOR_TRACING` |
-| `tables.iedges.squash()` ({pr}`176`) | `IEDGES_WITHIN_CHILD_SORTED` |
+| `tables.iedges.squash()` | `IEDGES_WITHIN_CHILD_SORTED` |
 | `tables.graph()` | `GIG` (everything) |
 
 ## How flags are set and unset

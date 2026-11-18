@@ -980,6 +980,100 @@ class TestValidate:
             tables.graph()
 
 
+class TestSquash:
+    @staticmethod
+    def split_iedges(tables, rng):
+        # Split each iedge into pieces, giving iedges that can be squashed back together
+        rows = list(tables.iedges)
+        tables.iedges.clear()
+        for row in rows:
+            # Cut at up to two random points inside the interval (an iedge covering a
+            # single position can't be cut)
+            cuts = []
+            if row.child_right - row.child_left > 1:
+                cuts = sorted(set(rng.integers(row.child_left + 1, row.child_right, size=2).tolist()))
+            for left, right in zip([row.child_left, *cuts], [*cuts, row.child_right]):
+                offset = left - row.child_left
+                if row.is_inversion():
+                    parent_left, parent_right = row.parent_left - offset, row.parent_left - offset - (right - left)
+                else:
+                    parent_left, parent_right = row.parent_left + offset, row.parent_left + offset + (right - left)
+                tables.iedges.add_row(
+                    row.child,
+                    row.parent,
+                    child_left=left,
+                    child_right=right,
+                    parent_left=parent_left,
+                    parent_right=parent_right,
+                    child_chromosome=row.child_chromosome,
+                    parent_chromosome=row.parent_chromosome,
+                    edge=row.edge,
+                )
+        tables.sort()
+
+    def test_squash_tree_sequence(self):
+        ts = msprime.sim_ancestry(5, sequence_length=100, recombination_rate=0.01, random_seed=1)
+        ts = msprime.sim_mutations(ts, rate=0.01, random_seed=1)
+        original = gigl.Tables.from_tree_sequence(ts)
+        tables = original.copy()
+        self.split_iedges(tables, np.random.default_rng(1))
+        assert len(tables.iedges) > len(original.iedges)
+        flags = tables.iedges.flags
+        tables.iedges.squash()
+        assert list(tables.iedges) == list(original.iedges)
+        assert tables.iedges.flags == flags
+
+    def test_squash_inversions(self, all_sv_types_2re_gig):
+        original = all_sv_types_2re_gig.tables.copy()
+        assert any(ie.is_inversion() for ie in original.iedges)
+        tables = original.copy()
+        self.split_iedges(tables, np.random.default_rng(2))
+        assert len(tables.iedges) > len(original.iedges)
+        tables.iedges.squash()
+        assert list(tables.iedges) == list(original.iedges)
+
+    def test_single_position_iedges(self):
+        # e.g. from a single-site simulation: these can't be split, and are unchanged
+        tables = gigl.Tables()
+        for t in (2, 1, 0):
+            tables.nodes.add_row(t)
+        tables.iedges.add_row(1, 0)  # covers position 0 only
+        tables.iedges.add_row(2, 1)
+        tables.sort()
+        original = tables.copy()
+        self.split_iedges(tables, np.random.default_rng(3))
+        tables.iedges.squash()
+        assert list(tables.iedges) == list(original.iedges)
+
+    def test_not_merged(self):
+        tables = gigl.Tables()
+        for t in (2, 1, 0):
+            tables.nodes.add_row(t)
+        tables.iedges.add_row(2, 1, child_right=5)
+        tables.iedges.add_row(2, 1, child_left=5, child_right=8, parent_left=8, parent_right=5)  # inversion
+        tables.iedges.add_row(2, 0, child_left=8, child_right=9, parent_left=8, parent_right=9)  # other parent
+        tables.iedges.add_row(2, 0, child_left=9, child_right=10, parent_left=20, parent_right=21)  # parent gap
+        tables.iedges.add_row(2, 0, child_left=10, child_right=11, parent_left=21, parent_right=22, edge=7)
+        tables.iedges.add_row(2, 0, child_right=5, child_chromosome=1, parent_chromosome=1)
+        tables.sort()
+        before = tables.iedges.copy()
+        tables.iedges.squash()
+        assert tables.iedges == before
+
+    def test_requires_sorted(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0)
+        tables.iedges.add_row(1, 0, child_left=5, child_right=8)
+        tables.iedges.add_row(1, 0, child_right=5)
+        with pytest.raises(ValueError, match="Squashing requires"):
+            tables.iedges.squash()
+
+    def test_frozen(self, all_sv_types_2re_gig):
+        with pytest.raises((ValueError, AttributeError)):
+            all_sv_types_2re_gig.tables.iedges.squash()
+
+
 class TestZeroInitialSize:
     # Tables preallocated with no rows (e.g. converted from a tree sequence with no
     # edges) must still be able to grow
