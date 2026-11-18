@@ -144,12 +144,15 @@ def column_states(ts):
 
 
 def assert_haplotypes_match(gig, ts):
-    for u, row in zip(ts.samples(), alignment.alignments(ts)):
-        expected = row.replace("-", "")
-        # A sequence length from the iedges excludes inserted positions at the end of a
-        # genome (which have no parent), so give the length explicitly
-        assert gig.sequence_length(u) <= len(expected)
-        assert gig.haplotype(u, right=len(expected)) == expected
+    # Check with a missing data character other than N, so that missing data is
+    # distinguished from N alleles (e.g. unknown inserted bases)
+    for missing in ("N", "?"):
+        for u, row in zip(ts.samples(), alignment.alignments(ts, missing_data_character=missing)):
+            expected = row.replace("-", "")
+            # A sequence length from the iedges excludes inserted positions at the end of
+            # a genome (which have no parent), so give the length explicitly
+            assert gig.sequence_length(u) <= len(expected)
+            assert gig.haplotype(u, right=len(expected), missing_data_character=missing) == expected
 
 
 class TestAlignments:
@@ -267,6 +270,30 @@ class TestEdgeCases:
         gig = alignment.from_tree_sequence(ts)
         assert_haplotypes_match(gig, ts)
         assert gig.allele_at(0, 0) == "N"
+
+    def test_unknown_reinsertion_on_the_same_node(self):
+        # The deletion and the unknown reinsertion are both above sample 0
+        tables = isolated_sample_ts([]).dump_tables()
+        site = tables.sites.add_row(position=0, ancestral_state="A")
+        tables.mutations.add_row(site=site, node=0, derived_state="-", time=0.7)
+        tables.mutations.add_row(site=site, node=0, derived_state="N", time=0.3)
+        tables.sort()
+        tables.build_index()
+        tables.compute_mutation_parents()
+        ts = tables.tree_sequence()
+        assert alignment.alignments(ts, missing_data_character="?")[0] == "N?????"
+        gig = alignment.from_tree_sequence(ts)
+        assert_haplotypes_match(gig, ts)
+        assert gig.allele_at(0, 0) == "N"
+
+    def test_unknown_inserted_base_is_an_allele(self):
+        # An unknown inserted base is the allele N, not missing data, in both the
+        # alignment and the GIG, whatever the missing data character
+        ts = simple_ts()
+        row = alignment.alignments(ts, missing_data_character="?")[2]
+        assert row == "??A??A---???GNN-????"
+        gig = alignment.from_tree_sequence(ts)
+        assert gig.haplotype(2, missing_data_character="?") == row.replace("-", "")
 
     def test_deleted_by_a_later_mutation_on_the_same_node(self):
         # AC becomes TC and then -C above the same node, so its first column is deleted

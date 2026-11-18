@@ -237,8 +237,10 @@ def from_tree_sequence(ts):
     derived state differs from the previous state (a column changing to a gap is
     instead represented by the change in coordinates). As in
     :meth:`giglib.Graph.from_tree_sequence`, the ancestral state of each site becomes
-    mutations above the roots of the local tree. Inserted bases whose state is
-    unknown become mutations to ``N``, so are shown as missing data. As in tskit, an
+    mutations above the roots of the local tree. An inserted base whose state is
+    unknown (``N``) becomes a mutation to the allele ``N``: as in the tree sequence,
+    this is an allele (the IUPAC code for any base), not missing data, so it is shown
+    as ``N`` whatever ``missing_data_character`` is used. As in tskit, an
     isolated node (with no parent or children in a tree) that has no mutation at a site
     has an unknown state there (``N``, not a gap), while a mutation above an isolated
     node gives its state in every column of the site.
