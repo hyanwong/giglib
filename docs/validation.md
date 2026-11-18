@@ -42,8 +42,10 @@ So _giglib_ tracks validity as a set of **separate guarantees**, each recorded b
 that rely on it are to keep giving correct answers.
 
 - **Each algorithm checks for just the guarantees it needs,** and refuses to run without them.
-  For example, {meth}`~giglib.Tables.find_mrca_regions` only needs parents to be older than
-  their children.
+  For example, {meth}`~giglib.Tables.find_mrca_regions` needs what is required to trace intervals
+  up through the iedges ({data}`~giglib.ValidFlags.IEDGES_FOR_TRACING`: parents older than their
+  children, valid intervals, and the iedges for each child adjacent and ordered by chromosome),
+  but not e.g. the full canonical sort order.
 - **A {class}`~giglib.Graph` requires all the guarantees** ({data}`~giglib.ValidFlags.GIG`).
   Creating one checks any guarantees that are not already flagged, and then freezes the tables.
 - **Guarantees can be checked as rows are added**, one row at a time, or **later, in bulk**, with
