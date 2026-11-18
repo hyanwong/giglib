@@ -101,13 +101,11 @@ compatibility with _tskit_. In particular:
   substantial theoretical work.
 - **Algorithms on tables** Unlike _tskit_, some fundamental algorithms such as `find_mrca_regions` and
   `sample_resolve` (a basic type of `simplify`) can be run directly on a set of tables.
-  For this to work, the tables need to conform to certain validity criteria.
-  Substantial additional functionality has been incoporated into the tables objects, so that table rows
-  (especially for iedges) can be validated on calling `table.add_row()`, according to certain validity flags
-  (see the `ValidFlags` class in `constants.py`).
+  For this to work, the tables need to conform to certain validity criteria, recorded as separate
+  validity flags, which can be checked as rows are added, or in bulk with `tables.validate()`.
   This allows use of the GIG structure during generation of the tables, without having the substantial
   overhead of continually having to freeze them into an immutable graph. This makes forward simulation
-  feasible.
+  feasible. See {ref}`sec_validation`.
 - **Mutations, but no sites** Each mutation records its position in the coordinates of the node it
   lies above, so there is no sites table, and ancestral states are given by mutations above roots
   (see {ref}`sec_usage_mutations` below).

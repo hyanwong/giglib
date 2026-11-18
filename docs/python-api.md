@@ -61,7 +61,8 @@ conform to certain validity conditions before running. See
 ### Validity flags for **Tables**
 
 :::{seealso}
-Validity requirements for a GIG are described in {meth}`Tables.graph`.
+{ref}`sec_validation` explains the validity flags, and how to check them. The requirements
+for a GIG are also listed in {meth}`Tables.graph`.
 :::
 
 ```{eval-rst}

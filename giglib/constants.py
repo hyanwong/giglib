@@ -74,6 +74,7 @@ class ValidFlags(IntFlag):
     #: not algorithmically necessary, it helps to creates a canonical iedge ordering.
     IEDGES_SECONDARY_ORDER_CHILD_ID_ASC = np.dtype("uint32").type(1 << 10)
 
+    #: All the iedge requirements
     IEDGES_ALL = (
         IEDGES_INTEGERS
         | IEDGES_INTERVALS
@@ -88,14 +89,15 @@ class ValidFlags(IntFlag):
         | IEDGES_SECONDARY_ORDER_CHILD_ID_ASC
     )
 
+    #: All the requirements of a valid GIG, as needed to create a :class:`~giglib.Graph`
+    #: (currently the same as :data:`IEDGES_ALL`). See :ref:`sec_validation`.
     GIG = IEDGES_ALL
 
     # COMBINATIONS OF FLAGS
 
-    # These are the requirements that do not simply involve the iedge table
-    # (e.g. they also involve knowing node table information). We need to include the
-    # secondary order sorting by child ID here because we can't check whether this is
-    # satisfied without knowing whether a row is at the same timepoint as a previous one
+    #: The requirements that do not simply involve the iedge table, but also need the
+    #: times in the node table. This includes the secondary ordering by child ID, as
+    #: checking it requires knowing whether a row is at the same time as the previous one.
     IEDGES_COMBO_NODE_TABLE = (
         IEDGES_PARENT_OLDER_THAN_CHILD | IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC | IEDGES_SECONDARY_ORDER_CHILD_ID_ASC
     )
@@ -124,6 +126,18 @@ class ValidFlags(IntFlag):
         | IEDGES_PARENT_OLDER_THAN_CHILD
         | IEDGES_SAME_PARENT_CHILD_FOR_EDGE
         | IEDGES_CHILD_INTERVAL_POSITIVE
+    )
+
+    #: The requirements of algorithms that trace intervals up through the iedges on a
+    #: set of tables, such as :meth:`~giglib.Tables.find_mrca_regions` and
+    #: :meth:`~giglib.Tables.sample_resolve`: parents older than children, valid
+    #: intervals, and the iedges for each child adjacent and ordered by chromosome (so
+    #: that the iedges above a node can be found).
+    IEDGES_FOR_TRACING = (
+        IEDGES_PARENT_OLDER_THAN_CHILD
+        | IEDGES_INTERVALS
+        | IEDGES_FOR_CHILD_ADJACENT
+        | IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
     )
 
     NONE = 0

@@ -104,9 +104,10 @@ Tables and graphs maintain indexes, to avoid scanning whole tables:
 
 The iedges table has a bitmask of {class}`~giglib.ValidFlags`, each recording a guarantee about
 the table (e.g. that iedges for each child are sorted, or that parents are older than children).
-Rows can be checked as they are added (using `validate=` in `add_row`), and each table algorithm
-checks for the guarantees it needs, using `has_all_bitflags()`. Creating a `Graph` requires all of
-them. See {ref}`sec_python_api_tables_validity`.
+Rows can be checked as they are added (using `validate=` in `add_row`), or in bulk (using
+{meth}`~giglib.Tables.validate`, which works on whole columns), and each table algorithm checks for
+the guarantees it needs, using `has_all_bitflags()`. Creating a `Graph` requires all of them. See
+{ref}`sec_validation`.
 
 ### Freezing
 

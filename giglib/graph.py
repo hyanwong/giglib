@@ -11,7 +11,7 @@ from collections import namedtuple
 import numpy as np
 import tskit
 
-from .constants import Const, ValidFlags
+from .constants import Const
 from .tables import (
     IEdgeTableRow,
     IndividualTableRow,
@@ -50,7 +50,9 @@ class Graph:
         if not isinstance(tables, Tables):
             raise ValueError("tables must be a giglib.Tables object")
         self.tables = tables
-        self._validate()
+        # Check (and record) any GIG requirements not already guaranteed by the tables
+        self.tables.validate()
+        self._build_parent_index()
         self._validate_mutations()
         self._check_allele_complements()
         self.tables.freeze()
@@ -69,21 +71,15 @@ class Graph:
         """
         return cls(Tables.from_tree_sequence(ts))
 
-    def _validate(self):
-        assert hasattr(self, "tables")
-        # Extra validation for a GIG here, e.g. edge transformations are
-        # valid, etc.
-
-        # Cached variables. We define these up top, as all validated GIGs
-        # should have them, even if they have no edges
-
-        # set up some aliases for use in the rest of the function.
+    def _build_parent_index(self):
+        """
+        Build an index of the iedges for each parent, which (unlike the index of the
+        iedges for each child) is not maintained by the tables. The tables must already
+        have been validated as a GIG.
+        """
         iedge_table = self.tables.iedges
-        # These should all be references to the underlying arrays
         child = iedge_table.child
         parent = iedge_table.parent
-        child_left = iedge_table.child_left
-        child_right = iedge_table.child_right
         parent_left = iedge_table.parent_left
         parent_right = iedge_table.parent_right
         node_times = self.tables.nodes.time
@@ -92,70 +88,9 @@ class Graph:
         # dictionary, cached in the iedges table. However, this indexes into
         # a mapping which specifies iedges sorted primarily by parent ID.
         self._id_range_for_parent = {}
-        self._iedge_map_sorted_by_parent = np.arange(
-            len(iedge_table)
-        )  # to overwrite later - initialised here in case we return early with 0 edges
-
-        # TODO: should cache node spans here,
-        # see https://github.com/hyanwong/giglib/issues/27
-
+        self._iedge_map_sorted_by_parent = np.arange(len(iedge_table))
         if len(iedge_table) == 0:
             return
-
-        # Check that all node IDs are non-negative and less than #nodes
-        for nm, nodes in (("child", child), ("parent", parent)):
-            if nodes.min() < 0:
-                raise ValueError(f"Iedge {np.argmin(nodes)} contains negative {nm} ID.")
-            if nodes.max() >= len(self.nodes):
-                raise ValueError(f"Iedge {np.argmax(nodes)} contains {nm} ID >= num nodes")
-
-        # check all parents are strictly older than their children
-        # (NB: this also allows a time of np.inf for an "ultimate root" node)
-        for i, ie in enumerate(iedge_table):
-            if node_times[ie.parent] <= node_times[ie.child]:
-                raise ValueError(f"Edge {i}: parent node {ie.parent} not older than child {ie.child}")
-
-        # Check that all iedges have same absolute parent span as child span
-        parent_spans = parent_right - parent_left
-        child_spans = child_right - child_left
-        span_equal = np.abs(parent_spans) == np.abs(child_spans)
-        if not np.all(span_equal):
-            bad = np.where(~span_equal)[0]
-            raise ValueError(f"iedges {bad} have different parent and child spans")
-
-        # Check that child left is always < child right (also checks nonzero span)
-        if np.any(child_spans <= 0):
-            raise ValueError(f"child_left >= child_right for iedges {np.where(child_spans < 0)[0]}")
-
-        # Check iedges are sorted so that nodes are in decreasing order
-        # of child time, with ties broken by child ID, increasing
-        timediff = np.diff(node_times[child])
-        chromodiff = np.diff(iedge_table.child_chromosome)
-        node_id_diff = np.diff(child)
-
-        if np.any(timediff > 0):
-            raise ValueError("iedges are not sorted by child time, descending")
-
-        if np.any(node_id_diff[timediff == 0] < 0):
-            raise ValueError("iedges are not sorted by child time (desc) then ID (asc)")
-        # must be adjacent
-        iedge_table.set_bitflag(ValidFlags.IEDGES_FOR_CHILD_ADJACENT)
-
-        # Check within a child, edges are sorted by chromosome ascending
-        if np.any(np.diff(iedge_table.child_chromosome)[node_id_diff == 0] < 0):
-            raise ValueError("iedges for a given child are not sorted by chromosome")
-        iedge_table.set_bitflag(ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC)
-
-        # Check within a child & chromosome, edges are sorted by left coord ascending
-        if np.any(np.diff(child_left)[np.logical_and(node_id_diff == 0, chromodiff == 0)] <= 0):
-            # print(np.diff(self.tables.iedges.child_left))
-            # print(np.logical_and(node_id_diff == 0, chromodiff==0))
-            raise ValueError("iedges for a given child/chr are not sorted by left pos")
-        iedge_table.set_bitflag(ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC)
-
-        # CREATE CACHED VARIABLES
-
-        # Should probably cache more stuff here, e.g. list of samples
 
         # index to sort edges so they are sorted as in tskit: first by parent time
         # then grouped by parent id. Within each group with the same parent ID,
@@ -166,34 +101,21 @@ class Graph:
                 # because a parent node can have multiple children at the same position
                 child,
                 # sort by max(parent_left, parent_right). This mirrors
-                # the iedge row sort by max(child_left, child_right) == shild_left
+                # the iedge row sort by max(child_left, child_right) == child_left
                 np.where(parent_right > parent_left, parent_right, parent_left),
                 iedge_table.parent_chromosome,
                 parent,
                 node_times[parent],  # Primary key
             )
         )
-        last_parent = -1
-        for j, idx in enumerate(self._iedge_map_sorted_by_parent):
-            ie = self.iedges[idx]
-            if ie.parent != last_parent:
-                # encountered new parent node
-                self._id_range_for_parent[ie.parent] = {}
-            if ie.parent_chromosome not in self._id_range_for_parent[ie.parent]:
-                self._id_range_for_parent[ie.parent][ie.parent_chromosome] = [j, j + 1]
+        sorted_parents = parent[self._iedge_map_sorted_by_parent].tolist()
+        sorted_chromosomes = iedge_table.parent_chromosome[self._iedge_map_sorted_by_parent].tolist()
+        for j, (p, chromosome) in enumerate(zip(sorted_parents, sorted_chromosomes)):
+            ranges = self._id_range_for_parent.setdefault(p, {})
+            if chromosome in ranges:
+                ranges[chromosome][1] = j + 1
             else:
-                self._id_range_for_parent[ie.parent][ie.parent_chromosome][1] = j + 1
-            last_parent = ie.parent
-
-        # Check every location has only one parent for each chromosome
-        for u in range(len(self.nodes)):
-            for chromosome in self.tables.iedges.chromosomes_as_child(u):
-                prev_right = -np.inf
-                for ie in self.iedges_for_child(u, chromosome=chromosome):
-                    if ie.child_left < prev_right:
-                        raise ValueError(f"Node {u} has multiple or duplicate parents at position" f" {ie.child_left}")
-                    prev_right = ie.child_right
-        self.tables.iedges.flags = ValidFlags.GIG
+                ranges[chromosome] = [j, j + 1]
 
     def _iedge_id_above(self, u, chromosome, position):
         """

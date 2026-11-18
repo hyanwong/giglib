@@ -87,11 +87,12 @@ simulations with structural variants and recombination: see the
 - **Validate only what you need.** Validity is tracked as a set of separate guarantees
   ([`ValidFlags`](https://hyanwong.github.io/giglib/python-api.html#sec-python-api-tables-validity)),
   such as "parents are older than children" or "iedges for each child are sorted". Rows can be
-  checked as they are added, e.g. with `tables.add_iedge_row(..., validate=...)`. Each table
-  algorithm checks for just the guarantees it needs, and refuses to run without them. So algorithms
-  like `tables.find_mrca_regions()` can run on growing tables during a simulation, without the cost
-  of repeatedly freezing them into a `Graph`. Freezing with `tables.graph()` requires all the
-  guarantees, and adds indexes for fast lookup.
+  checked as they are added, e.g. with `tables.add_iedge_row(..., validate=...)`, or in bulk with
+  `tables.validate()`. Each table algorithm checks for just the guarantees it needs, and refuses to
+  run without them. So algorithms like `tables.find_mrca_regions()` can run on growing tables
+  during a simulation, without the cost of repeatedly freezing them into a `Graph`. Freezing with
+  `tables.graph()` requires all the guarantees, and adds indexes for fast lookup. See
+  [Validation](https://hyanwong.github.io/giglib/validation.html).
 - **A library, not a simulator.** As with tskit, giglib provides the data structures and
   algorithms that simulators and inference methods can build on.
 
