@@ -1166,11 +1166,31 @@ class TestFlagsKeptByTableAlgorithms:
         assert not tables.iedges.has_all_bitflags(ValidFlags.IEDGES_SAME_PARENT_CHILD_FOR_EDGE)
         assert tables.iedges.has_all_bitflags(ValidFlags.IEDGES_FOR_TRACING)
 
+    @pytest.mark.parametrize("name", ["sample_resolve", "decapitate"])
+    def test_stale_node_time_flags_rechecked(self, name):
+        # If the node table changes after validation, the flag saying that parents are
+        # older than children may be stale, so it is rechecked rather than kept
+        tables = self.ts_tables()
+        times = tables.nodes.time.copy()
+        flags = tables.nodes.flags.copy()
+        tables.nodes.clear()
+        for t, f in zip(times.max() - times, flags):  # reverse the order of node times
+            tables.nodes.add_row(t, flags=f)
+        assert tables.iedges.has_all_bitflags(ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD)  # stale
+        with pytest.raises(ValueError, match="not older than child"):
+            self.run(name, tables)
+
     def test_sample_resolve_without_sorting(self):
         tables = self.ts_tables()
         tables.sample_resolve(sort=False)
         assert tables.iedges.has_all_bitflags(ValidFlags.IEDGES_ORDER_INDEPENDENT)
         tables.validate(ValidFlags.IEDGES_ORDER_INDEPENDENT, recheck=True)
+        # Without the ordering flags, tracing needs the tables to be sorted first
+        u, v = tables.sample_nodes()[:2]
+        with pytest.raises(ValueError, match="FOR_CHILD_ADJACENT"):
+            tables.find_mrca_regions(u, v)
+        tables.sort()
+        tables.find_mrca_regions(u, v)
 
 
 class TestNodeTable:

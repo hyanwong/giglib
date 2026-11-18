@@ -229,17 +229,23 @@ need, and the flags they leave on their output:
 | Method | Requires | Leaves |
 |---|---|---|
 | {meth}`~giglib.Tables.sample_resolve` | `IEDGES_FOR_TRACING` | the input's order-independent flags, plus the ordering flags (from sorting) |
-| {meth}`~giglib.Tables.decapitate` | (none checked) | the input's order-independent flags, plus the ordering flags |
+| {meth}`~giglib.Tables.decapitate` | none, unless there are mutations to keep (with the default `discard_old_mutations=False`), when the tables must form a valid GIG | the input's order-independent flags, plus the ordering flags |
 | {meth}`~giglib.Tables.remove_non_ancestral_nodes` | `IEDGES_INTEGERS` | all the flags |
 | {meth}`~giglib.Tables.sort` | (none) | adds the ordering flags |
 
 The "order-independent" flags ({data}`~giglib.ValidFlags.IEDGES_ORDER_INDEPENDENT`) are the
-guarantees that still hold if iedges are removed, reordered, or trimmed to part of their interval,
-with node times unchanged, e.g. that parents are older than children. `sample_resolve()` and
-`decapitate()` build their output from the input iedges in this way, so they keep any of these
-flags that the input had ({issue}`181`). So, given valid tables, they give valid tables, and
-algorithms such as {meth}`~giglib.Tables.find_mrca_regions` can be run straight after simplifying,
-without validating again.
+guarantees that still hold if iedges are removed or reordered, or trimmed to part of their
+interval (at integer positions, with the child and parent intervals trimmed to corresponding
+positions), with node times unchanged. An example is that parents are older than children.
+`sample_resolve()` and `decapitate()` build their output from the input iedges in this way, so
+they keep any of these flags that the input had ({issue}`181`). Those that depend on node times
+are rechecked first, in case the node table has changed since they were set.
+
+So, given valid tables, they give valid tables, and algorithms such as
+{meth}`~giglib.Tables.find_mrca_regions` can be run straight after simplifying, without
+validating again. This relies on the sorting that both methods do by default: with
+`sample_resolve(sort=False)`, the ordering flags are not set, so call {meth}`~giglib.Tables.sort`
+before running algorithms that need them.
 
 Locating homologous positions efficiently is also the purpose of the proposed "homology table"
 ({issue}`140`; see {ref}`sec_design_simplification`), which would need the same guarantees.
