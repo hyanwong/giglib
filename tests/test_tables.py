@@ -639,7 +639,7 @@ class TestIedgesValidation:
 
     @pytest.mark.parametrize(
         ("flag", "skip"),
-        [(f, s) for f in ValidFlags.iedges_combo_standalone_iter() for s in (True, False)],
+        [(f, s) for f in ValidFlags.IEDGES_COMBO_STANDALONE for s in (True, False)],
     )
     def test_flags(self, flag, skip):
         tables = gigl.Tables()
@@ -1545,6 +1545,36 @@ class TestMRCAdict:
         mrcas._plot(highlight_position=110, ax=ax)
         # plt.savefig("test_gig_plot.png")  # uncomment to save a plot for inspection
 
+    def test_random_match_pos_plain_tuple_keys(self):
+        # The keys are documented as (left, right, chromosome) tuples, so plain tuples work
+        mrcas = gigl.tables.MRCAdict({2: {(0, 10, 0): gigl.tables.MRCAdict.MRCAintervals([(0, 10, 0)], [(20, 30, 1)])}})
+        match = mrcas.random_match_pos(np.random.default_rng(1))
+        assert match.u.chromosome == 0
+        assert match.v.chromosome == 1
+        assert match.v.position - match.u.position == 20
+        assert not match.opposite_orientations
+
+    def test_random_match_pos_chromosomes(self):
+        # u (node 0) and v (node 1) inherit from node 2: u on chromosome 1, and v
+        # on chromosome 0, inverted
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(1)
+        tables.add_iedge_row(0, 2, child_right=10, child_chromosome=1, parent_chromosome=1)
+        tables.add_iedge_row(
+            1, 2, child_left=0, child_right=10, parent_left=10, parent_right=0, child_chromosome=0, parent_chromosome=1
+        )
+        tables.sort()
+        mrcas = tables.graph().find_mrca_regions(0, 1, u_chromosomes=[1], v_chromosomes=[0])
+        rng = np.random.default_rng(1)
+        for _ in range(10):
+            match = mrcas.random_match_pos(rng)
+            assert match.u.chromosome == 1
+            assert match.v.chromosome == 0
+            assert match.opposite_orientations
+            assert match.u.position + match.v.position == 9
+
 
 class TestSegment:
     # test the Segment class used in various places
@@ -1593,36 +1623,6 @@ class TestPosition:
         gig = tables.graph()
         assert gig.allele_at(1, **gigl.Position(3, 1)) == "T"
         assert gig.haplotype(1, **gigl.Segment(1, 4, 1)) == "CGT"
-
-    def test_random_match_pos_plain_tuple_keys(self):
-        # The keys are documented as (left, right, chromosome) tuples, so plain tuples work
-        mrcas = gigl.tables.MRCAdict({2: {(0, 10, 0): gigl.tables.MRCAdict.MRCAintervals([(0, 10, 0)], [(20, 30, 1)])}})
-        match = mrcas.random_match_pos(np.random.default_rng(1))
-        assert match.u.chromosome == 0
-        assert match.v.chromosome == 1
-        assert match.v.position - match.u.position == 20
-        assert not match.opposite_orientations
-
-    def test_random_match_pos_chromosomes(self):
-        # u (node 0) and v (node 1) inherit from node 2: u on chromosome 1, and v
-        # on chromosome 0, inverted
-        tables = gigl.Tables()
-        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
-        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
-        tables.nodes.add_row(1)
-        tables.add_iedge_row(0, 2, child_right=10, child_chromosome=1, parent_chromosome=1)
-        tables.add_iedge_row(
-            1, 2, child_left=0, child_right=10, parent_left=10, parent_right=0, child_chromosome=0, parent_chromosome=1
-        )
-        tables.sort()
-        mrcas = tables.graph().find_mrca_regions(0, 1, u_chromosomes=[1], v_chromosomes=[0])
-        rng = np.random.default_rng(1)
-        for _ in range(10):
-            match = mrcas.random_match_pos(rng)
-            assert match.u.chromosome == 1
-            assert match.v.chromosome == 0
-            assert match.opposite_orientations
-            assert match.u.position + match.v.position == 9
 
 
 class TestDecapitate:
@@ -2066,3 +2066,11 @@ class TestDecapitateWithMutations:
         tables.sort()
         new_gig = tables.graph().decapitate(1)
         assert [(m.node, m.position, m.derived_state) for m in new_gig.mutations] == [(0, L - 1, "A")]
+
+
+class TestNodeFlagConstants:
+    @pytest.mark.parametrize("flag", [gigl.NODE_IS_SAMPLE, gigl.Const.NODE_IS_RE])
+    def test_clear_flag_with_mask(self, flag):
+        flags = np.array([flag | 2, 2], dtype=np.uint32)
+        flags &= ~flag
+        assert flags.tolist() == [2, 2]

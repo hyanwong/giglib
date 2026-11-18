@@ -289,7 +289,6 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         for nodes in temp_pop.values():
             for u in nodes:
                 for chrom, L in seq_lens.items():
-                    print(u, self.grand_mrca)
                     self.tables.add_iedge_row(
                         u,
                         self.grand_mrca,

@@ -820,10 +820,8 @@ class IEdgeTable(BaseTable):
         is it placed in the ``parent_left`` and ``child_left`` attributes of this
         row (and similarly for a ``right`` field). This allows tskit conversion.
 
-        To enable tskit conversion, the special add_int_row() method is used,
-        which is slower than the standard add_row. If you require efficiency,
-        you are therefore recommended to call add_row() directly, ensuring that
-        the intervals and node IDs are integers before you pass them in.
+        This is slower than calling :meth:`add_row` directly, which is recommended
+        if you require efficiency.
         """
         kwargs = self._from_tskit(self.to_dict(obj))
         return self.add_row(
@@ -921,15 +919,14 @@ class IEdgeTable(BaseTable):
 
     def max_pos_as_child(self, u, *, chromosome=None):
         """
-        Return the maximum child position for a given child ID and chromosome.
-        This should be equivalent np.max(child_right[child == u]), but faster
-        because it relies on
-        :data:`~giglib.ValidFlags.IEDGES_WITHIN_CHILD_SORTED`.
+        Return the maximum child position of the iedges for child ``u`` on the given
+        chromosome, or on any of its chromosomes if ``chromosome`` is ``None``.
+        Returns None if there are no such iedges.
 
-        If chromosome is not given, this will return the maximum child
-        position in *any* chromosome.
-
-        Returns None if there are no iedges for the given child.
+        This is fast because it relies on the iedges for each child being sorted
+        and nonoverlapping (:data:`~giglib.ValidFlags.IEDGES_WITHIN_CHILD_SORTED`
+        and :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING`), and raises
+        an error unless both flags are set.
 
         .. note::
             This does not look at edges for which this node is a parent,
@@ -954,14 +951,14 @@ class IEdgeTable(BaseTable):
 
     def min_pos_as_child(self, u, *, chromosome=None):
         """
-        Return the minimum child position for a given child ID and chromosome.
-        This should be equivalent np.max(child_right[child == u]), but faster
-        because it relies on :data:`~giglib.ValidFlags.IEDGES_WITHIN_CHILD_SORTED`.
+        Return the minimum child position of the iedges for child ``u`` on the given
+        chromosome, or on any of its chromosomes if ``chromosome`` is ``None``.
+        Returns None if there are no such iedges.
 
-        If chromosome is not given, this will return the minimum child
-        position in *any* chromosome.
-
-        Returns None if there are no iedges for the given child.
+        This is fast because it relies on the iedges for each child being sorted
+        and nonoverlapping (:data:`~giglib.ValidFlags.IEDGES_WITHIN_CHILD_SORTED`
+        and :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING`), and raises
+        an error unless both flags are set.
 
         .. note::
             This does not look at edges for which this node is a parent,
@@ -1694,20 +1691,16 @@ class Tables:
         for name in self.table_classes._fields:
             getattr(self, name).clear()
 
-    def copy(self, omit_iedges=None):
+    def copy(self):
         """
         Return an unfrozen deep copy of the tables.
 
-        :param bool omit_iedges: If True do not copy the iedges table, use an empty one.
         :return: A deep copy of the tables
         :rtype: giglib.Tables
         """
         copy = self.__class__()
-        for name, cls in zip(self.table_classes._fields, self.table_classes):
-            if omit_iedges and name == "iedges":
-                setattr(copy, name, cls())
-            else:
-                setattr(copy, name, getattr(self, name).copy())
+        for name in self.table_classes._fields:
+            setattr(copy, name, getattr(self, name).copy())
         copy.time_units = self.time_units
         copy.allele_complements = dict(self.allele_complements)
         return copy
@@ -1785,55 +1778,27 @@ class Tables:
     def graph(self):
         """
         Return a genetic inheritance graph (Graph) object based on these tables. This
-        requires the following iedge conditions to be met:
+        requires the tables to satisfy all the validity requirements of a GIG
+        (:data:`~giglib.ValidFlags.GIG`). In summary:
 
-            * The child_left, child_right, parent_left, parent_right, parent, and child
-              values must all be provided and be non-negative integers. If
-              ``child_chromosome`` and ``parent_chromosome`` are provided, they must be
-              integers, which may be negative (e.g. for circular chromosomes); otherwise
-              a default chromosome ID of 0 is assumed. This corresponds to the flag
-              :data:`~giglib.ValidFlags.IEDGES_INTEGERS`.
-            * The intervals must be valid (i.e. ``abs(child_left - child_right)`` is
-              finite, nonzero, and equal to ``abs(parent_left - parent_right)``. This
-              corresponds to the flag :data:`~giglib.ValidFlags.IEDGES_INTERVALS`.
-            * Each chromosomal position in a child is covered by only one interval (i.e.
-              for any particular chromosome, intervals for a given child do not
-              overlap). This corresponds to the flag
-              :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING`
-            * The ``child`` and ``parent`` IDs of an iedge must correspond to nodes in
-              in the node table in which the parent is older (has a strictly greater
-              time) than the child. This corresponds to the flag
-              :data:`~giglib.ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD`
-            * If an ``edge`` ID is provided for an iedge, and it is not ``NULL`` (-1),
-              then other iedges with the same ``edge`` ID must have the same
-              ``child`` and ``parent`` IDs. This corresponds to the flag
-              :data:`~giglib.ValidFlags.IEDGES_SAME_PARENT_CHILD_FOR_EDGE`
-            * For consistency and as an enforced convention, the ``child_left`` position
-              for an iedge must be strictly less than the ``child_right`` position.
-              This corresponds to the flag
-              :data:`~giglib.ValidFlags.IEDGES_CHILD_INTERVAL_POSITIVE`
+            * Iedges have non-negative integer node IDs and coordinates, and child and
+              parent intervals of the same length, with ``child_left < child_right``.
+            * Each position of a child's chromosome is covered by at most one iedge
+              (even if the iedges share a parent), and every parent is older than
+              its child.
+            * Iedges with the same ``edge`` ID (if not ``NULL``) have the same child and
+              parent.
+            * The iedges are in the canonical order: grouped by child, with children
+              ordered by time (oldest first) and then ID, and each child's iedges
+              ordered by chromosome and then position. Calling :meth:`sort` first
+              gives this order.
 
-        To create a valid GIG, the iedges must also be sorted into a canonical order
-        such that the following conditions are met (you can also accomplish this by
-        calling :meth:`~giglib.Tables.sort` on the tables first):
+        The nodes are not required to be in any particular order (e.g. by time). The
+        requirements, and their flags, are described in full in :ref:`sec_validation`.
 
-            * The iedges must be grouped by child ID. This corresponds to the flag
-              :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_ADJACENT`
-            * Within each group of iedges with the same child ID, the iedges must be
-              ordered by chromosome ID and then by left position. This corresponds to
-              the flags :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC` and
-              :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC`
-            * The groups of iedges with the same child ID must be ordered
-              by time of child node and then (if nodes have identical times) by
-              child node ID. This corresponds to the flags
-              :data:`~giglib.ValidFlags.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC` and
-              :data:`~giglib.ValidFlags.IEDGES_SECONDARY_ORDER_CHILD_ID_ASC`.
-
-        .. note::
-            The nodes are not required to be in any particular order (e.g. by time)
-
-        Requirements whose flags are already set are trusted, and the others are
-        checked (and their flags set) using :meth:`validate`. See :ref:`sec_validation`.
+        Requirements whose flags are already set are trusted (apart from those that
+        depend on node times, which are always rechecked), and the others are checked
+        (and their flags set) using :meth:`validate`.
 
         :return: A genetic inheritance graph object
         :rtype: giglib.Graph

@@ -820,13 +820,15 @@ class Graph:
         new_tables.sample_resolve()
         return new_tables.graph()
 
-    def find_mrca_regions(self, u, v, **kwargs):
+    def find_mrca_regions(self, u, v, *, u_chromosomes=None, v_chromosomes=None, time_cutoff=None):
         """
-        A wrapper around :meth:`Tables.find_mrca_regions`. Unlike the tables
-        method, ``u`` and ``v`` can be either node IDs or
+        A wrapper around :meth:`Tables.find_mrca_regions`, which describes the
+        parameters. Unlike the tables method, ``u`` and ``v`` can be either node IDs or
         :class:`~giglib.graph.Node` objects.
         """
-        return self.tables.find_mrca_regions(as_id(u), as_id(v), **kwargs)
+        return self.tables.find_mrca_regions(
+            as_id(u), as_id(v), u_chromosomes=u_chromosomes, v_chromosomes=v_chromosomes, time_cutoff=time_cutoff
+        )
 
 
 class GIGItemIterator:
