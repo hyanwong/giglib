@@ -841,6 +841,50 @@ class IEdgeTable(BaseTable):
             skip_validate=skip_validate,
         )
 
+    def squash(self):
+        """
+        Merge adjacent iedges, in place. Two iedges are merged if they have the same
+        child, parent, chromosomes and edge ID, the same orientation (i.e. both or
+        neither are inversions), and if the second starts where the first ends, in both
+        the child's and the parent's coordinates. So e.g. iedges inheriting child
+        positions 0 to 5 and 5 to 8 from parent positions 10 to 15 and 15 to 18 become a
+        single iedge inheriting child positions 0 to 8 from parent positions 10 to 18.
+        This does not change the ancestry that the iedges describe, so the validity
+        flags are kept.
+
+        This requires the iedges for each child to be adjacent, and in order of
+        chromosome and then position, e.g. as after :meth:`~giglib.Tables.sort`
+        (i.e. the :data:`~giglib.ValidFlags.IEDGES_WITHIN_CHILD_SORTED` flags).
+        """
+        if self._frozen:
+            raise AttributeError("Cannot squash the iedges of frozen tables: use a copy")
+        if not self.has_all_bitflags(ValidFlags.IEDGES_WITHIN_CHILD_SORTED):
+            raise ValueError(
+                "Squashing requires the iedges for each child to be adjacent, and ordered by chromosome and "
+                "position (e.g. by sorting the tables)"
+            )
+        merged = []
+        for row in self:
+            if merged:
+                prev = merged[-1]
+                if (
+                    (row.child, row.parent, row.child_chromosome, row.parent_chromosome, row.edge)
+                    == (prev.child, prev.parent, prev.child_chromosome, prev.parent_chromosome, prev.edge)
+                    and row.is_inversion() == prev.is_inversion()
+                    and row.child_left == prev.child_right
+                    and row.parent_left == prev.parent_right
+                ):
+                    merged[-1] = prev._replace(child_right=row.child_right, parent_right=row.parent_right)
+                    continue
+            merged.append(row)
+        if len(merged) == len(self):
+            return
+        flags = self.flags
+        self.clear()
+        for row in merged:
+            self.add_row(**row._asdict())
+        self.flags = flags  # merging adjacent iedges keeps all the guarantees
+
     def edges_exist_for_child(self, u, *, chromosome=None):
         if chromosome is None:
             return u in self._id_range_for_child

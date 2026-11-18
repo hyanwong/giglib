@@ -380,6 +380,62 @@ class TestImmutable:
         assert np.allclose(tables.nodes.time, gig.tables.nodes.time + 1)
 
 
+class TestAncestralAllele:
+    def test_matches_tree_sequence(self):
+        ts = msprime.sim_ancestry(4, sequence_length=60, recombination_rate=0.01, random_seed=3)
+        ts = msprime.sim_mutations(ts, rate=0.05, random_seed=3)
+        assert ts.num_sites > 5
+        gig = gigl.Graph.from_tree_sequence(ts)
+        for site in ts.sites():
+            for u in ts.samples():
+                assert gig.ancestral_allele_at(u, int(site.position)) == site.ancestral_state
+
+    @staticmethod
+    def inverted_tables():
+        # Root 0, node 1 (inherits 0-10 unchanged), and node 2 (inherits 1's 0-10 inverted)
+        tables = gigl.Tables()
+        for t in (2, 1, 0):
+            tables.nodes.add_row(t)
+        tables.iedges.add_row(1, 0, child_right=10)
+        tables.iedges.add_row(2, 1, child_right=10, parent_left=10, parent_right=0)
+        for position, base in enumerate("ACGTACGTAA"):
+            tables.mutations.add_row(0, position, base)
+        tables.mutations.add_row(1, 3, "G", time=1.5)  # a later mutation, below the root
+        tables.mutations.add_row(0, 0, "C", time=3)  # a later mutation above the root
+        tables.sort()
+        return tables
+
+    def test_ignores_later_mutations(self):
+        gig = self.inverted_tables().graph()
+        assert gig.allele_at(1, 3) == "G"
+        assert gig.ancestral_allele_at(1, 3) == "T"
+        # On the root itself, the first mutation is the ancestral state
+        assert gig.allele_at(0, 0) == "C"
+        assert gig.ancestral_allele_at(0, 0) == "A"
+
+    def test_complemented_across_inversion(self):
+        gig = self.inverted_tables().graph()
+        # Position 6 of node 2 is position 3 of node 1 (and of the root), whose ancestral
+        # state is T, complemented to A. Its current allele is G, complemented to C.
+        assert gig.ancestral_allele_at(2, 6) == "A"
+        assert gig.allele_at(2, 6) == "C"
+        assert [gig.ancestral_allele_at(2, x) for x in range(10)] == list("TTACGTACGT")
+
+    def test_unknown(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0)
+        tables.iedges.add_row(1, 0, child_right=10)
+        tables.mutations.add_row(0, 4, "A")
+        tables.mutations.add_row(1, 5, "C")  # not above the root
+        gig = tables.graph()
+        assert gig.ancestral_allele_at(1, 4) == "A"
+        assert gig.ancestral_allele_at(1, 5) is None
+        assert gig.ancestral_allele_at(gig.nodes[1], 0) is None
+        with pytest.raises(ValueError, match="non-negative"):
+            gig.ancestral_allele_at(1, -1)
+
+
 class TestChromosomes:
     @staticmethod
     def make_graph():

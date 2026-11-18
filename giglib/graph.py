@@ -348,6 +348,46 @@ class Graph:
             raise ValueError("position must be non-negative")
         return self._alleles(u, chromosome, position, position + 1)[0]
 
+    def ancestral_allele_at(self, u, position, *, chromosome=0):
+        """
+        Return the ancestral allele at a position in node ``u``'s genome. This is found
+        by tracing the position up through the iedges to a node with no parent at that
+        position (the "root" of that position, which may be ``u`` itself), and taking
+        the *first* mutation above the root at the traced position, which by convention
+        gives its ancestral state (see :ref:`sec_design_mutations`). As in
+        :meth:`allele_at`, the allele is complemented if the path includes an odd
+        number of inversions. Unlike :meth:`allele_at`, mutations below the root are
+        ignored.
+
+        :param int u: The node (or a :class:`~giglib.graph.Node` object)
+        :param int position: The position, in ``u``'s coordinates
+        :param int chromosome: The chromosome in ``u``'s genome (default: 0)
+        :return: The ancestral allele, or ``None`` if there is no mutation above the
+            root at that position (i.e. the ancestral state is unknown)
+        :rtype: str
+        """
+        u = as_id(u)
+        if position < 0:
+            raise ValueError("position must be non-negative")
+        iedges = self.tables.iedges
+        inverted = False
+        # This traces through every intermediate node, so takes time proportional to the
+        # depth of the graph. A "homology table" (see the simplification design note),
+        # which skips unary and coalescent nodes, could make this much faster.
+        while (ie_id := self._iedge_id_above(u, chromosome, position)) is not None:
+            ie = iedges[ie_id]
+            if ie.is_inversion():
+                inverted = not inverted
+            position = self.iedges[ie_id].transform_position(position, Const.ROOTWARDS)
+            u, chromosome = ie.parent, ie.parent_chromosome
+        mutations = self.tables.mutations
+        start, end = mutations._range_for_node(u, chromosome)
+        j = start + np.searchsorted(mutations.position[start:end], position, side="left")
+        if j == end or mutations.position[j] != position:
+            return None
+        allele = mutations[j].derived_state  # the first at this position, in table order
+        return complement_allele(allele, self.tables.allele_complements) if inverted else allele
+
     @property
     def time_units(self):
         return self.tables.time_units
