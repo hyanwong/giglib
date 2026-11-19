@@ -38,6 +38,8 @@ compatibility with _tskit_. In particular:
   on a `Tables` object return numpy arrays of IDs instead, e.g. `tables.sample_nodes()`.
 - **Same names on both layers** As far as possible, the same query has the same name on `Graph`
   and `Tables` objects, so the object you call it on determines whether you get objects or IDs.
+  Queries on a single table are named after what they return, e.g. `gig.iedges_for_child(u)`
+  gives `IEdge` objects, and `tables.iedges.ids_for_child(u)` gives iedge IDs.
 - **Lenient inputs** Methods on a `Graph` that take a node accept either a node ID or a `Node` object.
 - **Nodes first, iedge coordinates by keyword** Methods that add a row take the node(s) first, e.g.
   `tables.mutations.add_row(u, 100, "A")` or `tables.iedges.add_row(child, parent, ...)`. An
@@ -109,15 +111,14 @@ compatibility with _tskit_. In particular:
 - **Mutations, but no sites** Each mutation records its position in the coordinates of the node it
   lies above, so there is no sites table, and ancestral states are given by mutations above roots
   (see {ref}`sec_usage_mutations` below).
-- **Other stuff** More differences should be noted here!
 
 ## Examples
 
 See also {ref}`sec_examples` for longer, runnable examples, such as a simple forward simulation.
 
-As with a _tskit_ tree sequence, a GIG is immmutable, so to create one from scratch you
-need to make a set of `Tables` and freeze them using the `.graph()` method (which gives
-opportunity to cache and index important stuff):
+As with a _tskit_ tree sequence, a GIG is immutable, so to create one from scratch you
+need to make a set of `Tables` and freeze them using the `.graph()` method (which validates
+the tables, and builds indexes for fast lookup):
 
 ```python
 import giglib as gigl
@@ -242,6 +243,7 @@ general enough to form the basis of a pangenome simulator (this would however re
 substantial effort in fixing reasonable parameters before realistic-looking pangenomes
 could be created).
 
-For a hacky example of how to use the simulation code directly from the test suite, see
+For examples of using the simulation code from the test suite directly, see
 [this comment](https://github.com/hyanwong/giglib/issues/86#issuecomment-1970029273)
-or [this one](https://github.com/hyanwong/giglib/issues/82#issuecomment-1972153550).
+or [this one](https://github.com/hyanwong/giglib/issues/82#issuecomment-1972153550). (These
+simulators may move into {ref}`giglib.tools <sec_tools>`.)

@@ -250,7 +250,8 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         assert len(second_gen) == 4  # haploid genomes
         # Edit the existing iedges to create an inversion
         # on a single iedge
-        new_tables = tables.copy(omit_iedges=True)
+        new_tables = tables.copy()
+        new_tables.iedges.clear()
         inverted_child_id = np.where(tables.nodes.flags == INVERTED_CHILD_FLAG)[0]
         assert len(inverted_child_id) == 1
         inverted_child_id = inverted_child_id[0]

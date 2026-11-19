@@ -13,11 +13,9 @@ class TestValidFlags:
         assert ValidFlags.IEDGES_COMBO_STANDALONE in ValidFlags.GIG
 
     def test_iedges_standalone(self):
-        i = 0
-        for flag in ValidFlags.iedges_combo_standalone_iter():
-            i += 1
-            assert flag in ValidFlags.IEDGES_COMBO_STANDALONE
-        assert i == int.bit_count(ValidFlags.IEDGES_COMBO_STANDALONE)
+        # The standalone requirements are those that don't need the node table
+        assert ValidFlags.IEDGES_COMBO_STANDALONE | ValidFlags.IEDGES_COMBO_NODE_TABLE == ValidFlags.IEDGES_ALL
+        assert ValidFlags.IEDGES_COMBO_STANDALONE & ValidFlags.IEDGES_COMBO_NODE_TABLE == 0
 
     def test_iedges_from_tskit(self):
         flags = ValidFlags.IEDGES_FROM_TSKIT
