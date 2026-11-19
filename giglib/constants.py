@@ -128,6 +128,14 @@ class ValidFlags(IntFlag):
         | IEDGES_CHILD_INTERVAL_POSITIVE
     )
 
+    #: The requirements that don't depend on the order of the iedges in the table: they
+    #: still hold if iedges are removed or reordered, or trimmed to part of their
+    #: interval (at integer positions, trimming the child and parent intervals to
+    #: corresponding positions), as long as node times are unchanged. Table algorithms
+    #: that build new iedges from old ones in this way (e.g.
+    #: :meth:`~giglib.Tables.sample_resolve`) keep these flags.
+    IEDGES_ORDER_INDEPENDENT = IEDGES_ALL & ~IEDGES_SORTED
+
     #: The requirements of algorithms that trace intervals up through the iedges on a
     #: set of tables, such as :meth:`~giglib.Tables.find_mrca_regions` and
     #: :meth:`~giglib.Tables.sample_resolve`: parents older than children, valid
