@@ -20,7 +20,7 @@ def add_iedge(tables, cl, cr, pl, pr, *, c, p, **kwargs):
     """
     A helper function to make an IEdgeTableRow using 'c' and 'p' abbreviations.
     """
-    return tables.add_iedge_row(c, p, child_left=cl, child_right=cr, parent_left=pl, parent_right=pr, **kwargs)
+    return tables.iedges.add_row(c, p, child_left=cl, child_right=cr, parent_left=pl, parent_right=pr, **kwargs)
 
 
 def make_nodes_table(arr, tables):
@@ -65,6 +65,7 @@ class DTWF_simulator:
         """
         if self.pop is None:
             raise ValueError("Need to initialise a new population first")
+        self.validate()  # the iedges of the parents, added in earlier generations
         prev_pop = self.pop
         self.pop = {}  # fill with individualID: (maternal_genomeID, paternal_genomeID)
 
@@ -124,10 +125,11 @@ class DTWF_simulator:
         Create a simulation class, which can then simulate a forward Discrete Time
         Wright-Fisher model with varying population sizes over generations.
 
-        If skip_validate is False (default), when adding edges we check that they
-        create a valid set of tables suitable for using the find_mrca_regions() method.
-        Setting this to False saves a small fraction (about 2%) of the simulation time,
-        at the expense of not doing any validation (dangerous!)
+        If skip_validate is False (default), the iedges are validated at the start of
+        each generation, so that find_mrca_regions() can be used on the parents (it only
+        needs the parents' iedges, added in earlier generations, to be validated).
+        Setting this to True instead marks them as valid without checking, which saves
+        a little simulation time, at the expense of not doing any validation (dangerous!)
 
         If initial_sizes is specified, it should be an array of the expected sizes
         for each table, see the ``gigl.Tables.__init__`` method for more information.
@@ -136,14 +138,18 @@ class DTWF_simulator:
         self.tables.time_units = "generations"  # optional, but helpful when plotting
         self.skip_validate = skip_validate
 
-    def add_iedge_params(self):
+    def add_iedge_row(self, child, parent, **kwargs):
+        self.tables.iedges.add_row(child, parent, **kwargs)
+
+    def validate(self):
         """
-        Return the validation params to use when calling tables.add_iedge_row
+        Validate the iedges added since the last call (i.e. in the previous generation),
+        or if ``skip_validate`` is True, mark them as valid without checking
         """
-        return {
-            "skip_validate": self.skip_validate,
-            "validate": gigl.constants.ValidFlags.IEDGES_ALL,
-        }
+        if self.skip_validate:
+            self.tables.iedges.set_bitflag(gigl.ValidFlags.IEDGES_ALL)
+        else:
+            self.tables.validate(gigl.ValidFlags.IEDGES_ALL)
 
     def run(
         self,
@@ -245,14 +251,13 @@ class DTWF_no_recombination_sim(DTWF_simulator):
         lft = 0
         for idx, (chrom, rgt) in zip(rand_parent, seq_lens.items()):
             parent = parent_nodes[idx]
-            self.tables.add_iedge_row(
+            self.add_iedge_row(
                 child,
                 parent,
                 child_left=lft,
                 child_right=rgt,
                 child_chromosome=chrom,
                 parent_chromosome=chrom,
-                **self.add_iedge_params(),
             )
 
 
@@ -289,13 +294,12 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         for nodes in temp_pop.values():
             for u in nodes:
                 for chrom, L in seq_lens.items():
-                    self.tables.add_iedge_row(
+                    self.add_iedge_row(
                         u,
                         self.grand_mrca,
                         child_right=L,
                         child_chromosome=chrom,
                         parent_chromosome=chrom,
-                        **self.add_iedge_params(),
                     )
         return temp_pop
 
@@ -319,7 +323,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
                 node_map[i] = output_tables.nodes.add_row(time=node.time, flags=flags, individual=node.individual)
         for ie in self.tables.iedges:
             try:
-                output_tables.add_iedge_row(
+                output_tables.iedges.add_row(
                     node_map[ie.child],
                     node_map[ie.parent],
                     child_left=ie.child_left,
@@ -454,7 +458,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
             brk = lft_parent_break
             if brk > 0:  # If break not placed just before position 0
                 pL, pR = 0, brk  # parent left and right start at the same pos as child
-                self.tables.add_iedge_row(
+                self.add_iedge_row(
                     child,
                     lft_parent,
                     child_left=0,
@@ -463,7 +467,6 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
                     parent_right=pR,
                     child_chromosome=chrom,
                     parent_chromosome=lft_chrom,
-                    **self.add_iedge_params(),
                 )
             if not self.tables.iedges.edges_exist_for_child(rgt_parent, chromosome=rgt_chrom):
                 raise ValueError("Must have edges for parents to get seq len")
@@ -471,7 +474,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
             if rgt_parent_break < seq_len:  # If break not just after the last pos
                 pL, pR = rgt_parent_break, seq_len
                 cR = brk + (pR - pL)  # child rgt must account for len of rgt parent region
-                self.tables.add_iedge_row(
+                self.add_iedge_row(
                     child,
                     rgt_parent,
                     child_left=brk,
@@ -480,5 +483,4 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
                     parent_right=pR,
                     child_chromosome=chrom,
                     parent_chromosome=rgt_chrom,
-                    **self.add_iedge_params(),
                 )

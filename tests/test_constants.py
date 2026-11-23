@@ -20,7 +20,6 @@ class TestValidFlags:
     def test_iedges_from_tskit(self):
         flags = ValidFlags.IEDGES_FROM_TSKIT
         assert flags in ValidFlags.IEDGES_ALL
-        # tskit edges can have non-integer coordinates, and are sorted differently
-        assert ValidFlags.IEDGES_INTEGERS not in flags
+        # tskit edges are sorted differently
         assert flags & ValidFlags.IEDGES_SORTED == 0
-        assert flags | ValidFlags.IEDGES_INTEGERS | ValidFlags.IEDGES_SORTED == ValidFlags.IEDGES_ALL
+        assert flags | ValidFlags.IEDGES_SORTED == ValidFlags.IEDGES_ALL

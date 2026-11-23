@@ -30,7 +30,10 @@ class ValidFlags(IntFlag):
 
     # GIG DEFINITIONAL REQUIREMENTS
 
-    #: If set, iedge data is guaranteed to be integers
+    #: If set, iedge coordinates (``child_left``, ``child_right``, ``parent_left`` and
+    #: ``parent_right``) are guaranteed to be non-negative. (All iedge values are
+    #: integers, as :meth:`~giglib.tables.IEdgeTable.add_row` refuses others. Node IDs
+    #: are guaranteed to be valid by :data:`IEDGES_PARENT_OLDER_THAN_CHILD`.)
     IEDGES_INTEGERS = 1
 
     #: If set, intervals are guaranteed finite and have parent span == child span
@@ -42,7 +45,8 @@ class ValidFlags(IntFlag):
 
     #: If set, all parents are older than their children, guaranteeing the GIG is acyclic
     #: (note this requires knowledge of the times in the nodes table). This flag also
-    #: guarantees that nodes with those parent and child IDs exist in the nodes table.
+    #: guarantees that the parent and child IDs are valid, i.e. that nodes with those
+    #: IDs exist in the nodes table.
     IEDGES_PARENT_OLDER_THAN_CHILD = 1 << 3
 
     #: If set, iedges with the same edge_ID are guaranteed to have the same combination
@@ -119,11 +123,12 @@ class ValidFlags(IntFlag):
     )
 
     #: The requirements guaranteed by the edges of a valid tskit tree sequence, when each
-    #: edge becomes an iedge with the same child and parent coordinates. This does not
-    #: include :data:`IEDGES_INTEGERS`, as tskit edges can have non-integer coordinates,
-    #: or the sorting requirements, as tskit sorts edges differently.
+    #: edge becomes an iedge with the same child and parent coordinates. (Converting a
+    #: tree sequence with non-integer coordinates raises an error.) This does not include
+    #: the sorting requirements, as tskit sorts edges differently.
     IEDGES_FROM_TSKIT = (
-        IEDGES_INTERVALS
+        IEDGES_INTEGERS
+        | IEDGES_INTERVALS
         | IEDGES_FOR_CHILD_NONOVERLAPPING
         | IEDGES_PARENT_OLDER_THAN_CHILD
         | IEDGES_SAME_PARENT_CHILD_FOR_EDGE

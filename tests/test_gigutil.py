@@ -262,33 +262,31 @@ class TestDTWF_one_break_no_rec_inversions_slow:
                 assert ie.child_right == ie.parent_right
                 assert ie.child_right > 200  # check seed gives breakpoint a bit along
 
-                new_tables.add_iedge_row(
+                new_tables.iedges.add_row(
                     inverted_child_id,
                     ie.parent,
                     child_right=self.inversion.left,
-                    **self.simulator.add_iedge_params(),
                 )
-                new_tables.add_iedge_row(
+                new_tables.iedges.add_row(
                     inverted_child_id,
                     ie.parent,
                     child_left=self.inversion.left,
                     child_right=self.inversion.right,
                     parent_left=self.inversion.right,
                     parent_right=self.inversion.left,
-                    **self.simulator.add_iedge_params(),
                 )
-                new_tables.add_iedge_row(
+                new_tables.iedges.add_row(
                     inverted_child_id,
                     ie.parent,
                     child_left=self.inversion.right,
                     child_right=ie.child_right,
                     parent_left=self.inversion.right,
                     parent_right=ie.parent_right,
-                    **self.simulator.add_iedge_params(),
                 )
             else:
-                new_tables.add_iedge_row(**ie._asdict(), **self.simulator.add_iedge_params())
+                new_tables.iedges.add_row(**ie._asdict())
         new_tables.sort()
+        new_tables.validate()
         self.simulator.tables = new_tables
         # Check it gives a valid gig
         gig = self.simulator.tables.copy().graph()

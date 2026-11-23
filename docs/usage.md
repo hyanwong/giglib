@@ -174,10 +174,10 @@ tables = gigl.Tables()
 root = tables.nodes.add_row(time=2)
 parent = tables.nodes.add_row(time=1)
 child = tables.nodes.add_row(time=0, flags=gigl.NODE_IS_SAMPLE)
-tables.add_iedge_row(parent, root, child_right=10)
-tables.add_iedge_row(child, parent, child_right=10)
+tables.iedges.add_row(parent, root, child_right=10)
+tables.iedges.add_row(child, parent, child_right=10)
 # a duplicated copy of parent positions 0-5
-tables.add_iedge_row(child, parent, child_left=10, child_right=15, parent_left=0, parent_right=5)
+tables.iedges.add_row(child, parent, child_left=10, child_right=15, parent_left=0, parent_right=5)
 for position, base in enumerate("ACGTACGTAC"):
     tables.mutations.add_row(root, position, base)  # ancestral states (with unknown times)
 tables.mutations.add_row(parent, 2, "T", time=1.5)
