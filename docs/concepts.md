@@ -125,4 +125,6 @@ genealogical simulators.
 
 Nevertheless, in the same way as for [tskit](https://tskit.dev),
 it is relatively easy to build a basic forward-time genealogical
-simulator using this library. See {ref}`sec_usage_simulations` for more.
+simulator using this library, and some simple ones are provided in the experimental
+{ref}`giglib.tools.simulation <sec_tools_simulation>` module. See {ref}`sec_usage_simulations`
+for more.

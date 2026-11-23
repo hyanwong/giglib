@@ -3,13 +3,15 @@ import pytest
 import tskit
 
 import giglib as gigl
-
-from . import sim
+from giglib.tools.simulation import (
+    DTWF_no_recombination_sim,
+    DTWF_one_break_no_rec_inversions_slow_sim,
+)
 
 INVERTED_CHILD_FLAG = 1 << 17
 
 
-# Tests for functions in tests/gigutil.py
+# Tests for the simulators in giglib.tools.simulation
 class tskit_DTWF_simulator:
     """
     A simple tree sequence simulator class, for testing against the equivalent
@@ -95,7 +97,7 @@ class tskit_DTWF_simulator:
         return self.tables.tree_sequence()
 
 
-class DTWF_one_break_no_rec_inversions_test(sim.DTWF_one_break_no_rec_inversions_slow):
+class DTWF_one_break_no_rec_inversions_test(DTWF_one_break_no_rec_inversions_slow_sim):
     """
     A GIG simulator used for testing: this version should result in the same breakpoints
     as in the tskit_DTWF_simulator.
@@ -127,14 +129,14 @@ class DTWF_one_break_no_rec_inversions_test(sim.DTWF_one_break_no_rec_inversions
 class TestSimpleSims:
     def test_no_recomb_sim(self):
         gens = 10
-        simulator = sim.DTWF_no_recombination()
+        simulator = DTWF_no_recombination_sim()
         gig = simulator.run(num_diploids=10, seq_lens=[100], gens=gens, random_seed=1)
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
         assert len(gig.iedges) > 0
 
     def test_variable_population_size(self):
         gens = 2
-        simulator = sim.DTWF_no_recombination()
+        simulator = DTWF_no_recombination_sim()
         gig = simulator.run(num_diploids=(2, 10, 20), seq_lens=[100], gens=gens, random_seed=1)
         times, counts = np.unique(gig.tables.nodes.time, return_counts=True)
         assert np.array_equal(times, [0, 1, 2])
@@ -143,7 +145,7 @@ class TestSimpleSims:
 
     def test_multi_chromosomes(self):
         gens = 2
-        simulator = sim.DTWF_no_recombination()
+        simulator = DTWF_no_recombination_sim()
         gig = simulator.run(num_diploids=(2, 10, 20), seq_lens=[100, 50], gens=gens, random_seed=1)
         gig = gig.sample_resolve()
         for u in gig.tables.sample_nodes():
@@ -154,7 +156,7 @@ class TestSimpleSims:
             assert gig.max_pos(u, chromosome=2) is None
 
     def test_run_more(self):
-        simulator = sim.DTWF_no_recombination()
+        simulator = DTWF_no_recombination_sim()
         gens = 2
         gig = simulator.run(num_diploids=2, seq_lens=[100], gens=gens, random_seed=1)
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
@@ -173,7 +175,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
 
     def test_plain_sim(self):
         gens = self.default_gens
-        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow()
+        self.simulator = DTWF_one_break_no_rec_inversions_slow_sim()
         gig = self.simulator.run(num_diploids=10, seq_lens=self.seq_lens, gens=gens, random_seed=1)
         assert len(np.unique(gig.tables.nodes.time)) == gens + 1
         assert len(gig.iedges) > 0
@@ -184,7 +186,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
 
     def test_run_more(self):
         gens = self.default_gens
-        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow()
+        self.simulator = DTWF_one_break_no_rec_inversions_slow_sim()
         gig = self.simulator.run(num_diploids=10, seq_lens=self.seq_lens, gens=gens, random_seed=1)
         new_gens = 2
         gig = self.simulator.run_more(num_diploids=(4, 2), gens=new_gens, random_seed=1)
@@ -218,14 +220,14 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         Run a simulation in which a single inversion is introduced then the
         population explodes so that the inversion is not lost.
         Note that this routine can be called directly e.g.
-            from tests.test_gigutil import TestDTWF_one_break_no_rec_inversions_slow
+            from tests.tools.test_simulation import TestDTWF_one_break_no_rec_inversions_slow
 
             cls = TestDTWF_one_break_no_rec_inversions_slow()
             cls.test_inversion()
             print(cls.ts)
         """
         final_pop_size = 100
-        self.simulator = sim.DTWF_one_break_no_rec_inversions_slow(
+        self.simulator = DTWF_one_break_no_rec_inversions_slow_sim(
             initial_sizes={
                 "nodes": 2 * final_pop_size * self.default_gens,
                 "edges": 2 * final_pop_size * self.default_gens * 2,
@@ -376,7 +378,7 @@ class TestDTWF_one_break_no_rec_inversions_slow:
 
     def test_multi_chromosomes(self):
         gens = 10
-        simulator = sim.DTWF_one_break_no_rec_inversions_slow()
+        simulator = DTWF_one_break_no_rec_inversions_slow_sim()
         # a few rounds of tiny population sizes, so that we get coalescence
         simulator.run(num_diploids=(2, 2, 2), seq_lens=[100, 50, 200], random_seed=1)
         gig = simulator.run_more(num_diploids=10, gens=gens, random_seed=1)
