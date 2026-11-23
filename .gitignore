@@ -131,3 +131,7 @@ dmypy.json
 
 # OS X files
 *.DS_Store
+
+# Evaluation results: only the reference performance run is committed
+evaluation/results/*
+!evaluation/results/performance.csv
