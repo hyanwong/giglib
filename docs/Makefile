@@ -10,7 +10,7 @@ dev:
 	PYTHONPATH=${PYPATH} ./build.sh
 
 dist:
-	@echo Building distribution for tsdate version ${GIGL_VERSION}
+	@echo Building distribution for giglib version ${GIGL_VERSION}
 	sed -i -e s/__GIGL_VERSION__/${GIGL_VERSION}/g _config.yml
 	PYTHONPATH=${PYPATH} ./build.sh
 
