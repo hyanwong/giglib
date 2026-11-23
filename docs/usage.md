@@ -233,19 +233,17 @@ For the full design, and the reasons behind it, see {ref}`sec_design_mutations`.
 (sec_usage_simulations)=
 ### Simulations
 
-Examples of code that runs simulations are provided in the test suite. Currently they are based on a relatively simple extension
+Some simple forward-time simulators are provided in the experimental
+{ref}`giglib.tools.simulation <sec_tools_simulation>` module. They are based on a relatively simple extension
 of the boilerplate forward-simulation code in the _tskit_ [forward-time simulation tutorial](https://tskit.dev/tutorials/forward_sims.html). The important
 difference is that the {meth}`~giglib.Tables.find_mrca_regions` method is used to locate breakpoints
-for recombination.
-
-For more details the [sim.py file](https://github.com/hyanwong/giglib/blob/main/tests/sim.py)
-is a convenience wrapper that links out to other files containing simulation code.
-Currently only forward simulation code is provided. Nevertheless, it is conceptually
+for recombination. Currently only forward simulation code is provided. Nevertheless, it is conceptually
 general enough to form the basis of a pangenome simulator (this would however require
 substantial effort in fixing reasonable parameters before realistic-looking pangenomes
 could be created).
 
-For examples of using the simulation code from the test suite directly, see
+For examples of using the simulation code directly, see
 [this comment](https://github.com/hyanwong/giglib/issues/86#issuecomment-1970029273)
-or [this one](https://github.com/hyanwong/giglib/issues/82#issuecomment-1972153550). (These
-simulators may move into {ref}`giglib.tools <sec_tools>`.)
+or [this one](https://github.com/hyanwong/giglib/issues/82#issuecomment-1972153550) (written
+when the simulators were in the test suite, so import them from `giglib.tools.simulation`
+instead).

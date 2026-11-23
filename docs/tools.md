@@ -44,3 +44,17 @@ for u, row in zip(ts.samples(), rows):
 .. automodule:: giglib.tools.alignment
   :members:
 ```
+
+(sec_tools_simulation)=
+
+## Simulations
+
+The `giglib.tools.simulation` module has some simple forward-time (discrete-time
+Wright-Fisher) simulators, which record their genealogies as GIGs. They are used in the
+tests, and are a starting point for simulating structural variants (see
+{ref}`sec_usage_simulations`).
+
+```{eval-rst}
+.. automodule:: giglib.tools.simulation
+  :members:
+```

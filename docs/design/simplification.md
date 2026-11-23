@@ -223,8 +223,8 @@ version and commit, and have their own requirements. Simplification would add ca
 
 The evaluation needs forward simulations with recombination and structural variants: tandem
 duplications, deletions, inversions, and unequal crossing-over (to create duplications that are
-hard to detect). The Wright-Fisher simulators in `tests/gigutil.py` are a starting point, but
-only include inversions. A simulator could live in `evaluation/` (if only used there), or in
+hard to detect). The Wright-Fisher simulators in `giglib.tools.simulation` are a starting
+point, but only include inversions. A simulator could live in `evaluation/` (if only used there), or in
 {ref}`giglib.tools <sec_tools>` (if also useful to users). It would record the true duplication
 nodes, so that detection methods can be checked against them.
 
@@ -326,7 +326,7 @@ conversation about the giglib API, mutations, and storage (November 2026), and i
   as it goes, as composing iedges will.
 - {meth}`~giglib.Tables.decapitate`: moves the effect of removed mutations onto remaining nodes,
   which is similar to moving mutations down when removing a node.
-- The Wright-Fisher simulators in `tests/gigutil.py` (with inversions only), and the examples in
+- The Wright-Fisher simulators in `giglib.tools.simulation` (with inversions only), and the examples in
   `docs/examples.md`.
 
 ## Open questions
