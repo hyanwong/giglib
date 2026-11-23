@@ -15,7 +15,9 @@ kernelspec:
 
 # Homology and recombination
 
-**Status: Proposed.** Nothing here is implemented yet. Related: {issue}`121` (transposable element
+**Status: Proposed.** Chains are a *heuristic*: a testable starting point for restricting
+recombination in plausible ways, not a definition of which homology is allelic, and the rules for
+recombination here are simulator approximations, to be tested ({issue}`202`). Related: {issue}`121` (transposable element
 simulations), {issue}`83` (stopping "weird" crossovers), {issue}`186` (gene conversion versus
 crossovers), {issue}`140` (the homology table), {issue}`102` and {issue}`86` (faster breakpoints),
 {ref}`sec_design_simplification` (duplication nodes). Testing: {issue}`202` (simulations with
@@ -34,8 +36,9 @@ microsatellites and a centromere, before TE simulations).
   between them is more common.
 - **Allelic homology is long, and colinear.** Two positions at the same place on homologous
   chromosomes are surrounded by more homologous material, in the same order and orientation. Two
-  copies of a TE at different places are not: their flanking DNA is unrelated. This is what
-  distinguishes allelic from non-allelic homology, without a reference.
+  copies of a TE at different places are not: their flanking DNA is unrelated. This makes long,
+  colinear homology a good proxy for allelic homology, without a reference (though not a perfect
+  one: e.g. long segmental duplications are long and colinear too).
 - **Length variation breaks homology into pieces,** e.g. at microsatellites or centromeric repeats
   whose lengths differ between the two genomes. So allelic homology is measured over **chains** of
   pieces, which may be separated by small shifts, rather than over single pieces.
@@ -151,7 +154,7 @@ as long as the TE (6 positions):
   is a chain on its own, only as long as the TE.
 
 Each block is a point of the chain where a crossover could happen, but the chain's length is what
-tells us that the homology is allelic. A crossover is then allowed well inside a long chain (blue),
+suggests that the homology is allelic. A crossover is then allowed well inside a long chain (blue),
 but not in a short one (red), however many shifts the long chain has. In the same way:
 
 - **Different chromosomes, or chromosome arms,** give homology on a different pair of chromosomes,
@@ -177,11 +180,13 @@ Given the blocks between `u` and `v`, sorted by their position in `u`:
 
 When there are several candidates for the next block (e.g. near a tandem duplication, where both
 copies are close by), there are several possible chains through the blocks. As in genome
-alignment, the natural choice is the chain with the most homology: a short dynamic programming
-over the candidate links, which is still linear in the number of blocks when `g` is small.
+alignment, the natural choice is the chain with the most homology, found by a short dynamic
+programming over the candidate links (though the alternatives are equally valid *candidate*
+pairings, among which a simulator could also choose at random).
 
-The cost is proportional to the number of blocks, i.e. to the number of differences in length
-between the two genomes: the same order of work that the biology implies.
+Only blocks within `g` of each other can be linked, so a search limited to those can be close to
+linear in the number of blocks, i.e. in the number of differences in length between the two
+genomes. A simple implementation that compares every pair of blocks is quadratic.
 
 ## Copy-number variation
 
@@ -257,7 +262,8 @@ These would be options of a simulator, not part of _giglib_:
 - **Crossovers need the same orientation:** a chain in the opposite orientation to the main
   allelic chain (e.g. a heterozygous inversion) is excluded, however long it is, so crossovers
   within heterozygous inversions are suppressed (the existing simulators already skip reversed
-  homology). Modelling the crossovers that do happen within inversion loops, and their unbalanced
+  homology). This is an approximation, not a consequence of the chains: a long reversed chain is
+  still long homology. Modelling the crossovers that do happen within inversion loops, and their unbalanced
   products, is an open question.
 - **Gene conversion** copies a short tract from one homologous region into another, so only needs
   a block at least as long as the tract. It can use any block, including paralogous ones (e.g.
@@ -286,7 +292,10 @@ homology, as they inherit alleles. In a simulation, the natural ancestors are th
 (the roots): e.g. a position is *centromeric* if it traces back to a centromeric position in a
 root. This stays reference-free: the annotation is attached to genomes in the graph, not to an
 external reference, and different founders could even have different annotations. It also answers
-the question in {issue}`186` of whether suppression of recombination is inherited: it is.
+the question in {issue}`186` of whether suppression of recombination is inherited: it is. This is
+a modelling assumption, suited to features that follow the sequence: a simulator could also
+suppress recombination using masks or rates that depend on the current genotype or context
+(e.g. sex, or a centromere that moves).
 
 - **Copied material** inherits the annotation of its source (e.g. a new copy of a centromeric repeat
   unit is centromeric).
@@ -361,6 +370,14 @@ which of them are needed for efficiency (e.g. caches that need to be kept up to 
 change are better maintained by the tables themselves).
 
 ## Open questions
+
+- **The limits of homology by descent:** copies with similar sequences but no recorded shared
+  ancestry (e.g. independent insertions of similar sequence) are invisible to it, and a long chain
+  can hide substantial divergence if its gaps add up. Should rules also use the total size of the
+  gaps, or a model of sequence divergence?
+- **Separate models for each kind of event:** the mechanism could yield candidate pairs of
+  homologous regions, from which a simulator chooses crossovers, gene conversions or non-allelic
+  events, each with its own rules for tracts and products.
 
 - **Thresholds or rates:** fixed `L` and `g`, or rates that depend smoothly on chain length, gap
   sizes and TMRCA? What are sensible defaults?
