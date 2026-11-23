@@ -13,23 +13,14 @@ _giglib_, but is **not part of the core API**:
   depend on how _giglib_ stores its data internally (see {ref}`sec_design_storage`).
 - **Tested.** Tools are tested along with the rest of _giglib_.
 
-```{eval-rst}
-.. automodule:: giglib.tools
-```
-
 (sec_tools_alignment)=
 
 ## Alignments
 
 The `giglib.tools.alignment` module converts between GIGs with insertions and deletions,
 and tree sequences whose coordinates are those of a multiple sequence alignment
-([#139](https://github.com/hyanwong/giglib/issues/139)). We call these the *reference
-coordinates*, as they are shared by all the genomes. (They are often called the "columns"
-of an alignment, but we avoid that term, so as not to confuse them with the columns of
-giglib's tables.) Gaps are written as `-`, and a site can span several reference
-coordinates, so that e.g. a deletion of three bases is a single
-mutation from `ATCG` to `A---`. Conversion works in both directions, for GIGs whose
-rearrangements are insertions and deletions.
+([#139](https://github.com/hyanwong/giglib/issues/139)), with gaps written as `-`. It works
+in both directions: see the module description below for how, and what round trips lose.
 
 ```python
 import giglib.tools.alignment
