@@ -66,6 +66,114 @@ class Position(_UnpackableAsKeywords, collections.namedtuple("Position", "positi
     __slots__ = ()
 
 
+class PositionMap(collections.namedtuple("PositionMap", "sign, offset")):
+    """
+    A map from the coordinates of one genome to those of another, as made by an
+    iedge: a shift, which also reverses the order of positions if ``sign`` is
+    ``-1`` (an inversion). This is the one place where coordinates are mapped
+    through iedges, so all the code that does so uses it.
+
+    There are two kinds of coordinate, which map differently when the order is
+    reversed:
+
+    * The *ends of an interval* (e.g. ``child_left`` and ``child_right``) lie
+      between positions. An end ``x`` maps to ``sign * x + offset``, so an
+      interval ``[left, right)`` maps to the ends ``(sign * left + offset,
+      sign * right + offset)``. If the order is reversed, the first end is larger
+      than the second, as for the parent interval of an inverted iedge.
+    * A *position* ``x`` is the base between the ends ``x`` and ``x + 1``. It maps
+      to the base between the ends that they map to, so to ``x + offset``, or
+      ``offset - x - 1`` if reversed.
+
+    For example, an iedge whose child interval ``[10, 20)`` is inherited from the
+    parent interval ``(30, 20]`` maps the ends 10 and 20 to 30 and 20, and the
+    positions 10 and 19 to 29 and 20:
+
+    >>> m = PositionMap.from_intervals((10, 20), (30, 20))
+    >>> m
+    PositionMap(sign=-1, offset=40)
+    >>> m.interval(10, 20), m.position(10), m.position(19)
+    ((30, 20), 29, 20)
+
+    Maps along a chain of iedges combine into a single map with :meth:`then`, and
+    :meth:`inverse` maps back the other way.
+    """
+
+    __slots__ = ()
+
+    @classmethod
+    def from_intervals(cls, interval, new_interval):
+        """
+        Return the map that takes the ends of ``interval`` to the corresponding ends
+        of ``new_interval``. If one interval has its ends in increasing order and the
+        other in decreasing order, the map reverses the order of positions.
+
+        :param tuple(int, int) interval: The (left, right) ends of the interval
+        :param tuple(int, int) new_interval: The ends that ``left`` and ``right`` map
+            to, respectively
+        :raises ValueError: If the intervals have different lengths
+        """
+        (left, right), (new_left, new_right) = interval, new_interval
+        if abs(right - left) != abs(new_right - new_left):
+            raise ValueError(f"Intervals {interval} and {new_interval} have different lengths")
+        sign = -1 if (left < right) != (new_left < new_right) else 1
+        return cls(sign, new_left - sign * left)
+
+    @classmethod
+    def from_iedge(cls, iedge):
+        """
+        Return the map from the child coordinates of an iedge to its parent
+        coordinates. The :meth:`inverse` maps from parent to child coordinates.
+
+        :param iedge: An :class:`~tables.IEdgeTableRow` or :class:`~graph.IEdge`
+        """
+        return cls.from_intervals((iedge.child_left, iedge.child_right), (iedge.parent_left, iedge.parent_right))
+
+    @property
+    def is_reversing(self):
+        """
+        Whether this map reverses the order of positions (e.g. through an odd
+        number of inversions), in which case alleles are complemented.
+        """
+        return self.sign < 0
+
+    def interval(self, left, right):
+        """
+        Map the ends of the interval ``[left, right)``. If the map reverses the
+        order of positions, the first end returned is larger than the second.
+
+        :return: The mapped ``(left, right)`` ends
+        :rtype: tuple(int, int)
+        """
+        return self.sign * left + self.offset, self.sign * right + self.offset
+
+    def position(self, x):
+        """
+        Map a single position (base) ``x``.
+
+        :rtype: int
+        """
+        return x + self.offset if self.sign > 0 else self.offset - x - 1
+
+    def inverse(self):
+        """
+        Return the map that undoes this one.
+
+        :rtype: PositionMap
+        """
+        return PositionMap(self.sign, -self.sign * self.offset)
+
+    def then(self, other):
+        """
+        Return the map that applies this map, followed by ``other``. For example, if
+        ``a`` maps a child to its parent, and ``b`` maps the parent to the
+        grandparent, ``a.then(b)`` maps the child to the grandparent.
+
+        :rtype: PositionMap
+        """
+        return PositionMap(other.sign * self.sign, other.sign * self.offset + other.offset)
+
+
 class _IEdgeMethods:
     """
     Properties and methods shared by iedge table rows (:class:`IEdgeTableRow`) and
@@ -994,35 +1102,6 @@ class IEdgeTable(BaseTable):
         """
         return tuple(sorted(self._id_range_for_child.get(u, {})))
 
-    def transform_interval(self, iedge_id, interval, direction):
-        """
-        Given an iedge ID, use that edge to transform the provided interval.
-        If this is an inversion then an iedge such as ``[0, 10, chrA] -> [10, 0, chrB]``
-        means that a interval such as ``[1, 8]`` gets transformed to
-        ``[9, 2]``. The chromosome transformation is not reported: it is assumed
-        that the intervals are on chromosomes specified by the iedge
-
-        :param int edge_id: The edge specifying the transformation
-        :param tuple(int, int) interval: The (left, right) interval to transform,
-            assumed to be on the appropriate chromosome for this iedge
-        :param int direction: Either Const.LEAFWARDS or Const.ROOTWARDS
-            (only ROOTWARDS currently implemented)
-        """
-        # Requires edges to be sane
-        if not self.has_all_bitflags(ValidFlags.IEDGES_INTERVALS):
-            raise ValueError("Cannot use the method unless iedges have valid intervals")
-        ie = self[iedge_id]
-        for x in interval:
-            if x < ie.child_left or x > ie.child_right:
-                raise ValueError(f"Position {x} not in child interval for {ie}")
-
-        if direction == Const.ROOTWARDS:
-            if ie.is_inversion():
-                return tuple(ie.child_left - x + ie.parent_left for x in interval)
-            else:
-                return tuple(x - ie.child_left + ie.parent_left for x in interval)
-        raise ValueError(f"Direction must be Const.ROOTWARDS, not {direction}")
-
 
 class NodeTable(BaseExtraTable):
     """
@@ -1396,41 +1475,21 @@ class MRCAdict(dict):
                     assert len(v_matches) != 0
                     u = u_matches[0] if len(u_matches) == 1 else rng.choice(u_matches)
                     v = v_matches[0] if len(v_matches) == 1 else rng.choice(v_matches)
-                    # go the right number of positions into the interval
-                    # If inverted, we take the position minus 1, because an
-                    # inversion like (0, 10) -> (10, 0) maps pos 0 to pos 9
-                    # (not 10). If an inversion, we also negate the position
-                    # to indicate reading in the other direction
-
-                    # We should never choose the RH number in the interval,
-                    # Because that position is not included in the interval
-
-                    # TODO: check this works if there is an inversion at the
-                    # *start* of the coordinate space (e.g. iedge(0, 5, 5, 0, ...))
-                    # producing e.g. u=(0, 5), v=(5, 0) at this point. In this case
-                    # position loc=4 will calculate v=-(5 - 4 - 1) returning
-                    # (4, 0, True). Here's an example
-                    #
-                    # u = abcdefghi      v = DCBAEFGHI
-                    #
-                    #           abcdefghi  (u)
-                    #      IHGFEABCD       (v)
-                    #
-                    #  A recombinant after pos 4 should give abcd or IHGFEABCDefghi
-                    # (convert to Python ints, as rng.choice returns numpy values)
-                    u0, u1, uCHR = (int(x) for x in u)
-                    v0, v1, vCHR = (int(x) for x in v)
-                    loc = int(loc)
-                    if u0 < u1:
-                        if v0 < v1:
-                            return self.MRCApos(Position(u0 + loc, uCHR), Position(v0 + loc, vCHR), False)
-                        else:
-                            return self.MRCApos(Position(u0 + loc, uCHR), Position(v0 - loc - 1, vCHR), True)
-                    else:
-                        if v0 < v1:
-                            return self.MRCApos(Position(u0 - loc - 1, uCHR), Position(v0 + loc, vCHR), True)
-                        else:
-                            return self.MRCApos(Position(u0 - loc - 1, uCHR), Position(v0 - loc - 1, vCHR), False)
+                    # Map the chosen position in the MRCA into u and v. If an interval in
+                    # u or v is inverted relative to the MRCA (e.g. (5, 0)), the map
+                    # reverses the order of positions, so the first position of the MRCA
+                    # interval maps to the last position of the u or v interval (e.g. 4).
+                    # (Convert to Python ints, as rng.choice returns numpy values.)
+                    u0, u1, u_chr = (int(x) for x in u)
+                    v0, v1, v_chr = (int(x) for x in v)
+                    to_u = PositionMap.from_intervals((left, right), (u0, u1))
+                    to_v = PositionMap.from_intervals((left, right), (v0, v1))
+                    position = left + int(loc)
+                    return self.MRCApos(
+                        Position(to_u.position(position), u_chr),
+                        Position(to_v.position(position), v_chr),
+                        to_u.is_reversing != to_v.is_reversing,
+                    )
                 loc -= right - left
 
     def _plot(
@@ -2121,13 +2180,11 @@ class Tables:
             if node_time[ie.child] >= time or node_time[ie.parent] < time:
                 continue
             known = gig._known_alleles(ie.parent, ie.parent_chromosome, ie.parent_min, ie.parent_max)
+            to_child = PositionMap.from_iedge(ie).inverse()
             for x, allele in known.items():
-                if ie.is_inversion():
-                    position = ie.child_left + ie.parent_left - 1 - x
+                if to_child.is_reversing:
                     allele = complement_allele(allele, complements)
-                else:
-                    position = ie.child_left + x - ie.parent_left
-                replacements.setdefault((ie.child, ie.child_chromosome, position), allele)
+                replacements.setdefault((ie.child, ie.child_chromosome, to_child.position(x)), allele)
         return replacements, superseded
 
     @classmethod
@@ -2277,7 +2334,7 @@ class Tables:
                     parent = ie.parent
                     parent_chr = ie.parent_chromosome
                     child_ivl = P.closedopen(ie.child_left, ie.child_right)
-                    is_inversion = ie.is_inversion()
+                    to_parent = PositionMap.from_iedge(ie)
                     # JEROME'S NOTE (from previous algorithm): if we had an index here
                     # sorted by left coord we could binary search to first match, and
                     # could break once c_right > left (I think?), rather than having
@@ -2285,13 +2342,10 @@ class Tables:
                     for intervals in chromosomes[child_chr]:
                         for interval in intervals:
                             if c := child_ivl & interval:  # intersect
-                                p = old_iedges.transform_interval(ie_id, (c.lower, c.upper), Const.ROOTWARDS)
-                                if is_inversion:
-                                    # For passing up, interval orientation doesn't matter
-                                    # so put lowest position first, as `portion` requires
-                                    stack[parent][parent_chr] |= P.closedopen(p[1], p[0])
-                                else:
-                                    stack[parent][parent_chr] |= P.closedopen(*p)
+                                p = to_parent.interval(c.lower, c.upper)
+                                # For passing up, interval orientation doesn't matter, so
+                                # put the lowest position first, as `portion` requires
+                                stack[parent][parent_chr] |= P.closedopen(min(p), max(p))
                                 # Add the trimmed interval to the new edge table
                                 self.add_iedge_row(
                                     child,
@@ -2437,24 +2491,17 @@ class Tables:
 
         # We need to track intervals separately if they have been transformed
         # (inverted or coordinate-shifted). Within the stack, for each node we
-        # therefore store a *dictionary* of portion objects, keyed by offset,
-        # original chromosome, and orientation.
+        # therefore store a *dictionary* of portion objects, keyed by
+        # (to_original, original chromosome), where to_original is the PositionMap
+        # from the coordinates of the node back to those of u (or v).
         #
-        # We store *two* such {(offset, orientation): intervals} dicts. The first
-        # tracks the ancestral regions of u, and the second the ancestral regions of v.
-        # If a node has something in both dicts, intervals for u and v co-occur
-        # (and could therefore coalesce), meaning the node is a potential MRCA.
-        offset = 0
-        # tracked intervals for node u, keyed by offset+orientation (False=not inverted)
-        stack[u] = (
-            {c: {(offset, c, False): P.closedopen(0, np.inf)} for c in u_chromosomes},
-            {},
-        )
-        # tracked intervals for node v, keyed by offset+orientation (False=not inverted)
-        stack[v] = (
-            {},
-            {c: {(offset, c, False): P.closedopen(0, np.inf)} for c in v_chromosomes},
-        )
+        # We store *two* such dicts. The first tracks the ancestral regions of u, and
+        # the second the ancestral regions of v. If a node has something in both
+        # dicts, intervals for u and v co-occur (and could therefore coalesce),
+        # meaning the node is a potential MRCA.
+        identity = PositionMap(1, 0)
+        stack[u] = ({c: {(identity, c): P.closedopen(0, np.inf)} for c in u_chromosomes}, {})
+        stack[v] = ({}, {c: {(identity, c): P.closedopen(0, np.inf)} for c in v_chromosomes})
 
         result = MRCAdict()
 
@@ -2480,7 +2527,7 @@ class Tables:
                 # different patterns of descent into u and v
                 for chrom in u_dict.keys() & v_dict.keys():
                     coalesced = P.IntervalDict()
-                    # u_key and v_key are (offset, is_inverted) tuples
+                    # u_key and v_key are (to_original, original chromosome) tuples
                     for u_key, u_intervals in u_dict[chrom].items():
                         for i, u_interval in enumerate(u_intervals):
                             for v_key, v_intervals in v_dict[chrom].items():
@@ -2488,7 +2535,7 @@ class Tables:
                                     if mrca := u_interval & v_interval:
                                         # we temporarily track the index of the intervals
                                         # that are unique to that specific chromosome and
-                                        # (offset, chr, is_inverted) tuple. This avoids
+                                        # (to_original, chr) tuple. This avoids
                                         # double-counting intervals in the nested loop.
                                         # We replace these details with the
                                         # interval-plus-chromosome  on another pass
@@ -2505,25 +2552,9 @@ class Tables:
                                 result[child][key] = MRCAdict.MRCAintervals([], [])
                             for uv_list, details in zip(result[child][key], uv_details):
                                 # Odd that we don't use the values() of `details` here:?
-                                for uv_key, _ in details:
-                                    (
-                                        offset,
-                                        orig_chr,
-                                        inverted_relative_to_original,
-                                    ) = uv_key
-                                    if inverted_relative_to_original:
-                                        uv_interval = Segment(
-                                            offset - mrca_interval.lower,
-                                            offset - mrca_interval.upper,
-                                            orig_chr,
-                                        )
-                                    else:
-                                        uv_interval = Segment(
-                                            mrca_interval.lower - offset,
-                                            mrca_interval.upper - offset,
-                                            orig_chr,
-                                        )
-                                    uv_list.append(uv_interval)
+                                for (to_original, orig_chr), _ in details:
+                                    ends = to_original.interval(mrca_interval.lower, mrca_interval.upper)
+                                    uv_list.append(Segment(*ends, orig_chr))
 
                         # Remove the coalesced segments from the interval lists
                         for uv_dict in (u_dict, v_dict):
@@ -2539,31 +2570,18 @@ class Tables:
                 ie = self.iedges[ie_id]
                 parent = ie.parent
                 child_ivl = P.closedopen(ie.child_left, ie.child_right)  # cache
-                is_inversion = ie.is_inversion()
+                to_parent = PositionMap.from_iedge(ie)
+                from_parent = to_parent.inverse()
                 for u_or_v, u_or_v_dict in enumerate((u_dict, v_dict)):
                     for chromosome, interval_dict in u_or_v_dict.items():
                         if chromosome != ie.child_chromosome:
                             continue
-                        for (
-                            offset,
-                            orig_chr,
-                            invrt,
-                        ), intervals in interval_dict.items():
+                        for (to_original, orig_chr), intervals in interval_dict.items():
+                            key = (from_parent.then(to_original), orig_chr)
                             for interval in intervals:
                                 if c := child_ivl & interval:
-                                    p = self.iedges.transform_interval(ie_id, (c.lower, c.upper), Const.ROOTWARDS)
-                                    if is_inversion:
-                                        if invrt:
-                                            # 0 gets flipped backwards
-                                            x = offset - (c.lower + p[0])
-                                        else:
-                                            x = offset + (c.lower + p[0])
-                                        invrt = not invrt
-                                        parent_ivl = P.closedopen(p[1], p[0])
-                                    else:
-                                        x = offset - c.lower + p[0]
-                                        parent_ivl = P.closedopen(*p)
-                                    key = (x, orig_chr, invrt)
+                                    p = to_parent.interval(c.lower, c.upper)
+                                    parent_ivl = P.closedopen(min(p), max(p))
                                     if parent not in stack:
                                         stack[parent] = ({}, {})
                                     if ie.parent_chromosome not in stack[parent][u_or_v]:

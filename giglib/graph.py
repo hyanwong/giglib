@@ -17,6 +17,7 @@ from .tables import (
     IndividualTableRow,
     MutationTableRow,
     NodeTableRow,
+    PositionMap,
     Tables,
     _IEdgeMethods,
     _MutationMethods,
@@ -241,9 +242,9 @@ class Graph:
         Each position is traced rootwards until it reaches a mutation (the most recent
         one at that node and position), or a node with no parent at that position.
         Each position has at most one parent, so tracing never branches. We track
-        intervals in the coordinates of the current node, with an affine map
-        ``position = m * x + k`` back to the position in ``u``, where ``m == -1`` if
-        the interval has passed through an odd number of inversions.
+        intervals in the coordinates of the current node, with a
+        :class:`~giglib.PositionMap` back to the coordinates of ``u``, which reverses
+        positions if the interval has passed through an odd number of inversions.
         """
         result = {}
         complements = self.tables.allele_complements
@@ -251,9 +252,9 @@ class Graph:
         mutations = self.tables.mutations
         mut_position = mutations.position
         state_col = mutations._extra_data_cols["derived_state"]
-        stack = [(u, chromosome, left, right, 1, 0)]
+        stack = [(u, chromosome, left, right, PositionMap(1, 0))]
         while stack:
-            v, c, a, b, m, k = stack.pop()
+            v, c, a, b, to_u = stack.pop()
             # Resolve positions with mutations above v. The last mutation at a position
             # is the most recent, so determines the allele inherited from v.
             resolved = []
@@ -266,7 +267,7 @@ class Graph:
                     while j + 1 < hi and mut_position[j + 1] == x:
                         j += 1
                     state = mutations._extra_data[j][state_col]
-                    result[m * x + k] = state if m == 1 else complement_allele(state, complements)
+                    result[to_u.position(x)] = complement_allele(state, complements) if to_u.is_reversing else state
                     resolved.append(x)
                     j += 1
             # Trace the unresolved intervals up through the iedges above v
@@ -284,13 +285,10 @@ class Graph:
                     ov_a, ov_b = max(p, child_left[i]), min(q, child_right[i])
                     if ov_a < ov_b:
                         ie = iedges[ie_start + i]
-                        if ie.parent_left < ie.parent_right:
-                            d = ie.parent_left - ie.child_left
-                            stack.append((ie.parent, ie.parent_chromosome, ov_a + d, ov_b + d, m, k - m * d))
-                        else:
-                            # Inversion: parent position x' = s - x
-                            s = ie.child_left + ie.parent_left - 1
-                            stack.append((ie.parent, ie.parent_chromosome, s - ov_b + 1, s - ov_a + 1, -m, k + m * s))
+                        to_parent = PositionMap.from_iedge(ie)
+                        ends = to_parent.interval(ov_a, ov_b)
+                        to_u_from_parent = to_parent.inverse().then(to_u)
+                        stack.append((ie.parent, ie.parent_chromosome, min(ends), max(ends), to_u_from_parent))
                     i += 1
         return result
 
@@ -370,15 +368,15 @@ class Graph:
         if position < 0:
             raise ValueError("position must be non-negative")
         iedges = self.tables.iedges
-        inverted = False
+        inverted = False  # whether the position has passed through an odd number of inversions
         # This traces through every intermediate node, so takes time proportional to the
         # depth of the graph. A "homology table" (see the simplification design note),
         # which skips unary and coalescent nodes, could make this much faster.
         while (ie_id := self._iedge_id_above(u, chromosome, position)) is not None:
             ie = iedges[ie_id]
-            if ie.is_inversion():
-                inverted = not inverted
-            position = self.iedges[ie_id].transform_position(position, Const.ROOTWARDS)
+            to_parent = PositionMap.from_iedge(ie)
+            position = to_parent.position(position)
+            inverted ^= to_parent.is_reversing
             u, chromosome = ie.parent, ie.parent_chromosome
         mutations = self.tables.mutations
         start, end = mutations._range_for_node(u, chromosome)
@@ -906,27 +904,20 @@ class IEdge(_IEdgeMethods, namedtuple("IEdge", (*IEdgeTableRow._fields, "id"))):
         Transform a position from child coordinates to parent coordinates
         (``direction=Const.ROOTWARDS``), or from parent to child coordinates
         (``direction=Const.LEAFWARDS``). If this is an inversion then an edge such as
-        [0, 10) -> (10, 0] means that position 9 gets transformed to 0, and position
-        10 is not transformed at all. This means subtracting 1 from the returned
-        (transformed) position.
+        [0, 10) -> (10, 0] maps position 0 to 9, and position 9 to 0 (see
+        :class:`~giglib.PositionMap`, which does the mapping).
+
+        :raises ValueError: If the position is not in the child interval (rootwards)
+            or the parent interval (leafwards)
         """
         if direction == Const.ROOTWARDS:
-            if x < self.child_left or x >= self.child_right:
+            if not self.child_min <= x < self.child_max:
                 raise ValueError(f"Position {x} not in child interval for {self}")
-            if self.is_inversion():
-                return self.child_left - x + self.parent_left - 1
-            else:
-                return x - self.child_left + self.parent_left
-
+            return PositionMap.from_iedge(self).position(x)
         elif direction == Const.LEAFWARDS:
-            if self.is_inversion():
-                if x < self.parent_right or x >= self.parent_left:
-                    raise ValueError(f"Position {x} not in parent interval for {self}")
-                return self.child_left - x + self.parent_left - 1
-            else:
-                if x < self.parent_left or x >= self.parent_right:
-                    raise ValueError(f"Position {x} not in parent interval for {self}")
-                return x - self.parent_left + self.child_left
+            if not self.parent_min <= x < self.parent_max:
+                raise ValueError(f"Position {x} not in parent interval for {self}")
+            return PositionMap.from_iedge(self).inverse().position(x)
         raise ValueError(f"Direction must be Const.ROOTWARDS or Const.LEAFWARDS, not {direction}")
 
 

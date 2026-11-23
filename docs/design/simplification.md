@@ -44,7 +44,8 @@ c ──(iedge A: c's [a, b) -> u's [a', b'))──> u ──(iedge B: u's [a', 
 
 Each iedge maps positions by a shift, reversed if the iedge is an inversion. Composing the two
 gives a single map from `c`'s `[a, b)` to `p`'s `[a", b")`, which is an inversion if exactly one
-of A and B is. So `u` can be removed from this path by replacing A and B with one iedge from
+of A and B is. (With {class}`~giglib.PositionMap`, this is
+`PositionMap.from_iedge(A).then(PositionMap.from_iedge(B))`.) So `u` can be removed from this path by replacing A and B with one iedge from
 `c` to `p`. In general, the parent interval of A overlaps several iedges above `u`, so A is
 split at their boundaries, giving one composed iedge per piece. Chromosomes compose in the same
 way: the composed iedge goes from A's child chromosome to B's parent chromosome.
@@ -316,13 +317,14 @@ conversation about the giglib API, mutations, and storage (November 2026), and i
   simplification needs.
 - {meth}`~giglib.Tables.remove_non_ancestral_nodes`: removes nodes, and renumbers the nodes,
   iedges, indexes and mutations. Simplification will need the same renumbering.
-- `IEdgeTable.transform_interval()` and `IEdge.transform_position()`: map intervals and positions
-  through one iedge, including inversions. Composing iedges builds on these.
+- {class}`~giglib.PositionMap`: the map from one genome's coordinates to another's, made by an
+  iedge (a shift, reversed for an inversion). All the code that maps positions or intervals
+  through iedges uses it. Maps along a chain of iedges combine into one with
+  {meth}`~giglib.PositionMap.then`, which is what composing iedges needs.
 - {meth}`~giglib.Tables.find_mrca_regions`: traces two genomes up to their MRCAs, which is the
   operation the homology table aims to speed up.
-- `Graph._known_alleles()`: traces positions up through iedges with an affine map (`position =
-  m * x + k`, where `m = -1` after an odd number of inversions). That is the same kind of map that
-  composed iedges need.
+- `Graph._known_alleles()`: traces positions up through iedges, combining their position maps
+  as it goes, as composing iedges will.
 - {meth}`~giglib.Tables.decapitate`: moves the effect of removed mutations onto remaining nodes,
   which is similar to moving mutations down when removing a node.
 - The Wright-Fisher simulators in `tests/gigutil.py` (with inversions only), and the examples in
