@@ -39,6 +39,22 @@ python evaluation/performance.py --quick           # a quick performance smoke t
   methods on a `Graph` return objects and those on `Tables` return IDs; nodes come first when
   adding rows, and iedge coordinates and chromosomes are given by keyword.
 
+## Coding style and quality
+
+- Prefer semantic correctness, well-defined invariants and clear error messages to clever tricks.
+- Consider the **algorithmic** time and memory complexity of code on critical paths (e.g. adding
+  rows, validation, tracing through the graph): avoid work that grows with the size of the tables
+  when it needn't. This is not micro-optimisation, which should wait for measurements.
+- Apply DRY carefully: share logic when it makes the code clearer and keeps rules in one place,
+  but avoid over-abstraction or generic frameworks that obscure intent.
+- Write readable, explicit code with simple control flow and minimal "magic"; prefer
+  straightforward implementations to compact but opaque idioms. Keep code concise but not cryptic,
+  and remove dead or unused code and unnecessary indirection.
+- Keep responsibilities coherent: e.g. the tables own their data, indexes and validity flags, and
+  a `Graph` is a read-only view of validated tables.
+- In tests, prefer simple, direct assertions that fail fast. Test code should not be defensive,
+  over-general, or try to recover from failures.
+
 ## Validity
 
 Validity is tracked as separate requirements (`ValidFlags`), not as a single yes or no; see
@@ -64,3 +80,9 @@ Validity is tracked as separate requirements (`ValidFlags`), not as a single yes
   `docs/design/`, or in an issue, so they can be picked up later.
 - **Fix unrelated bugs in separate PRs.**
 - Add tests for each change, and keep the docs (including the executed examples) up to date.
+- **The user may be editing files while you work:** don't revert or overwrite changes you didn't
+  make, unless asked, and don't reformat or touch files that the task doesn't need.
+- **Allow long-running commands to finish:** the docs build and evaluation runs can take several
+  minutes, so set timeouts generously (or run them in the background and check on them).
+- Run performance cases one at a time on an otherwise idle machine, not in parallel, so that
+  timings aren't distorted.
