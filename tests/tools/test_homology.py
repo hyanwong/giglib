@@ -172,6 +172,33 @@ class TestFindHomology:
         with pytest.raises(ValueError, match="different genomes"):
             homology.find_homology(cnv_tables(), 2, 2)
 
+    def test_plot_shows_old_homology(self):
+        ax = homology.plot(cnv_tables(), 2, 3)
+        (collection,) = ax.collections
+        assert sorted(collection.get_array()) == [1, 1, 10, 10, 10]
+
+
+class TestPlot:
+    def test_segments_coloured_by_tmrca(self):
+        # u has a copy of a segment from an older ancestor (node 0), and otherwise
+        # inherits from a recent one (node 1), as does v
+        tables = gigl.Tables()
+        tables.nodes.add_row(10)
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0)
+        tables.nodes.add_row(0)
+        tables.iedges.add_row(1, 0, child_right=20)
+        tables.iedges.add_row(2, 1, child_right=20)
+        tables.iedges.add_row(2, 0, child_left=20, child_right=25, parent_left=30, parent_right=35)
+        tables.iedges.add_row(3, 1, child_right=20)
+        tables.iedges.add_row(3, 0, child_left=20, child_right=25, parent_left=30, parent_right=35)
+        tables.sort()
+        tables.validate()
+        ax = homology.plot(tables, 2, 3)
+        (collection,) = ax.collections
+        lines = sorted((tuple(map(tuple, seg)), t) for seg, t in zip(collection.get_segments(), collection.get_array()))
+        assert lines == [(((0, 0), (20, 20)), 1), (((20, 20), (25, 25)), 10)]
+
 
 class TestReviewCases:
     def test_inverted_segment_with_two_copies(self):
