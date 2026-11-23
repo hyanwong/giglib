@@ -48,8 +48,10 @@ that rely on it are to keep giving correct answers.
   but not e.g. the full canonical sort order.
 - **A {class}`~giglib.Graph` requires all the guarantees** ({data}`~giglib.ValidFlags.GIG`).
   Creating one checks any guarantees that are not already flagged, and then freezes the tables.
-- **Guarantees can be checked as rows are added**, one row at a time, or **later, in bulk**, with
-  {meth}`~giglib.Tables.validate`.
+- **Guarantees are checked with {meth}`~giglib.Tables.validate`,** which only checks the rows
+  added since it was last called, so it is cheap to call often (see
+  {ref}`sec_validation_incremental`). Adding rows makes no checks (apart from refusing
+  non-integer values).
 
 The flags currently only concern the iedges table, as that is where the important guarantees
 are (see {ref}`sec_validation_other` for the other checks).
@@ -60,11 +62,11 @@ Each flag records one guarantee about the iedges table:
 
 | Flag | Guarantees | Needs node times? |
 |---|---|---|
-| `IEDGES_INTEGERS` | All values are integers, and node IDs and coordinates are non-negative (chromosome IDs may be negative, e.g. for circular chromosomes, and the edge ID may be `NULL`) | |
+| `IEDGES_INTEGERS` | Coordinates are non-negative. (All values are integers, as adding a row refuses others. Chromosome IDs may be negative, e.g. for circular chromosomes, and the edge ID may be `NULL`.) | |
 | `IEDGES_INTERVALS` | Each iedge's child and parent intervals have the same length | |
 | `IEDGES_CHILD_INTERVAL_POSITIVE` | `child_left < child_right` (only parent intervals can be reversed, for inversions) | |
 | `IEDGES_FOR_CHILD_NONOVERLAPPING` | Each position of a child's chromosome has at most one parent | |
-| `IEDGES_PARENT_OLDER_THAN_CHILD` | Every parent is older than its child (so the graph is acyclic), and both are nodes in the node table | yes |
+| `IEDGES_PARENT_OLDER_THAN_CHILD` | Every parent is older than its child (so the graph is acyclic), and both are nodes in the node table (i.e. the node IDs are valid) | yes |
 | `IEDGES_SAME_PARENT_CHILD_FOR_EDGE` | iedges with the same edge ID have the same parent and child | |
 | `IEDGES_FOR_CHILD_ADJACENT` | The iedges for each child are next to each other in the table | |
 | `IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC` | ... and ordered by chromosome | |
@@ -111,55 +113,47 @@ child = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
 print(tables.iedges.flags == ValidFlags.GIG)  # an empty table satisfies everything
 ```
 
-**Adding a row without validation** removes all the iedge flags, as the table can no longer
-guarantee anything:
+**Adding a row** makes no checks (apart from refusing non-integer values), so the table can no
+longer guarantee anything, and the iedge flags are removed:
 
 ```{code-cell}
 tables.iedges.add_row(child, parent, child_right=100)
 print(tables.iedges.flags == 0)
 ```
 
-**Adding a row with validation** checks the requested guarantees for that row, and keeps them
-(if they held before). Guarantees that need node times must be checked using
-{meth}`~giglib.Tables.add_iedge_row`, which can see the node table:
+**Validating** with {meth}`~giglib.Tables.validate` checks the requested guarantees (by default,
+all of them), setting the flag of each, and raising an error for the first that doesn't hold:
 
 ```{code-cell}
-tables.iedges.clear()
-tables.add_iedge_row(child, parent, child_right=100, validate=ValidFlags.GIG)
+tables.validate()
 print(tables.iedges.flags == ValidFlags.GIG)
 
+tables.iedges.add_row(child, parent, child_left=50, child_right=150)  # overlaps the first
 try:
-    tables.add_iedge_row(child, parent, child_left=50, child_right=150, validate=ValidFlags.GIG)
+    tables.validate()
 except ValueError as e:
     print("Error:", e)
 ```
 
-**Bulk validation** with {meth}`~giglib.Tables.validate` checks the whole table, setting the
-flag of each guarantee that holds, and raising an error for the first that doesn't. Guarantees
-that are already flagged are not checked again, unless `recheck=True`. The exception is the
-guarantees that depend on node times (e.g. parents being older than children), which are always
-checked again, as the node table can change without the iedges table knowing (e.g. by being
-cleared and refilled):
-
-```{code-cell}
-tables.iedges.add_row(child, parent, child_left=100, child_right=200)  # removes the flags
-tables.validate()  # checks everything, and sets all the flags again
-print(tables.iedges.flags == ValidFlags.GIG)
-```
+Validation only checks the rows added since it was last called (see
+{ref}`sec_validation_incremental`), so it is cheap to call after adding a few rows, however large
+the tables are.
 
 Other ways that flags are set:
 
 - {meth}`~giglib.Tables.sort` sorts the iedges, and sets the ordering flags.
 - {meth}`~giglib.Tables.from_tree_sequence` sets the flags guaranteed by a valid tree sequence
-  ({data}`~giglib.ValidFlags.IEDGES_FROM_TSKIT`), and checks integer coordinates as it adds rows.
-- {meth}`~giglib.tables.IEdgeTable.set_bitflag` sets flags *without checking anything*. It is a
-  promise, which algorithms then trust (see below). {meth}`~giglib.tables.IEdgeTable.unset_bitflag`
-  removes flags.
+  ({data}`~giglib.ValidFlags.IEDGES_FROM_TSKIT`).
+- {meth}`~giglib.tables.IEdgeTable.set_bitflag` sets flags for the whole table *without checking
+  anything*. It is a promise, which algorithms then trust (see below).
+  {meth}`~giglib.tables.IEdgeTable.unset_bitflag` removes flags.
 
 Algorithms refuse to run if the flags they need are missing, even if the tables happen to be
 valid, and the error names the missing flags:
 
 ```{code-cell}
+tables.iedges.clear()
+tables.iedges.add_row(child, parent, child_right=100)
 other_child = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
 tables.iedges.add_row(other_child, parent, child_right=300)  # flags removed
 try:
@@ -176,28 +170,65 @@ mrcas = tables.find_mrca_regions(child, other_child)
 print("MRCA nodes:", list(mrcas.keys()))
 ```
 
+(sec_validation_incremental)=
+
+## Why only new rows need checking
+
+Validation is incremental: the tables record how many iedges have been checked, and for which
+requirements. When {meth}`~giglib.Tables.validate` is next called, a requirement that already held
+for the checked rows is only checked for the new rows; one that wasn't known to hold is checked
+for all the rows.
+
+This is enough because adding rows only *appends* to the table: existing rows don't move or
+change. Adding a row can certainly make the table invalid (e.g. a new iedge whose child is older
+than the previous iedge's child means the iedges are no longer ordered by child time), but **any
+new violation must involve a new row**, so only the new rows need checking. That's true of each
+kind of requirement:
+
+- **Requirements about a single iedge** (integer coordinates, equal spans,
+  `child_left < child_right`, the parent being older than the child): an existing iedge doesn't
+  change, so still satisfies them.
+- **Requirements comparing each iedge with the previous one** (the ordering requirements, e.g.
+  children ordered by time, or each child's iedges by chromosome and position): pairs of existing
+  iedges are unchanged, so the only pairs to check are the last existing iedge with the first new
+  one, and pairs of new iedges.
+- **Requirements over a group of iedges:** the iedges of a child must be adjacent, and must not
+  overlap, and iedges with the same edge ID must have the same parent and child. A new violation
+  needs a new iedge in the group, so only groups containing new iedges are checked (using the
+  index of the iedges for each child, or the edge IDs of the new iedges).
+
+Operations that reorder or change existing iedges, such as {meth}`~giglib.Tables.sort`,
+{meth}`~giglib.tables.IEdgeTable.squash` or {meth}`~giglib.tables.IEdgeTable.clear`, set the
+flags that they guarantee for all the rows.
+
+**Adding nodes** doesn't break any requirement either: it doesn't change the times of existing
+nodes, or which node an existing ID refers to, and the node table has no order of its own. But
+the node table *can* be changed in other ways, e.g. by being cleared and refilled, or by
+{meth}`~giglib.Tables.change_times`. So the node table records whenever its existing rows
+change, and the requirements that depend on node times are then checked again for all the iedges.
+Algorithms that rely on these flags (e.g. {meth}`~giglib.Tables.find_mrca_regions`) check them
+again in the same way.
+
+The cost of {meth}`~giglib.Tables.validate` is therefore proportional to the number of new rows,
+plus a fixed cost of about 50 µs per call. Checking costs about 0.5 µs per iedge when many rows are
+checked at once (e.g. when creating a `Graph` from tables built without validation).
+
 (sec_validation_choosing)=
 
 ## Choosing how to validate
 
-There are three approaches, with different costs and risks:
+There are two approaches:
 
-1. **Validate each row as it is added** (`add_row(..., validate=...)`). This is the slowest
-   (adding an iedge takes about 3 µs, including the checks), but reports an error at the exact
-   row that breaks a guarantee, which is useful when writing or debugging code.
-2. **Add rows without validation, then validate in bulk** with {meth}`~giglib.Tables.validate`,
-   just before running an algorithm that needs the flags. Checks are made on whole columns, so
-   this is much cheaper per iedge (about 0.2 µs, for all the checks), and still catches any
-   mistakes. But each call currently checks the *whole* table, so this only pays off when many
-   rows are added between algorithm calls (e.g. building tables, then converting them to a
-   `Graph`).
-3. **Skip the checks,** with `add_row(..., validate=..., skip_validate=True)` or
-   {meth}`~giglib.tables.IEdgeTable.set_bitflag`. The flags are set without any checking, so this
-   is the fastest, but it is only safe if the code adding the rows is known to be correct. If that
-   code later changes, and breaks a guarantee, nothing will notice: algorithms that trust the
-   flags may quietly give wrong answers.
+1. **Add rows, then validate** with {meth}`~giglib.Tables.validate` before running an algorithm
+   that needs the flags. This catches any mistakes, and as only the new rows are checked, can be
+   done as often as needed: e.g. once all of a child's iedges have been added, or after each row
+   (to find out exactly which row breaks a requirement, when writing or debugging code).
+2. **Skip the checks** with {meth}`~giglib.tables.IEdgeTable.set_bitflag`. The flags are set
+   without any checking, so this avoids the cost of validating, but it is only safe if the code
+   adding the rows is known to be correct. If that code later changes, and breaks a guarantee,
+   nothing will notice: algorithms that trust the flags may quietly give wrong answers.
 
-Creating a `Graph` uses approach 2, so is cheap for tables that are already flagged (e.g.
+Creating a `Graph` uses approach 1, so is cheap for tables that are already validated (e.g.
 converted from a tree sequence).
 
 ### Forward simulations
@@ -205,21 +236,14 @@ converted from a tree sequence).
 In a forward simulation, adding rows and running algorithms alternate. For each child,
 homologous positions in its parents are located (e.g. with
 {meth}`~giglib.Tables.find_mrca_regions`) to choose recombination breakpoints, and then the
-child's iedges are added. Adding a row without validation removes the
-flags, so the next algorithm call would refuse to run. Approach 2 would then mean checking the
-whole table before every algorithm call, which costs more than validating each row. So at present,
-simulations need approach 1 (or, once the code is well tested, approach 3).
+child's iedges are added. Validating after adding each child's iedges only checks those iedges,
+so the cost doesn't grow as the tables grow.
 
-Two improvements would make bulk validation suitable for simulations (see
-{ref}`sec_validation_improvements`):
-
-- **Incremental validation**, checking only the rows added since the last call, so that the cost
-  of validating before each algorithm call depends on the number of new rows, not on the size of
-  the table.
-- **A validated prefix of the table.** Locating homologous positions only reads *older* material:
-  the ancestry of the parents, whose iedges were added in earlier generations. So the tables could
-  record that rows `0` to `k` are validated, and algorithms that only touch those rows could run
-  while newer rows are still unchecked.
+The fixed cost of each call to {meth}`~giglib.Tables.validate` could be avoided with a
+**validated prefix** of the table (see {ref}`sec_validation_improvements`). Locating homologous
+positions only reads *older* material: the ancestry of the parents, whose iedges were added in
+earlier generations. So algorithms that only read rows that have been validated could run while
+newer rows are still unchecked.
 
 ### Other algorithms on tables
 
@@ -230,7 +254,7 @@ need, and the flags they leave on their output:
 |---|---|---|
 | {meth}`~giglib.Tables.sample_resolve` | `IEDGES_FOR_TRACING` | the input's order-independent flags, plus the ordering flags (from sorting) |
 | {meth}`~giglib.Tables.decapitate` | none, unless there are mutations to keep (with the default `discard_old_mutations=False`), when the tables must form a valid GIG | the input's order-independent flags, plus the ordering flags |
-| {meth}`~giglib.Tables.remove_non_ancestral_nodes` | `IEDGES_INTEGERS` | all the flags |
+| {meth}`~giglib.Tables.remove_non_ancestral_nodes` | `IEDGES_PARENT_OLDER_THAN_CHILD` (so that node IDs are valid) | all the flags |
 | {meth}`~giglib.Tables.sort` | (none) | adds the ordering flags |
 
 The "order-independent" flags ({data}`~giglib.ValidFlags.IEDGES_ORDER_INDEPENDENT`) are the
@@ -239,7 +263,7 @@ interval (at integer positions, with the child and parent intervals trimmed to c
 positions), with node times unchanged. An example is that parents are older than children.
 `sample_resolve()` and `decapitate()` build their output from the input iedges in this way, so
 they keep any of these flags that the input had ({issue}`181`). Those that depend on node times
-are rechecked first, in case the node table has changed since they were set.
+are rechecked first if the node table has changed since they were checked.
 
 So, given valid tables, they give valid tables, and algorithms such as
 {meth}`~giglib.Tables.find_mrca_regions` can be run straight after simplifying, without
@@ -249,14 +273,6 @@ before running algorithms that need them.
 
 Locating homologous positions efficiently is also the purpose of the proposed "homology table"
 ({issue}`140`; see {ref}`sec_design_simplification`), which would need the same guarantees.
-
-Until then, approach 1 is recommended while developing, and approach 2 wherever many rows are
-added at once. Approach 3 is best avoided unless the speed is really needed.
-
-One thing can *only* be checked as rows are added: whether values are integers. Iedge
-coordinates and IDs are stored as integers, so a non-integer value (e.g. `10.5`) is silently
-truncated when added. Validating `IEDGES_INTEGERS` in bulk can therefore only check that the
-stored node IDs and coordinates are non-negative.
 
 (sec_validation_other)=
 
@@ -274,23 +290,9 @@ mutations are planned ({issue}`182`):
 
 ## Possible improvements
 
-- **Incremental bulk validation:** {meth}`~giglib.Tables.validate` could check only the rows
-  added since it was last called. Most checks only need the new rows and the row before them (the
-  edge ID check is the exception), so this would make approach 2 cost little more than the rows
-  being added, even when called before every algorithm in a simulation.
-- **A validated prefix:** recording which rows are validated (rather than flags for the whole
-  table), so that algorithms that only read older rows can run while newer rows are unchecked
-  (see {ref}`sec_validation_choosing`).
-- **Retiring `skip_validate`:** if incremental validation makes approach 2 fast enough in
-  simulations, the option to set flags without checking could be removed, so that flags can only
-  be set by checking (or by an explicit `set_bitflag()`).
-- **Refusing non-integer values** when rows are added without validation, so that
-  `IEDGES_INTEGERS` can be fully checked in bulk.
-- **Tracking changes to the node table:** clearing and refilling the node table can break the
-  guarantees that depend on node times. {meth}`~giglib.Tables.validate` (and so creating a
-  `Graph`) always checks these again, but algorithms that only look at the flags (e.g.
-  {meth}`~giglib.Tables.find_mrca_regions`) do not. Changes to the node table could instead
-  remove those flags from the iedges table.
+- **A validated prefix:** using the record of which rows are validated, so that algorithms that
+  only read older rows can run while newer rows are unchecked (see
+  {ref}`sec_validation_choosing`).
 - **Keeping flags through future table algorithms:** like `sample_resolve()` and `decapitate()`,
   node-removing simplification should keep the flags that its output satisfies by construction.
 - **More flags:** for mutations ({issue}`182`), e.g. that their times are valid and in order,

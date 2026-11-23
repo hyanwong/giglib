@@ -104,8 +104,9 @@ Tables and graphs maintain indexes, to avoid scanning whole tables:
 
 The iedges table has a bitmask of {class}`~giglib.ValidFlags`, each recording a guarantee about
 the table (e.g. that iedges for each child are sorted, or that parents are older than children).
-Rows can be checked as they are added (using `validate=` in `add_row`), or in bulk (using
-{meth}`~giglib.Tables.validate`, which works on whole columns), and each table algorithm checks for
+They are checked by {meth}`~giglib.Tables.validate`, which works on whole columns, and only checks
+the rows added since it was last called (the table records how many rows have been checked).
+Each table algorithm checks for
 the guarantees it needs, using `has_all_bitflags()`. Creating a `Graph` requires all of them. See
 {ref}`sec_validation`.
 
@@ -124,7 +125,7 @@ must preserve:
 |---|---|
 | Columns | Each column is available as a numpy array (e.g. `tables.iedges.child`), which cannot be edited in place |
 | Rows | `table[i]` returns a row object with named fields; `len(table)` is the number of rows |
-| Adding rows | `add_row()` returns the new row's ID, and (with `validate=`) checks the requested guarantees |
+| Adding rows | `add_row()` returns the new row's ID, and refuses non-integer iedge values |
 | Queries | Methods on tables return IDs (e.g. `ids_for_child`, `filter_nodes`); methods on a `Graph` return objects |
 | Validity | `ValidFlags`, `has_all_bitflags()`, `set_bitflag()` and `unset_bitflag()` |
 | Immutability | A `Graph`, and the tables it wraps, cannot be changed |
@@ -214,8 +215,7 @@ Keep the public contract above fixed, and replace the storage behind it graduall
 - Should the indexes currently built when a `Graph` is created (e.g. the parent index) be
   maintained by the tables instead?
 - Should bulk addition (`add_rows()`) be added to the current numpy storage, or wait for the
-  core? For nodes and individuals it is simple (grow once, assign whole columns), but iedges
-  need validation and index updates that are currently written one row at a time: should
-  `add_rows()` validate the new rows as a block, or only offer the guarantees that can be
-  checked cheaply?
+  core? For nodes and individuals it is simple (grow once, assign whole columns). For iedges,
+  validation already works on blocks of new rows (see {ref}`sec_validation_incremental`), but the
+  index of iedges for each child is updated one row at a time.
 - How should metadata be handled (e.g. schemas, as in _tskit_)?
