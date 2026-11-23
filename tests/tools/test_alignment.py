@@ -463,9 +463,10 @@ class TestToTreeSequence:
         with pytest.raises(ValueError, match="roots that do not share coordinates"):
             alignment.to_tree_sequence(tables.graph())
 
-    def test_multi_character_allele(self):
+    @pytest.mark.parametrize("allele", ["AC", "", "-", "\0"])
+    def test_unsupported_allele(self, allele):
         tables = tables_with_insertion()
-        tables.mutations.add_row(1, 3, "AC")
+        tables.mutations.add_row(1, 3, allele)
         tables.sort()
         with pytest.raises(ValueError, match="single character"):
             alignment.to_tree_sequence(tables.graph())

@@ -158,7 +158,9 @@ genomes around it. This has some limits:
   run), as for insertions within repeats.
 - **A run at the start or end of a genome** is only bounded on one side. It is taken to be
   colinear, unless a child inherits it next to other material that it would overlap, which shows
-  that some of it is inserted.
+  that some of it is inserted. This only applies to nodes that have parents elsewhere: a root's
+  positions define the root coordinates, so a conflict between roots is an error, rather than
+  being resolved as an insertion.
 - **The roots must share coordinates.** A root's genome has no parent anywhere, so an insertion
   that happened above a root can't be detected. Conversions from tree sequences keep the roots in
   the same coordinates (a node that is not in a tree follows the gaps of the ancestral state).

@@ -86,6 +86,7 @@ import giglib
 
 GAP = "-"
 UNKNOWN = "N"
+_MISSING = "\0"  # (for missing data when converting to a tree sequence: not a valid allele)
 
 
 def split_sites(ts):
@@ -426,7 +427,8 @@ def to_tree_sequence(gig):
     :func:`from_tree_sequence` reads as an unknown base, not missing data.
 
     This is a first version, which requires the iedges and mutations to be on a single
-    chromosome, with no inversions, alleles of a single character, and each node's
+    chromosome, with no inversions, alleles of a single character other than ``-`` (so
+    deletions must be represented by iedges, not by gap alleles), and each node's
     positions to be in the same order as the reference coordinates of its ancestors (so
     no duplications or translocations). The time taken is proportional to the number of
     reference coordinates times the number of nodes.
@@ -441,10 +443,10 @@ def to_tree_sequence(gig):
         if ie.is_inversion():
             raise ValueError(f"Cannot convert iedge {ie.id} to a tree sequence: inversions are not supported")
     for m in gig.mutations:
-        if len(m.derived_state) != 1:
+        if len(m.derived_state) != 1 or m.derived_state in (GAP, _MISSING):
             raise ValueError(
                 f"Cannot convert mutation {m.id} to a tree sequence: alleles must be a single character, "
-                f"not {m.derived_state!r}"
+                f"and not {GAP!r} (deletions must be represented by iedges), not {m.derived_state!r}"
             )
     keys = _reference_keys(gig, chromosome)
     all_keys = sorted({key for node_keys in keys for key in node_keys})
@@ -662,7 +664,7 @@ def _add_alignment_sites(gig, tables, coordinates, reference_length, chromosome)
     alleles are written, as only known states (including ``N``) need sites, and mutations
     above isolated samples.
     """
-    missing = "\0"  # (not an allele: alleles are checked to be single characters)
+    missing = _MISSING  # (alleles are checked not to be this)
     states = []
     for u in range(len(gig.nodes)):
         row = [GAP] * reference_length
