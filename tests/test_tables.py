@@ -387,10 +387,9 @@ class TestIEdgeTable:
 
     def test_bad_child_iterator(self, all_sv_types_2re_gig):
         tables = all_sv_types_2re_gig.tables.copy()
-        # Add a valid edge but don't check it
-        tables.iedges.add_row(1, 0, child_left=1000, child_right=1001)
+        tables.iedges.unset_bitflag(ValidFlags.IEDGES_FOR_CHILD_ADJACENT)
         with pytest.raises(ValueError, match="Cannot use this method"):
-            next(tables.iedges.ids_for_child(10))
+            tables.iedges.ids_for_child(10)
 
     def test_good_child_iterator(self, all_sv_types_2re_gig):
         flags = ValidFlags.IEDGES_FOR_CHILD_ADJACENT | ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
@@ -404,11 +403,17 @@ class TestIEdgeTable:
 
     def test_unverified_child_iterator(self, all_sv_types_2re_gig):
         tables = all_sv_types_2re_gig.tables.copy()
+        expected = tables.iedges.ids_for_child(10)
         # Add a valid edge but don't check it
         last_child = tables.iedges[-1].child
         tables.iedges.add_row(last_child, 0, child_left=1000, child_right=1001)
-        with pytest.raises(ValueError, match="Cannot use this method"):
-            _ = tables.iedges.ids_for_child(10)
+        assert tables.iedges.num_validated == len(tables.iedges) - 1
+        # The iedges of node 10 are all validated, but not those of the last child
+        assert np.array_equal(tables.iedges.ids_for_child(10), expected)
+        with pytest.raises(ValueError, match="have not been validated"):
+            tables.iedges.ids_for_child(last_child)
+        tables.validate()
+        assert len(tables.iedges.ids_for_child(last_child)) > 0
 
     def test_clear(self, trivial_gig):
         tables = trivial_gig.tables.copy()
@@ -431,8 +436,11 @@ class TestIEdgeTable:
         tables = trivial_gig.tables.copy()
         # Don't validate
         tables.iedges.add_row(0, 4, child_left=10, child_right=20)
-        with pytest.raises(ValueError, match="Cannot use this method"):
+        with pytest.raises(ValueError, match="have not been validated"):
             tables.iedges.max_pos_as_child(0, chromosome=0)
+        tables.iedges.unset_bitflag(ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING)
+        with pytest.raises(ValueError, match="Cannot use this method"):
+            tables.iedges.max_pos_as_child(1, chromosome=0)
 
     def test_max_child_simple(self):
         ts = tskit.Tree.generate_balanced(2, span=4).tree_sequence
@@ -728,10 +736,10 @@ class TestValidate:
         checks = []
         check = tables._check_iedges
 
-        def recording_check(flags, start=0):
-            if flags and start < len(tables.iedges):
+        def recording_check(flags, start=0, stop=None):
+            if flags and start < (len(tables.iedges) if stop is None else stop):
                 checks.append((flags, start))
-            check(flags, start)
+            check(flags, start, stop)
 
         monkeypatch.setattr(tables, "_check_iedges", recording_check)
         return checks
@@ -2089,3 +2097,61 @@ class TestIncrementalValidation:
                     assert self.error(tables, flags) is None
                 else:
                     assert self.error(tables, flags) is not None
+
+
+class TestValidatedRows:
+    """
+    Methods that read the iedges of particular nodes can run if those iedges are
+    among the validated rows, even if rows added since then have not been validated
+    """
+
+    @staticmethod
+    def tables_with_new_rows():
+        # Validated tables, plus new rows that are not validated (and are invalid)
+        tables = gigl.Tables()
+        for t in (2, 1, 1, 0):
+            tables.nodes.add_row(t)
+        tables.iedges.add_row(1, 0, child_right=10)
+        tables.iedges.add_row(2, 0, child_right=10)
+        tables.validate()
+        tables.iedges.add_row(3, 1, child_right=10)
+        tables.iedges.add_row(3, 3, child_right=5)  # overlapping, and its own parent
+        return tables
+
+    def test_num_validated(self):
+        tables = self.tables_with_new_rows()
+        assert tables.iedges.num_validated == 2
+        assert tables.iedges.flags == 0
+        tables.iedges.set_bitflag(ValidFlags.IEDGES_INTERVALS)  # a promise about all rows
+        assert tables.iedges.num_validated == 4
+        assert tables.iedges.flags == ValidFlags.IEDGES_INTERVALS
+
+    def test_find_mrca_regions(self):
+        tables = self.tables_with_new_rows()
+        mrcas = tables.find_mrca_regions(1, 2)
+        assert list(mrcas.keys()) == [0]
+        assert mrcas[0] == {gigl.Segment(0, 10, 0): ([gigl.Segment(0, 10, 0)], [gigl.Segment(0, 10, 0)])}
+
+    def test_refuses_nodes_with_unvalidated_rows(self):
+        tables = self.tables_with_new_rows()
+        with pytest.raises(ValueError, match="node 3 include rows that have not been validated"):
+            tables.find_mrca_regions(3, 2)
+        with pytest.raises(ValueError, match="have not been validated"):
+            tables.iedges.ids_for_child(3)
+
+    def test_whole_table_methods_need_all_rows(self):
+        tables = self.tables_with_new_rows()
+        with pytest.raises(ValueError, match="requires the iedges to have these validity flags"):
+            tables.sample_resolve()
+        with pytest.raises(ValueError, match="not older than child 3"):
+            tables.validate()
+
+    def test_stale_node_flags_rechecked_for_validated_rows_only(self):
+        tables = self.tables_with_new_rows()
+        tables.change_times(1)  # the node-time flags must be rechecked
+        assert list(tables.find_mrca_regions(1, 2).keys()) == [0]
+        tables.nodes.clear()
+        for t in (0, 1, 1, 0):
+            tables.nodes.add_row(t)  # now the root is younger than its children
+        with pytest.raises(ValueError, match="not older than child"):
+            tables.find_mrca_regions(1, 2)

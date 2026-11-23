@@ -65,6 +65,7 @@ class DTWF_simulator:
         """
         if self.pop is None:
             raise ValueError("Need to initialise a new population first")
+        self.validate()  # the iedges of the parents, added in earlier generations
         prev_pop = self.pop
         self.pop = {}  # fill with individualID: (maternal_genomeID, paternal_genomeID)
 
@@ -124,10 +125,11 @@ class DTWF_simulator:
         Create a simulation class, which can then simulate a forward Discrete Time
         Wright-Fisher model with varying population sizes over generations.
 
-        If skip_validate is False (default), the tables are validated after adding
-        each iedge, so that they are suitable for using the find_mrca_regions() method.
+        If skip_validate is False (default), the iedges are validated at the start of
+        each generation, so that find_mrca_regions() can be used on the parents (it only
+        needs the parents' iedges, added in earlier generations, to be validated).
         Setting this to True instead marks them as valid without checking, which saves
-        some simulation time, at the expense of not doing any validation (dangerous!)
+        a little simulation time, at the expense of not doing any validation (dangerous!)
 
         If initial_sizes is specified, it should be an array of the expected sizes
         for each table, see the ``gigl.Tables.__init__`` method for more information.
@@ -137,11 +139,13 @@ class DTWF_simulator:
         self.skip_validate = skip_validate
 
     def add_iedge_row(self, child, parent, **kwargs):
-        """
-        Add an iedge, and validate the tables (only the new row needs checking), or if
-        ``skip_validate`` is True, mark them as valid without checking
-        """
         self.tables.iedges.add_row(child, parent, **kwargs)
+
+    def validate(self):
+        """
+        Validate the iedges added since the last call (i.e. in the previous generation),
+        or if ``skip_validate`` is True, mark them as valid without checking
+        """
         if self.skip_validate:
             self.tables.iedges.set_bitflag(gigl.ValidFlags.IEDGES_ALL)
         else:

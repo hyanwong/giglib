@@ -174,10 +174,10 @@ print("MRCA nodes:", list(mrcas.keys()))
 
 ## Why only new rows need checking
 
-Validation is incremental: the tables record how many iedges have been checked, and for which
-requirements. When {meth}`~giglib.Tables.validate` is next called, a requirement that already held
-for the checked rows is only checked for the new rows; one that wasn't known to hold is checked
-for all the rows.
+Validation is incremental: the tables record how many iedges have been checked (the
+{ref}`validated rows<sec_validation_validated_rows>`), and for which requirements. When
+{meth}`~giglib.Tables.validate` is next called, a requirement that already held for the validated
+rows is only checked for the new rows; one that wasn't known to hold is checked for all the rows.
 
 This is enough because adding rows only *appends* to the table: existing rows don't move or
 change. Adding a row can certainly make the table invalid (e.g. a new iedge whose child is older
@@ -213,6 +213,50 @@ The cost of {meth}`~giglib.Tables.validate` is therefore proportional to the num
 plus a fixed cost of about 50 µs per call. Checking costs about 0.5 µs per iedge when many rows are
 checked at once (e.g. when creating a `Graph` from tables built without validation).
 
+(sec_validation_validated_rows)=
+
+## Validated rows
+
+The **validated rows** are the first rows of the iedges table, which were checked when
+{meth}`~giglib.Tables.validate` was last called (their number is
+{attr}`tables.iedges.num_validated<giglib.tables.IEdgeTable.num_validated>`). Rows added since then
+are not validated, so the flags of the whole table ({attr}`~giglib.tables.IEdgeTable.flags`) are
+removed until they are. But the flags still hold for the validated rows, and methods that only read
+the iedges of particular nodes can use them:
+
+- {meth}`~giglib.tables.IEdgeTable.ids_for_child`, {meth}`~giglib.tables.IEdgeTable.max_pos_as_child`
+  and {meth}`~giglib.tables.IEdgeTable.min_pos_as_child` run if all the iedges of the node are
+  validated rows.
+- {meth}`~giglib.Tables.find_mrca_regions` runs if the iedges of every node that it traces through
+  are validated rows. Its error names the first node whose iedges are not.
+
+Methods that use the whole table (e.g. {meth}`~giglib.Tables.sample_resolve`, or creating a
+`Graph`) still need all the rows to be validated.
+
+This is safe even if a later row adds to the iedges of a node whose earlier iedges were validated:
+the index of the iedges for each child records the last row of each node, so the method then
+refuses to read that node's iedges. If the node table has changed since the requirements that
+depend on node times were checked, they are checked again for the validated rows only, so
+unvalidated rows cause no errors until they are validated.
+
+```{code-cell}
+tables = gigl.Tables()
+root = tables.nodes.add_row(2)
+mum = tables.nodes.add_row(1)
+dad = tables.nodes.add_row(1)
+tables.iedges.add_row(mum, root, child_right=100)
+tables.iedges.add_row(dad, root, child_right=100)
+tables.validate()
+kid = tables.nodes.add_row(0)
+tables.iedges.add_row(kid, mum, child_right=50)  # not yet validated
+print(tables.iedges.num_validated, "of", len(tables.iedges), "rows validated")
+print("MRCA of mum and dad:", list(tables.find_mrca_regions(mum, dad).keys()))
+try:
+    tables.find_mrca_regions(kid, dad)
+except ValueError as e:
+    print("Error:", e)
+```
+
 (sec_validation_choosing)=
 
 ## Choosing how to validate
@@ -236,14 +280,14 @@ converted from a tree sequence).
 In a forward simulation, adding rows and running algorithms alternate. For each child,
 homologous positions in its parents are located (e.g. with
 {meth}`~giglib.Tables.find_mrca_regions`) to choose recombination breakpoints, and then the
-child's iedges are added. Validating after adding each child's iedges only checks those iedges,
-so the cost doesn't grow as the tables grow.
+child's iedges are added.
 
-The fixed cost of each call to {meth}`~giglib.Tables.validate` could be avoided with a
-**validated prefix** of the table (see {ref}`sec_validation_improvements`). Locating homologous
-positions only reads *older* material: the ancestry of the parents, whose iedges were added in
-earlier generations. So algorithms that only read rows that have been validated could run while
-newer rows are still unchecked.
+Locating homologous positions only reads *older* material: the ancestry of the parents, whose
+iedges were added in earlier generations. So it is enough to validate once per generation (e.g.
+before adding the next generation): the parents' iedges are then
+{ref}`validated rows<sec_validation_validated_rows>`, and the iedges of the children being added
+don't need to be. This only checks each iedge once, and the fixed cost is only paid once per
+generation.
 
 ### Other algorithms on tables
 
@@ -290,9 +334,6 @@ mutations are planned ({issue}`182`):
 
 ## Possible improvements
 
-- **A validated prefix:** using the record of which rows are validated, so that algorithms that
-  only read older rows can run while newer rows are unchecked (see
-  {ref}`sec_validation_choosing`).
 - **Keeping flags through future table algorithms:** like `sample_resolve()` and `decapitate()`,
   node-removing simplification should keep the flags that its output satisfies by construction.
 - **More flags:** for mutations ({issue}`182`), e.g. that their times are valid and in order,

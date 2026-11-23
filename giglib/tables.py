@@ -631,7 +631,7 @@ class IEdgeTable(BaseTable):
         """
         copy = super().copy()
         copy._flags = self._flags
-        copy._num_checked = self._num_checked
+        copy._num_validated = self._num_validated
         copy._nodes_version = self._nodes_version
         # Deep copy the id ranges
         copy._id_range_for_child = {}
@@ -661,13 +661,39 @@ class IEdgeTable(BaseTable):
         :ref:`sec_validation`). Adding a row removes all the flags, until
         :meth:`~giglib.Tables.validate` checks the new rows.
         """
-        # Internally, _flags are guaranteed for the first _num_checked rows
-        return ValidFlags(self._flags if self._num_checked == len(self) else 0)
+        # Internally, _flags are guaranteed for the first _num_validated rows
+        return ValidFlags(self._flags if self._num_validated == len(self) else 0)
 
     @flags.setter
     def flags(self, value):
         self._flags = ValidFlags(value)
-        self._num_checked = len(self)
+        self._num_validated = len(self)
+
+    @property
+    def num_validated(self):
+        """
+        The number of :ref:`validated rows<sec_validation_validated_rows>`: the first
+        rows of the table, which were checked when :meth:`~giglib.Tables.validate` was
+        last called (or marked as valid with :meth:`set_bitflag`). Rows added since then
+        are not validated. Some methods, such as :meth:`ids_for_child`, only need the
+        rows they read to be validated.
+        """
+        return self._num_validated
+
+    def _require_flags_for_child(self, u, flags, message):
+        """
+        Raise a ValueError unless the given flags hold for all the iedges of child
+        ``u``: either because they hold for the whole table, or because they hold for
+        the validated rows, which include all of ``u``'s iedges. (The index of iedges
+        for each child gives the last row of ``u``, even if its rows are not adjacent.)
+        """
+        if (self._flags & flags) != flags:
+            raise ValueError(message)
+        if self._num_validated < len(self):
+            if any(end > self._num_validated for _, end in self._id_range_for_child.get(u, {}).values()):
+                raise ValueError(
+                    f"The iedges of node {u} include rows that have not been validated: call tables.validate() first"
+                )
 
     def __eq__(self, other):
         if self.flags != other.flags:
@@ -906,14 +932,15 @@ class IEdgeTable(BaseTable):
 
         :return: A numpy array of iedge IDs
         :raises ValueError: If the iedges for a child are not adjacent in the table,
-            or not ordered by chromosome
+            or not ordered by chromosome (as these flags are needed for this child's
+            iedges, it is enough for them to be among the
+            :ref:`validated rows<sec_validation_validated_rows>`)
         """
-        if not self.has_all_bitflags(
-            ValidFlags.IEDGES_FOR_CHILD_ADJACENT | ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
-        ):
-            raise ValueError(
-                "Cannot use this method unless iedges have adjacent child IDs" " and are ordered by chromosome"
-            )
+        self._require_flags_for_child(
+            u,
+            ValidFlags.IEDGES_FOR_CHILD_ADJACENT | ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC,
+            "Cannot use this method unless iedges have adjacent child IDs and are ordered by chromosome",
+        )
         try:
             if chromosome is None:
                 chrom_ranges = self._id_range_for_child[u].values()
@@ -934,19 +961,20 @@ class IEdgeTable(BaseTable):
         This is fast because it relies on the iedges for each child being sorted
         and nonoverlapping (:data:`~giglib.ValidFlags.IEDGES_WITHIN_CHILD_SORTED`
         and :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING`), and raises
-        an error unless both flags are set.
+        an error unless both flags are set, at least for the
+        :ref:`validated rows<sec_validation_validated_rows>`, which must include all
+        the iedges of ``u``.
 
         .. note::
             This does not look at edges for which this node is a parent,
             so e.g. root nodes may not have a maximum position defined
         """
-        if not self.has_all_bitflags(
-            ValidFlags.IEDGES_WITHIN_CHILD_SORTED | ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING
-        ):
-            raise ValueError(
-                "Cannot use this method unless iedges for a child are adjacent, "
-                "nonoverlapping, and ordered by chromosome then position"
-            )
+        self._require_flags_for_child(
+            u,
+            ValidFlags.IEDGES_WITHIN_CHILD_SORTED | ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING,
+            "Cannot use this method unless iedges for a child are adjacent, "
+            "nonoverlapping, and ordered by chromosome then position",
+        )
         try:
             if chromosome is None:
                 return max(
@@ -966,19 +994,20 @@ class IEdgeTable(BaseTable):
         This is fast because it relies on the iedges for each child being sorted
         and nonoverlapping (:data:`~giglib.ValidFlags.IEDGES_WITHIN_CHILD_SORTED`
         and :data:`~giglib.ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING`), and raises
-        an error unless both flags are set.
+        an error unless both flags are set, at least for the
+        :ref:`validated rows<sec_validation_validated_rows>`, which must include all
+        the iedges of ``u``.
 
         .. note::
             This does not look at edges for which this node is a parent,
             so e.g. root nodes may not have a minimum position defined
         """
-        if not self.has_all_bitflags(
-            ValidFlags.IEDGES_WITHIN_CHILD_SORTED | ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING
-        ):
-            raise ValueError(
-                "Cannot use this method unless iedges for a child are adjacent, "
-                "nonoverlapping, and ordered by chromosome then position"
-            )
+        self._require_flags_for_child(
+            u,
+            ValidFlags.IEDGES_WITHIN_CHILD_SORTED | ValidFlags.IEDGES_FOR_CHILD_NONOVERLAPPING,
+            "Cannot use this method unless iedges for a child are adjacent, "
+            "nonoverlapping, and ordered by chromosome then position",
+        )
         try:
             if chromosome is None:
                 return min(
@@ -1750,10 +1779,9 @@ class Tables:
             flags = ValidFlags.GIG
         iedges = self.iedges
         num_rows = len(iedges)
-        # The requirements known to hold for the rows before `start`
-        known, start = iedges._flags, iedges._num_checked
-        if iedges._nodes_version != self.nodes._version:
-            known &= ~ValidFlags.IEDGES_COMBO_NODE_TABLE
+        self._recheck_node_flags(flags)
+        # The requirements known to hold for the validated rows (those before `start`)
+        known, start = iedges._flags, iedges._num_validated
         if recheck:
             self._check_iedges(flags)
         else:
@@ -1764,8 +1792,24 @@ class Tables:
         new = (ValidFlags(flags), num_rows, self.nodes._version)
         if start == num_rows:
             new = (new[0] | known, *new[1:])
-        if (iedges._flags, iedges._num_checked, iedges._nodes_version) != new:  # (frozen tables cannot change)
-            iedges._flags, iedges._num_checked, iedges._nodes_version = new
+        if (iedges._flags, iedges._num_validated, iedges._nodes_version) != new:  # (frozen tables cannot change)
+            iedges._flags, iedges._num_validated, iedges._nodes_version = new
+
+    def _recheck_node_flags(self, flags):
+        """
+        If the node table has changed (other than by adding rows) since the iedge
+        requirements that depend on node times were checked, check those in ``flags``
+        again for the validated rows, raising a ValueError if they no longer hold. The
+        others that depend on node times are removed.
+        """
+        iedges = self.iedges
+        if iedges._nodes_version == self.nodes._version:
+            return
+        node_flags = ValidFlags.IEDGES_COMBO_NODE_TABLE
+        recheck = flags & iedges._flags & node_flags
+        self._check_iedges(recheck, stop=iedges._num_validated)
+        iedges._flags &= ~(node_flags & ~recheck)
+        iedges._nodes_version = self.nodes._version
 
     def _order_independent_flags(self):
         """
@@ -1775,17 +1819,21 @@ class Tables:
         if the node table has changed, raising an error if they no longer hold.
         """
         flags = self.iedges.flags & ValidFlags.IEDGES_ORDER_INDEPENDENT
-        self.validate(flags & ValidFlags.IEDGES_COMBO_NODE_TABLE)
+        self._recheck_node_flags(flags)
         return flags
 
-    def _require_iedge_flags(self, flags, method):
+    def _require_iedge_flags(self, flags, method, *, validated_rows=False):
         """
         Raise a ValueError naming the missing flags, if the iedges table does not have
-        all of the given validity flags. Flags that depend on node times are rechecked
-        first if the node table has changed since they were checked.
+        all of the given validity flags. If ``validated_rows`` is True, it is enough for
+        them to hold for the validated rows (in which case the method must only read
+        those rows, e.g. by using :meth:`IEdgeTable.ids_for_child`). Flags that depend on
+        node times are rechecked first if the node table has changed since they were
+        checked.
         """
-        self.validate(flags & self.iedges.flags & ValidFlags.IEDGES_COMBO_NODE_TABLE)
-        missing = ValidFlags(flags & ~self.iedges.flags)
+        self._recheck_node_flags(flags)
+        have = self.iedges._flags if validated_rows else self.iedges.flags
+        missing = ValidFlags(flags & ~have)
         if missing:
             names = ", ".join(flag.name for flag in ValidFlags if flag in missing and flag.bit_count() == 1)
             raise ValueError(
@@ -1793,10 +1841,11 @@ class Tables:
                 "Use tables.validate() to check and set them (see the Validation page of the docs)."
             )
 
-    def _check_iedges(self, flags, start=0):
+    def _check_iedges(self, flags, start=0, stop=None):
         """
-        Raise a ValueError if the rows of the iedges table from ``start`` onwards do not
-        satisfy each of the requirements in ``flags``, given that the earlier rows do.
+        Raise a ValueError if the rows of the iedges table from ``start`` onwards (up to,
+        but not including, ``stop``, if given) do not satisfy each of the requirements in
+        ``flags``, given that the earlier rows do.
         This is the only implementation of the validity rules. Checks are made on whole
         columns, in an order that reports the most fundamental problem first.
 
@@ -1808,7 +1857,8 @@ class Tables:
         which looks at any earlier rows with the same edge IDs as the new ones.
         """
         iedges = self.iedges
-        if flags == 0 or start >= len(iedges):
+        stop = len(iedges) if stop is None else stop
+        if flags == 0 or start >= stop:
             return
         flags = int(flags)  # (testing bits of an int is much faster than of a ValidFlags)
         # Rules that compare each row with the previous one also need the row before
@@ -1817,7 +1867,7 @@ class Tables:
         first = start - prev
 
         def column(name):
-            return getattr(iedges, name)[prev:]
+            return getattr(iedges, name)[prev:stop]
 
         child, parent = column("child"), column("parent")
         child_left, child_right = column("child_left"), column("child_right")
@@ -1867,12 +1917,14 @@ class Tables:
         if flags & _BITS.IEDGES_CHILD_INTERVAL_POSITIVE:
             fail_if(child_left[first:] >= child_right[first:], "child_left >= child_right for iedges {all}")
         if flags & _BITS.IEDGES_SAME_PARENT_CHILD_FOR_EDGE:
-            edge = iedges.edge
+            edge = iedges.edge[:stop]
             new_ids = np.unique(edge[start:])
             new_ids = new_ids[new_ids != NULL]
             if len(new_ids) > 0:
                 rows = np.isin(edge, new_ids)  # including any earlier rows with these IDs
-                combos = np.unique(np.column_stack((edge[rows], iedges.child[rows], iedges.parent[rows])), axis=0)
+                combos = np.unique(
+                    np.column_stack((edge[rows], iedges.child[:stop][rows], iedges.parent[:stop][rows])), axis=0
+                )
                 if len(combos) != len(new_ids):
                     raise ValueError("iedges with the same edge ID have different parent/child combinations")
 
@@ -1918,12 +1970,12 @@ class Tables:
         if flags & _BITS.IEDGES_FOR_CHILD_NONOVERLAPPING:
             # Check all the rows of the children of the new rows
             if start == 0:
-                rows = np.arange(len(iedges))
+                rows = np.arange(stop)
             elif flags & _BITS.IEDGES_FOR_CHILD_ADJACENT:
                 # (just checked) the rows of each child are adjacent
-                rows = np.arange(first_row_of(int(child[0])), len(iedges))
+                rows = np.arange(first_row_of(int(child[0])), stop)
             else:
-                rows = np.flatnonzero(np.isin(iedges.child, child[first:]))
+                rows = np.flatnonzero(np.isin(iedges.child[:stop], child[first:]))
             r_child, r_chromosome = iedges.child[rows], iedges.child_chromosome[rows]
             r_left, r_right = iedges.child_left[rows], iedges.child_right[rows]
             # Sort by child, chromosome and left position, so this works whatever the
@@ -2413,7 +2465,9 @@ class Tables:
         if u == v:
             raise ValueError("u and v must be different nodes")
 
-        self._require_iedge_flags(ValidFlags.IEDGES_FOR_TRACING, "find_mrca_regions()")
+        # Only the iedges above u and v are read (using ids_for_child, which checks that
+        # each node's iedges are validated), so the validated rows are enough
+        self._require_iedge_flags(ValidFlags.IEDGES_FOR_TRACING, "find_mrca_regions()", validated_rows=True)
 
         if time_cutoff is None:
             time_cutoff = np.inf
