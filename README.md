@@ -38,6 +38,8 @@ import giglib as gigl  # 😁
 ts = msprime.sim_ancestry(4, sequence_length=100, recombination_rate=0.01, random_seed=1)
 ts = msprime.sim_mutations(ts, rate=0.01, random_seed=1)
 gig = gigl.Graph.from_tree_sequence(ts)
+# giglib calls the connections between nodes "interval-edges" (iedges for short)
+# These are equivalent to what tskit calls "edges"
 print(len(gig.nodes), "nodes,", len(gig.iedges), "iedges,", len(gig.mutations), "mutations")
 assert gig.haplotype(0) == next(ts.alignments())  # the same sequence as tskit gives
 
@@ -78,7 +80,7 @@ simulations with structural variants and recombination: see the
 
 - **No global coordinate system.** Each genome has its own coordinates, and positions are integers
   (base pairs). There is no global sequence length: a node's length comes from the iedges above and
-  below it (`gig.sequence_length(u, chromosome)`).
+  below it (`gig.sequence_length(u, chromosome=c)`).
 - **One parent per position.** Within a child's chromosome, each position is inherited from at
   most one parent. Iedges are grouped by child, so tracing the ancestry of any point upwards
   through the graph is always unambiguous, however rearranged the genomes are.
