@@ -135,9 +135,10 @@ except ValueError as e:
     print("Error:", e)
 ```
 
-Validation only checks the rows added since it was last called (see
-{ref}`sec_validation_incremental`), so it is cheap to call after adding a few rows, however large
-the tables are.
+Requirements that have already been validated are only checked for the rows added since then
+(see {ref}`sec_validation_incremental`), so validating after adding a few rows is usually cheap,
+however large the tables are. Requirements that haven't been validated before, and those that
+depend on node times after the node table has changed, are checked for all the rows.
 
 Other ways that flags are set:
 
@@ -209,8 +210,11 @@ change, and the requirements that depend on node times are then checked again fo
 Algorithms that rely on these flags (e.g. {meth}`~giglib.Tables.find_mrca_regions`) check them
 again in the same way.
 
-The cost of {meth}`~giglib.Tables.validate` is therefore proportional to the number of new rows,
-plus a fixed cost of about 50 µs per call. Checking costs about 0.5 µs per iedge when many rows are
+The cost of {meth}`~giglib.Tables.validate` is therefore usually proportional to the number of
+new rows, plus a fixed cost of about 50 µs per call. The exceptions are the group requirements,
+which can read earlier rows: iedges with the same (non-`NULL`) edge ID as new ones, and the
+earlier iedges of a new iedge's child, if the iedges of each child aren't also being checked to
+be sorted (when they are, each new iedge only needs comparing with the previous one). Checking costs about 0.5 µs per iedge when many rows are
 checked at once (e.g. when creating a `Graph` from tables built without validation).
 
 (sec_validation_validated_rows)=

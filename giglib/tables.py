@@ -1058,9 +1058,8 @@ class NodeTable(BaseExtraTable):
         self._changed()
 
     def copy(self):
-        copy = super().copy()
-        copy._version = self._version  # the same rows, so the same version
-        return copy
+        # The copy has its own version (it may be changed independently of this table)
+        return super().copy()
 
     # define each property by hand, for speed
     @property
@@ -1640,6 +1639,10 @@ class Tables:
         copy = self.__class__()
         for name in self.table_classes._fields:
             setattr(copy, name, getattr(self, name).copy())
+        # The copied node table has a new version, but has the same rows, so iedge flags
+        # checked against this node table also hold for the copy
+        if self.iedges._nodes_version == self.nodes._version:
+            copy.iedges._nodes_version = copy.nodes._version
         copy.time_units = self.time_units
         copy.allele_complements = dict(self.allele_complements)
         return copy
@@ -1792,8 +1795,11 @@ class Tables:
         new = (ValidFlags(flags), num_rows, self.nodes._version)
         if start == num_rows:
             new = (new[0] | known, *new[1:])
-        if (iedges._flags, iedges._num_validated, iedges._nodes_version) != new:  # (frozen tables cannot change)
-            iedges._flags, iedges._num_validated, iedges._nodes_version = new
+        current = (iedges._flags, iedges._num_validated, iedges._nodes_version)
+        if current != new:
+            if self._frozen and current[:2] == new[:2]:
+                return  # only the node table version would change, which needn't be recorded
+            iedges._flags, iedges._num_validated, iedges._nodes_version = new  # (fails if frozen)
 
     def _recheck_node_flags(self, flags):
         """
@@ -1808,8 +1814,18 @@ class Tables:
         node_flags = ValidFlags.IEDGES_COMBO_NODE_TABLE
         recheck = flags & iedges._flags & node_flags
         self._check_iedges(recheck, stop=iedges._num_validated)
+        if self._frozen:
+            return  # (the node table of frozen tables can't change, so no need to record this)
         iedges._flags &= ~(node_flags & ~recheck)
         iedges._nodes_version = self.nodes._version
+
+    def _keep_iedge_flags(self, flags):
+        """
+        Set the given iedge flags (e.g. those kept by a table algorithm), which must
+        already have been checked against the current node table
+        """
+        self.iedges.set_bitflag(flags)
+        self.iedges._nodes_version = self.nodes._version
 
     def _order_independent_flags(self):
         """
@@ -1910,8 +1926,15 @@ class Tables:
                 i = int(bad[0]) + start
                 raise ValueError(f"Edge {i}: parent node {iedges.parent[i]} not older than child {iedges.child[i]}")
         if flags & _BITS.IEDGES_INTERVALS:
+
+            def span(a, b):
+                # The length of an interval, which can be up to 2**64 - 1 if the ends are
+                # not checked to be non-negative: the int64 difference may wrap around,
+                # but is then correct as a uint64
+                return (np.maximum(a, b) - np.minimum(a, b)).astype(np.uint64)
+
             fail_if(
-                np.abs(parent_right - parent_left)[first:] != np.abs(child_right - child_left)[first:],
+                span(parent_left[first:], parent_right[first:]) != span(child_left[first:], child_right[first:]),
                 "iedges {all} have different parent and child spans",
             )
         if flags & _BITS.IEDGES_CHILD_INTERVAL_POSITIVE:
@@ -1928,20 +1951,17 @@ class Tables:
                 if len(combos) != len(new_ids):
                     raise ValueError("iedges with the same edge ID have different parent/child combinations")
 
-        # Ordering rules: compare each row with the previous one (row_offset=prev + 1)
-        def diff(values):
-            return values[1:] - values[:-1]
-
-        child_diff, chromosome_diff = diff(child), diff(child_chromosome)
-        same_child = child_diff == 0
-        same_chromosome = same_child & (chromosome_diff == 0)
+        # Ordering rules: compare each row with the previous one (row_offset=prev + 1).
+        # Values are compared directly, as differences could overflow.
+        same_child = child[1:] == child[:-1]
+        same_chromosome = same_child & (child_chromosome[1:] == child_chromosome[:-1])
         if flags & (_BITS.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC | _BITS.IEDGES_SECONDARY_ORDER_CHILD_ID_ASC):
-            time_diff = diff(times[child])
+            child_time = times[child]
         if flags & _BITS.IEDGES_PRIMARY_ORDER_CHILD_TIME_DESC:
-            fail_if(time_diff > 0, "iedges are not sorted by child time, descending", prev + 1)
+            fail_if(child_time[1:] > child_time[:-1], "iedges are not sorted by child time, descending", prev + 1)
         if flags & _BITS.IEDGES_SECONDARY_ORDER_CHILD_ID_ASC:
             fail_if(
-                (time_diff == 0) & (child_diff < 0),
+                (child_time[1:] == child_time[:-1]) & (child[1:] < child[:-1]),
                 "iedges are not sorted by child time (desc) then ID (asc)",
                 prev + 1,
             )
@@ -1957,17 +1977,28 @@ class Tables:
                         raise ValueError(message)
         if flags & _BITS.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC:
             fail_if(
-                same_child & (chromosome_diff < 0),
+                same_child & (child_chromosome[1:] < child_chromosome[:-1]),
                 "iedges for a given child are not sorted by chromosome",
                 prev + 1,
             )
         if flags & _BITS.IEDGES_FOR_CHILD_SECONDARY_ORDER_LEFT_ASC:
             fail_if(
-                same_chromosome & (diff(child_left) <= 0),
+                same_chromosome & (child_left[1:] <= child_left[:-1]),
                 "iedges for a given child/chr are not sorted by left pos",
                 prev + 1,
             )
-        if flags & _BITS.IEDGES_FOR_CHILD_NONOVERLAPPING:
+        sorted_within_child = _BITS.IEDGES_WITHIN_CHILD_SORTED | _BITS.IEDGES_CHILD_INTERVAL_POSITIVE
+        if flags & _BITS.IEDGES_FOR_CHILD_NONOVERLAPPING and (flags & sorted_within_child) == sorted_within_child:
+            # The iedges of each child are (just checked to be) sorted by position, with
+            # positive spans, so (given that the earlier rows don't overlap) they don't
+            # overlap if each starts at or after the end of the previous one
+            bad = np.flatnonzero(same_chromosome & (child_left[1:] < child_right[:-1]))
+            if len(bad) > 0:
+                i = prev + 1 + int(bad[0])
+                raise ValueError(
+                    f"Node {iedges.child[i]} has multiple or duplicate parents at position {iedges.child_left[i]}"
+                )
+        elif flags & _BITS.IEDGES_FOR_CHILD_NONOVERLAPPING:
             # Check all the rows of the children of the new rows
             if start == 0:
                 rows = np.arange(stop)
@@ -2107,7 +2138,7 @@ class Tables:
             )
         self.mutations = mutations
         self.sort()
-        self.iedges.set_bitflag(kept_flags)
+        self._keep_iedge_flags(kept_flags)
         return node_map
 
     def _alleles_inherited_across(self, time):
@@ -2338,7 +2369,7 @@ class Tables:
         self._remove_non_ancestral_mutations(ancestral_regions)
         if sort:
             self.sort()
-        self.iedges.set_bitflag(kept_flags)
+        self._keep_iedge_flags(kept_flags)
 
     def _remove_non_ancestral_mutations(self, ancestral_regions):
         """

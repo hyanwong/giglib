@@ -2155,3 +2155,66 @@ class TestValidatedRows:
             tables.nodes.add_row(t)  # now the root is younger than its children
         with pytest.raises(ValueError, match="not older than child"):
             tables.find_mrca_regions(1, 2)
+
+
+class TestValidationEdgeCases:
+    def test_copied_node_tables_have_their_own_version(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        nodes_copy = tables.nodes.copy()
+        tables.nodes.add_row(0)
+        nodes_copy.add_row(2)  # the copy diverges, so is no longer valid for the iedges
+        tables.iedges.add_row(1, 0, child_right=1)
+        tables.validate()
+        tables.nodes = nodes_copy
+        with pytest.raises(ValueError, match="not older than child"):
+            tables.validate()
+
+    def test_copied_tables_keep_node_time_flags(self, monkeypatch):
+        tables = TestValidate.valid_tables()
+        tables.validate()
+        copy = tables.copy()
+        checks = TestValidate.record_checks(copy, monkeypatch)
+        copy.validate()
+        assert checks == []  # nothing needs checking again
+
+    def test_sort_after_sample_resolve_keeps_flags(self):
+        tables = TestValidate.valid_tables()
+        tables.validate()
+        tables.sample_resolve(sort=False)
+        tables.sort()
+        assert tables.iedges.has_all_bitflags(ValidFlags.IEDGES_FOR_TRACING)
+        tables.find_mrca_regions(2, 3)
+
+    def test_validate_frozen_empty_tables(self):
+        tables = gigl.Tables()
+        tables.freeze()
+        tables.validate()
+        tables.validate(recheck=True)
+
+    def test_span_overflow(self):
+        tables = gigl.Tables()
+        tables.iedges.add_row(1, 0, child_left=0, child_right=1, parent_left=-(2**63), parent_right=2**63 - 1)
+        with pytest.raises(ValueError, match="different parent and child spans"):
+            tables.validate(ValidFlags.IEDGES_INTERVALS)
+
+    def test_chromosome_order_overflow(self):
+        tables = gigl.Tables()
+        for chromosome in (-30000, 0, 30000, -30000):
+            tables.iedges.add_row(1, 0, child_right=1, child_chromosome=chromosome)
+        with pytest.raises(ValueError, match="not sorted by chromosome"):
+            tables.validate(ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC)
+
+    @pytest.mark.parametrize("incremental", [False, True])
+    def test_overlap_with_previous_iedge(self, incremental):
+        # The third iedge starts after the second, but before it ends
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0)
+        tables.iedges.add_row(1, 0, child_left=0, child_right=10)
+        tables.iedges.add_row(1, 0, child_left=10, child_right=12)
+        if incremental:
+            tables.validate()
+        tables.iedges.add_row(1, 0, child_left=11, child_right=13)
+        with pytest.raises(ValueError, match="multiple or duplicate parents at position 11"):
+            tables.validate()
