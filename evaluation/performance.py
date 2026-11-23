@@ -70,6 +70,8 @@ def main():
     p.add_argument("--output", help="Output CSV name in results/ (default performance.csv)")
     p.add_argument("--quick", action="store_true", help="Tiny smoke-test sizes, written to performance_quick.csv")
     args = p.parse_args()
+    if args.repeats < 1:
+        p.error("--repeats must be at least 1")
     if args.quick:
         args.repeats = 1
     output = args.output or ("performance_quick.csv" if args.quick else "performance.csv")

@@ -23,7 +23,7 @@ concept, aimed at forward simulation of structural variants. Start with `README.
 ```
 python -m pytest                                   # tests (Python >= 3.12)
 pre-commit run --all-files                         # ruff (line length 120) and other checks
-cd docs && ./build.sh                              # docs; warnings are errors
+(cd docs && ./build.sh)                            # docs; warnings are errors
 python evaluation/performance.py --quick           # a quick performance smoke test
 ```
 

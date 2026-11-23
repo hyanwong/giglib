@@ -32,6 +32,23 @@ python evaluation/performance.py --repeats 3 --output new.csv
 python evaluation/compare.py evaluation/results/base.csv evaluation/results/new.csv
 ```
 
+If the base commit predates these scripts, run them from a separate worktree of that commit
+instead, with this `evaluation/` folder copied in. The scripts run the giglib in the folder above
+them, so this measures the base commit's code, and the copy is untracked, so the git SHA is not
+marked `-dirty`:
+
+```
+git worktree add ../giglib-base <base-commit>
+cp -r evaluation ../giglib-base/
+python ../giglib-base/evaluation/performance.py --repeats 3 --output base.csv
+python evaluation/performance.py --repeats 3 --output new.csv
+python evaluation/compare.py ../giglib-base/evaluation/results/base.csv evaluation/results/new.csv
+git worktree remove --force ../giglib-base
+```
+
+Cases that use features the base commit lacks will fail there: use `--cases` to choose those
+that run on both.
+
 For each case it prints the median value in each run, and the ratio new/base (below 1 is
 better). Differences smaller than the min-to-max spread of the repeats are shown as `~` (noise),
 so use at least 3 repeats and keep the machine otherwise idle. `compare.py` also prints the CPU
