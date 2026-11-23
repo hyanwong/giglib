@@ -1,0 +1,2 @@
+# Extra requirements for the by-hand evaluation scripts (not needed by giglib itself)
+msprime

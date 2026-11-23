@@ -212,12 +212,12 @@ mutations on the skipped nodes). Open questions:
 
 ## Evaluation
 
-Many of the choices above depend on speed and memory, so should be decided by measurement. These
-would live in an `evaluation/` folder at the root of the repository, like
-[tsdate's](https://github.com/tskit-dev/tsdate/tree/main/evaluation): scripts that are run by
+Many of the choices above depend on speed and memory, so should be decided by measurement, using
+the `evaluation/` folder at the root of the repository (modelled on
+[tsdate's](https://github.com/tskit-dev/tsdate/tree/main/evaluation)): scripts that are run by
 hand, are not part of the package or the unit tests, record their results with the giglib
-version and commit, and have their own requirements. Performance scripts would go in
-`evaluation/performance/`.
+version and commit, and have their own requirements. Simplification would add cases to
+`evaluation/performance.py` (see `evaluation/README.md`).
 
 ### A forward simulator
 
@@ -297,8 +297,7 @@ conversation about the giglib API, mutations, and storage (November 2026), and i
 
 1. Settle the open questions that don't need measuring (e.g. the definition of a duplication
    node), and update this note.
-2. Set up `evaluation/` (README, requirements, a script that records results with the version
-   and commit), modelled on tsdate's.
+2. Add simplification cases to `evaluation/performance.py`.
 3. Write a forward simulator with recombination and structural variants, including tandem
    duplications and unequal crossing-over, that records the true duplication nodes.
 4. Implement a first simplification, composing iedges and keeping samples, coalescences and
