@@ -25,8 +25,8 @@ The `giglib.tools.alignment` module converts between GIGs with insertions and de
 and tree sequences whose coordinates are the columns of a multiple sequence alignment
 ([#139](https://github.com/hyanwong/giglib/issues/139)). Gaps are written as `-`, and a
 site can span several columns, so that e.g. a deletion of three bases is a single
-mutation from `ATCG` to `A---`. Only conversion from a tree sequence to a GIG is
-implemented so far.
+mutation from `ATCG` to `A---`. Conversion works in both directions, for GIGs whose
+rearrangements are insertions and deletions.
 
 ```python
 import giglib.tools.alignment
@@ -38,6 +38,12 @@ rows = giglib.tools.alignment.alignments(ts_with_multi_char_indels)
 for u, row in zip(ts_with_multi_char_indels.samples(), rows):
     sequence = row.replace("-", "")
     assert gig.haplotype(u, right=len(sequence)) == sequence
+
+# ...and converting back gives a tree sequence with the same haplotypes
+ts = giglib.tools.alignment.to_tree_sequence(gig)
+rows = giglib.tools.alignment.alignments(ts)
+for u, row in zip(ts.samples(), rows):
+    assert gig.haplotype(u) == row.replace("-", "")
 ```
 
 ```{eval-rst}

@@ -87,9 +87,10 @@ Further considerations (written when source nodes were proposed):
 - **From tree sequences with alignment columns** ({pr}`175`): an insertion is a mutation from `-`
   to some bases above a node, so the inserted positions of that node have no parent, and their
   bases are mutations above it (`N` if unknown).
-- **To tree sequences** ({issue}`194`): each inserted position (with no parent) gets a new
-  alignment column, with ancestral state `-`, and a mutation above the node that gained the
-  insertion.
+- **To tree sequences** ({issue}`194`): each inserted position gets a new alignment column,
+  with ancestral state `-`, and a mutation above the node that gained the insertion. Which
+  positions with no parent are inserted needs care: see
+  {ref}`sec_design_insertions_shared_coordinates`.
 
 (sec_design_insertions_decision)=
 
@@ -131,6 +132,34 @@ checked from a GIG alone. Positions with no parent and no mutation are common an
 the parts of an internal node's genome that are not ancestral to any sample, or positions where a
 node is the root of one of a tree sequence's trees, and its state is unknown. These are all
 missing data, and an inserted base without a mutation would look the same.
+
+(sec_design_insertions_shared_coordinates)=
+
+### Placing local roots in shared coordinates
+
+A position with no parent can mean two things: an **insertion** (new material), or the **top of
+the recorded genealogy**, where the node is the root of one of a tree sequence's trees. This is
+common: a node is often the root of one tree but has a parent elsewhere. Within a GIG, the two are
+treated the same (both have no ancestry above the node), but they differ when genomes are placed
+in a shared coordinate system, e.g. when converting to a tree sequence with alignment columns
+({func}`~giglib.tools.alignment.to_tree_sequence`). In _tskit_, roots are implicitly homologous by
+position, so the top of a genealogy belongs in the reference columns, while an insertion needs new
+columns.
+
+Only the iedges either side of a run of positions with no parent can tell which it is, so that
+is how it is decided: the run fills the reference columns between its neighbours (being colinear
+with the other genomes), and only the positions in excess of the available columns are inserted.
+In other words, an insertion is shown by a *shift* in coordinates, as it is relative to the
+genomes around it. This has some limits:
+
+- **Where in the run the inserted positions are** is a choice (they are placed at the end of the
+  run), as for insertions within repeats.
+- **A run at the start or end of a genome** is only bounded on one side. It is taken to be
+  colinear, unless a child inherits it next to other material that it would overlap, which shows
+  that some of it is inserted.
+- **The roots must share coordinates.** A root's genome has no parent anywhere, so an insertion
+  that happened above a root can't be detected. Conversions from tree sequences keep the roots in
+  the same coordinates (a node that is not in a tree follows the gaps of the ancestral state).
 
 **What is lost** compared with source nodes:
 

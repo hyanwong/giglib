@@ -707,6 +707,25 @@ class Graph:
             raise ValueError("Cannot convert to tree sequence: iedges and mutations must all be on one chromosome")
         if sequence_length is None:
             sequence_length = self.tables.iedges.child_right.max()
+        tables = self._tskit_tables(sequence_length)
+        for ie in self.iedges:
+            tables.edges.add_row(
+                left=ie.child_left,
+                right=ie.child_right,
+                child=ie.child,
+                parent=ie.parent,
+            )
+        tables.provenances.add_row(record=json.dumps({"parameters": {"command": "gig.to_tree_sequence"}}))
+        tables.sort()
+        if len(self.mutations) > 0:
+            self._add_tskit_mutations(tables)
+        return tables.tree_sequence()
+
+    def _tskit_tables(self, sequence_length):
+        """
+        Return a tskit TableCollection with the given sequence length, containing the
+        nodes and individuals of this GIG (with the same IDs), and its time units
+        """
         tables = tskit.TableCollection(sequence_length)
         tables.time_units = self.time_units
         int32_info = np.iinfo(np.int32)
@@ -720,24 +739,12 @@ class Graph:
                 flags=node.flags,
                 individual=np.int32(node.individual),  # can safely cast
             )
-        for ie in self.iedges:
-            tables.edges.add_row(
-                left=ie.child_left,
-                right=ie.child_right,
-                child=ie.child,
-                parent=ie.parent,
-            )
         for individual in self.individuals:
             for p in individual.parents:
                 if p < int32_min or p > int32_max:
                     raise ValueError(f"Cannot store individual IDs > {int32_max} in tskit")
             tables.individuals.add_row(parents=np.int32(individual.parents))  # can cast
-
-        tables.provenances.add_row(record=json.dumps({"parameters": {"command": "gig.to_tree_sequence"}}))
-        tables.sort()
-        if len(self.mutations) > 0:
-            self._add_tskit_mutations(tables)
-        return tables.tree_sequence()
+        return tables
 
     def _add_tskit_mutations(self, tables):
         """

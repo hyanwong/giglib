@@ -2,7 +2,8 @@
 Convert between GIGs with insertions and deletions, and tree sequences whose
 coordinates are the columns of a multiple sequence alignment.
 
-This module is experimental: see :ref:`sec_tools`. Discussion: :issue:`139`.
+This module is experimental: see :ref:`sec_tools`. Discussion: :issue:`139` and
+:issue:`194`.
 
 **Representation.** A tree sequence cannot represent changes in the coordinate system,
 but insertions and deletions (indels) can be "hacked" into one by using the columns of
@@ -21,35 +22,38 @@ of its non-gap columns. Each edge becomes iedges over the runs of columns that b
 child and the parent have, breaking only where exactly one of them has a gap. Columns
 that only the child has are inserted positions, with no parent, and their bases come
 from mutations above the child: every inserted position has one (``N`` if the base is
-unknown), as required by :ref:`sec_design_insertions`. Sites must not overlap, must not extend beyond the end
-of the sequence, and the columns of a site must all be in the same tree (a site's
-mutations belong to the tree at its position).
+unknown), as required by :ref:`sec_design_insertions`. Where a node is not in a tree,
+its coordinates follow the gaps of the ancestral state, so that they stay the same as
+those of the roots. Sites must not overlap, must not extend beyond the end of the
+sequence, and the columns of a site must all be in the same tree (a site's mutations
+belong to the tree at its position).
 
-**GIG to tree sequence** (planned). The reference coordinates are those shared by the
-roots, and the ancestral state of each column is given by the first mutation above the
-roots there (as in :meth:`giglib.Graph.to_tree_sequence`). All roots must agree.
+**GIG to tree sequence** (:func:`to_tree_sequence`). The roots of the GIG must share
+coordinates, which give the reference columns. Each position inherited through an iedge
+takes its parent's column. A run of positions with no parent could be the root of one
+of a tree sequence's trees (colinear with the other genomes) or an insertion (with new
+columns), and only the iedges either side of it can tell: it fills the reference columns
+between them, and any excess positions become inserted columns. A run at the start or
+end of a genome is bounded by its children, where they inherit it next to other
+material. Columns are ordered by sortable keys: a reference column ``x`` has key
+``(x,)``, and the ``i``-th column inserted by node ``u`` after key ``k`` has key
+``k + (u, i)``, so nested insertions sort within their parent insertion, and independent
+insertions at the same place are ordered by node ID. Each iedge becomes an edge over its
+columns, and the columns that a node lacks (deletions, and other nodes' insertions) are
+covered by extending an edge, so that the node inherits a gap there. Each maximal run of
+columns in a tree where any node has a gap becomes one site, other columns with a known
+base become single-column sites, and there is one mutation above each node whose string
+differs from its parent's. See :func:`to_tree_sequence` for the details.
 
-- *Columns.* Working from the roots down, each position inherited through an iedge takes
-  its parent's column. Each inserted position (with no parent) gets a new column after
-  the column of the node's previous position. Columns are ordered by sortable keys: a
-  reference position ``x`` has key ``(x,)``, and the ``i``-th base inserted by node
-  ``u`` after key ``k`` has key ``k + (u, i)``. So nested insertions sort within their
-  parent insertion, and independent insertions at the same place are ordered by node
-  ID. Each node's positions must map to strictly increasing columns.
-- *Edges.* Each iedge becomes an edge over its columns. Gaps between a child's iedges
-  (deletions, and other nodes' insertions) are filled by extending the edge to their
-  left, so a child inherits ``-`` where its parent lacks a column. For an insertion at a
-  recombination breakpoint, this choice of parent is arbitrary but harmless, as neither
-  parent has those columns.
-- *Sites and mutations.* Each maximal run of columns where any node has a gap becomes
-  one site, split at tree boundaries. Other columns with mutations become single-column
-  sites. There is one mutation above each node whose string at a site differs from its
-  parent's in the local tree (or, for a root, from the ancestral string).
+**Round trips, and what is lost.** Converting a tree sequence to a GIG and back gives
+the same haplotypes (the alignments with their gaps removed), but not necessarily the
+same columns or sites: columns in which every genome has a gap are dropped, independent
+insertions at the same place may be ordered differently, multi-column sites without
+gaps (blocks of SNPs) are split into single columns, and anchor bases are dropped. For
+a tree sequence without indels, the alignments are the same. Converting a GIG to a tree
+sequence and back gives the same haplotypes, but missing data (positions with no parent
+and no mutation) can come back as unknown bases (the allele ``N``).
 
-**Round trips, and what is lost.** Converting a tree sequence to a GIG and back should
-give the same alignments, but not necessarily the same sites: multi-column sites without
-gaps (blocks of SNPs) would be split into single columns, and anchor bases would be
-dropped. Converting a GIG to a tree sequence and back should give the same haplotypes.
 For a GIG with rearrangements that are not colinear, a tree sequence can keep the
 sequences, but not the homology between bases:
 
@@ -60,9 +64,9 @@ sequences, but not the homology between bases:
 - a translocation within a chromosome could become a deletion and an insertion;
 - several chromosomes could become one tree sequence per chromosome.
 
-The plan is for conversion to a tree sequence to raise an error for rearrangements that
-are not colinear by default, so that no information is silently lost, with an option
-(e.g. ``rearrangements="as_indels"``) to encode them as above.
+Conversion to a tree sequence raises an error for rearrangements that are not colinear,
+so that no information is silently lost. An option (e.g. ``rearrangements="as_indels"``)
+could later encode them as above.
 """
 
 import bisect
@@ -210,19 +214,23 @@ def _node_states(tree, site, num_nodes):
     Return a list of the allele of every node at a site. As in tskit, the state of an
     isolated node (with no parent or children in the tree) with no mutation is unknown,
     so is all ``N`` (which does not change its coordinates), rather than the ancestral
-    state.
+    state. A node that is not in the tree has unknown bases, but the gaps of the ancestral
+    state, so that its coordinates stay the same as those of the roots (its material is
+    unrecorded there, so only the numbering of its positions is affected).
     """
     mutation_state = {}
     for mutation in site.mutations:  # mutations are ordered so that later ones are more recent
         mutation_state[mutation.node] = mutation.derived_state
-    unknown = UNKNOWN * len(site.ancestral_state)
-    states = [mutation_state.get(u, unknown) for u in range(num_nodes)]
+    absent = "".join(GAP if char == GAP else UNKNOWN for char in site.ancestral_state)
+    states = [absent] * num_nodes
     for u in tree.nodes(order="preorder"):
         parent = tree.parent(u)
         if parent != tskit.NULL:
             states[u] = mutation_state.get(u, states[parent])
         elif tree.num_children(u) > 0:  # a root that is not isolated
             states[u] = mutation_state.get(u, site.ancestral_state)
+        else:  # an isolated node
+            states[u] = mutation_state.get(u, UNKNOWN * len(site.ancestral_state))
     return states
 
 
@@ -365,3 +373,289 @@ def from_tree_sequence(ts):
 def _has_gap(node_gaps, column):
     i = bisect.bisect_left(node_gaps, column)
     return i < len(node_gaps) and node_gaps[i] == column
+
+
+def to_tree_sequence(gig):
+    """
+    Convert a GIG with insertions and deletions to a tree sequence whose coordinates are
+    the columns of an alignment, with gaps represented by ``-`` (see the module
+    description). This is the reverse of :func:`from_tree_sequence`: the haplotype of each
+    sample in the GIG is its alignment in the tree sequence (see :func:`alignments`) with
+    the gaps removed, with missing data as ``N``.
+
+    The columns are placed as follows. The roots of the GIG must share coordinates
+    (e.g. as for a GIG converted from a tree sequence), which give the *reference
+    columns*. Each position inherited through an iedge takes the column of its parent.
+    A run of positions with no parent fills the reference columns between the positions
+    either side of it, so that it is colinear with the other genomes (as at the root of
+    one of a tree sequence's trees). Only the positions in excess of the available
+    reference columns are *inserted columns*, placed at the end of the run. A run at the
+    start or end of a genome is only bounded on one side, so is taken to be colinear,
+    unless a child inherits it next to a column that it would overlap, in which case it
+    is bounded by that column.
+
+    Each iedge becomes an edge over the columns of its positions. A node's positions with
+    no parent have no edge, so the node is a root there. The columns that a node lacks
+    (e.g. deleted positions, or other nodes' inserted positions) are covered by extending
+    the edge to their left (or, before the first edge, to their right), so that the node
+    inherits a gap there. Columns after the last position of a node that is not a sample
+    are not covered, as the end of its genome may simply be unrecorded. Each maximal run
+    of columns, within a tree, in which any node
+    has a gap becomes one site. Other columns become single-column sites if any node has
+    a known base. There is one mutation above each node whose string at a site differs
+    from its parent's (or, for a root, from the ancestral state, which is the string of
+    the first root that has children), with unknown times. An isolated sample (e.g. at
+    its positions with no parent, if it has no children) is missing data in a tree
+    sequence unless it has a mutation, so it has one wherever any of its states are known.
+
+    Positions with no parent and no mutation are missing data, and become ``N``. This can
+    convert back as an ``N`` allele: e.g. at a node that is the root of a tree, an
+    ``N`` that differs from the ancestral state needs a mutation, which
+    :func:`from_tree_sequence` reads as an unknown base, not missing data.
+
+    This is a first version, which requires the iedges and mutations to be on a single
+    chromosome, with no inversions, and each node's positions to be in the same order as
+    the columns of its ancestors (so no duplications or translocations). The time taken
+    is proportional to the number of columns times the number of nodes.
+
+    :param giglib.Graph gig: The GIG
+    :return: A tree sequence
+    :rtype: tskit.TreeSequence
+    :raises ValueError: If the GIG cannot be converted
+    """
+    chromosome = _single_chromosome(gig)
+    for ie in gig.iedges:
+        if ie.is_inversion():
+            raise ValueError(f"Cannot convert iedge {ie.id} to a tree sequence: inversions are not supported")
+    keys = _column_keys(gig, chromosome)
+    all_keys = sorted({key for node_keys in keys for key in node_keys})
+    if len(all_keys) == 0:
+        raise ValueError("Cannot convert a GIG with no positions to a tree sequence")
+    column_of_key = {key: column for column, key in enumerate(all_keys)}
+    columns = [[column_of_key[key] for key in node_keys] for node_keys in keys]
+    num_columns = len(all_keys)
+
+    tables = gig._tskit_tables(num_columns)
+    _add_alignment_edges(gig, tables, columns, num_columns)
+    tables.sort()
+    tables.build_index()
+    _add_alignment_sites(gig, tables, columns, num_columns, chromosome)
+    tables.sort()
+    tables.build_index()
+    tables.compute_mutation_parents()
+    return tables.tree_sequence()
+
+
+def _single_chromosome(gig):
+    iedges, mutations = gig.tables.iedges, gig.tables.mutations
+    chromosomes = set(iedges.child_chromosome.tolist()) | set(iedges.parent_chromosome.tolist())
+    chromosomes |= set(mutations.chromosome.tolist())
+    if len(chromosomes) > 1:
+        raise ValueError("Cannot convert to a tree sequence: iedges and mutations must all be on one chromosome")
+    return chromosomes.pop() if chromosomes else 0
+
+
+def _column_keys(gig, chromosome):
+    """
+    Return, for each node, a list giving a sortable key for the column of each of its
+    positions. A reference column ``x`` has the key ``(x,)``, and the ``i``-th inserted
+    column of node ``u`` after the column with key ``k`` has the key ``k + (u, i)``.
+
+    A run of positions with no parent at the start or end of a genome is only bounded on
+    one side, so is taken to be colinear with the reference columns, unless the children
+    show otherwise: if a child inherits the end of such a run, followed by a column
+    that must come after it, but that the run would overlap, the run is bounded by that
+    column (and similarly for the start of a run), and the keys are found again.
+    """
+    bounds = {}  # (node, run start): (lowest first reference column, highest end)
+    while True:
+        try:
+            return _assign_column_keys(gig, chromosome, bounds)
+        except _ColumnConflictError as conflict:
+            if not conflict.tighten(bounds):
+                u, x = conflict.node, conflict.position
+                raise ValueError(
+                    f"Cannot convert to a tree sequence: the positions of node {u} are not in the same "
+                    f"order as the columns of its ancestors at position {x}: e.g. a duplication or "
+                    "translocation, or ancestors that are roots that do not share coordinates"
+                ) from None
+
+
+class _ColumnConflictError(Exception):
+    """
+    The keys of positions ``position - 1`` and ``position`` of ``node`` are not in
+    increasing order. ``origins`` gives, for each, the run of positions with no parent
+    (in an ancestor) that the key came from, if that run is open at one end.
+    """
+
+    def __init__(self, node, position, keys, origins):
+        self.node, self.position, self.keys, self.origins = node, position, keys, origins
+
+    def tighten(self, bounds):
+        """
+        Tighten the bounds of an open run so that the two keys can be in order, returning
+        False if neither key came from such a run (or its bounds can't be tightened)
+        """
+        (before, after), (before_origin, after_origin) = self.keys, self.origins
+        if before_origin is not None and before_origin["open_end"]:
+            # The run must end before the key after it
+            end = after[0] if len(after) == 1 else after[0] + 1
+            if end < before_origin["end"]:
+                first, _ = bounds.get(before_origin["run"], (0, end))
+                bounds[before_origin["run"]] = (first, end)
+                return True
+        if after_origin is not None and after_origin["open_start"]:
+            # The run must start after the key before it
+            first = before[0] + 1
+            if first > after_origin["first"]:
+                _, end = bounds.get(after_origin["run"], (first, float("inf")))
+                bounds[after_origin["run"]] = (first, end)
+                return True
+        return False
+
+
+def _assign_column_keys(gig, chromosome, bounds):
+    num_nodes = len(gig.nodes)
+    lengths = [gig.sequence_length(u, chromosome=chromosome) for u in range(num_nodes)]
+    above = [list(gig.iedges_for_child(u, chromosome=chromosome)) for u in range(num_nodes)]
+    # The limit for runs at the end of a genome (unless the children show otherwise)
+    reference_length = max(lengths, default=0)
+    keys = [None] * num_nodes
+    origins = [None] * num_nodes  # the open run (if any) that each position's key came from
+    # Parents are older than their children, so their keys are found first
+    for u in sorted(range(num_nodes), key=lambda u: -gig.nodes[u].time):
+        node_keys = [None] * lengths[u]
+        node_origins = [None] * lengths[u]
+        for ie in above[u]:
+            for x in range(ie.child_left, ie.child_right):
+                node_keys[x] = keys[ie.parent][x - ie.child_left + ie.parent_left]
+                node_origins[x] = origins[ie.parent][x - ie.child_left + ie.parent_left]
+        # Runs of positions with no parent
+        x = 0
+        while x < lengths[u]:
+            if node_keys[x] is not None:
+                x += 1
+                continue
+            start = x
+            while x < lengths[u] and node_keys[x] is None:
+                x += 1
+            left = node_keys[start - 1] if start > 0 else None
+            right = node_keys[x] if x < lengths[u] else None
+            # The reference columns between the keys either side: (y,) with left < (y,)
+            # < right. An inserted key (z, ...) sorts after (z,) but before (z + 1,).
+            first = 0 if left is None else left[0] + 1
+            if right is None:
+                end = reference_length
+            else:
+                end = right[0] if len(right) == 1 else right[0] + 1
+            lowest_first, highest_end = bounds.get((u, start), (first, end))
+            first, end = max(first, lowest_first), min(end, highest_end)
+            num_reference = max(0, min(x - start, end - first))
+            for i in range(num_reference):
+                node_keys[start + i] = (first + i,)
+            base = node_keys[start + num_reference - 1] if num_reference > 0 else left
+            if base is None:
+                base = (first - 1,)  # (inserted before the first reference column)
+            for i in range(x - start - num_reference):
+                node_keys[start + num_reference + i] = (*base, u, i)
+            if left is None or right is None:
+                origin = {"run": (u, start), "open_start": left is None, "open_end": right is None}
+                origin.update(first=first, end=end)
+                for y in range(start, x):
+                    node_origins[y] = origin
+        for x in range(1, lengths[u]):
+            if not node_keys[x - 1] < node_keys[x]:
+                raise _ColumnConflictError(
+                    u, x, (node_keys[x - 1], node_keys[x]), (node_origins[x - 1], node_origins[x])
+                )
+        keys[u], origins[u] = node_keys, node_origins
+    return keys
+
+
+def _add_alignment_edges(gig, tables, columns, num_columns):
+    """
+    Add an edge for each iedge, over the columns of its positions, and extend edges over
+    the columns that the child lacks
+    """
+    for u in range(len(gig.nodes)):
+        parent_of = [tskit.NULL] * num_columns
+        own = [False] * num_columns
+        for column in columns[u]:
+            own[column] = True
+        has_parents = False
+        for ie in gig.iedges_for_child(u):
+            for x in range(ie.child_left, ie.child_right):
+                parent_of[columns[u][x]] = ie.parent
+                has_parents = True
+        if not has_parents:
+            continue
+        # Columns that the node lacks take the parent of the nearest column to their left
+        # with a parent (or, before the first, to their right). Columns after the node's
+        # last position are only lacked by a sample, whose genome is complete: for other
+        # nodes, the end of the genome may simply be unrecorded.
+        end = num_columns if gig.nodes[u].is_sample() else columns[u][-1] + 1
+        last = tskit.NULL
+        for column in range(end):
+            if parent_of[column] != tskit.NULL:
+                last = parent_of[column]
+            elif not own[column]:
+                parent_of[column] = last
+        first = next(p for p in parent_of if p != tskit.NULL)
+        for column in range(num_columns):
+            if parent_of[column] != tskit.NULL:
+                break
+            if not own[column]:
+                parent_of[column] = first
+        # Merge runs of columns with the same parent into edges
+        start = 0
+        for column in range(1, num_columns + 1):
+            if column == num_columns or parent_of[column] != parent_of[start]:
+                if parent_of[start] != tskit.NULL:
+                    tables.edges.add_row(left=start, right=column, parent=parent_of[start], child=u)
+                start = column
+
+
+def _add_alignment_sites(gig, tables, columns, num_columns, chromosome):
+    """
+    Add sites and mutations, given the edges, from each node's state in each column
+    """
+    states = []
+    for u in range(len(gig.nodes)):
+        row = [GAP] * num_columns
+        length = len(columns[u])
+        if length > 0:
+            haplotype = gig.haplotype(u, chromosome=chromosome, right=length, missing_data_character=UNKNOWN)
+            for column, char in zip(columns[u], haplotype):
+                row[column] = char
+        states.append(row)
+    ts = tables.tree_sequence()
+    for tree in ts.trees():
+        nodes = list(tree.nodes(order="preorder"))
+        roots = [u for u in tree.roots if tree.num_children(u) > 0] or list(tree.roots)
+        left, right = int(tree.interval.left), int(tree.interval.right)
+        column = left
+        while column < right:
+            if any(states[u][column] == GAP for u in nodes):
+                end = column
+                while end < right and any(states[u][end] == GAP for u in nodes):
+                    end += 1
+            elif any(states[u][column] != UNKNOWN for u in nodes):
+                end = column + 1
+            else:
+                column += 1  # every node's state is unknown: no site needed
+                continue
+            strings = {u: "".join(states[u][column:end]) for u in nodes}
+            ancestral_state = strings[roots[0]]
+            site = tables.sites.add_row(position=column, ancestral_state=ancestral_state)
+            for u in nodes:
+                parent = tree.parent(u)
+                if parent == tskit.NULL and tree.num_children(u) == 0:
+                    # An isolated sample is missing data unless it has a mutation, whatever
+                    # the ancestral state, so needs one unless its states are all unknown
+                    if set(strings[u]) != {UNKNOWN}:
+                        tables.mutations.add_row(site=site, node=u, derived_state=strings[u])
+                    continue
+                previous = ancestral_state if parent == tskit.NULL else strings[parent]
+                if strings[u] != previous:
+                    tables.mutations.add_row(site=site, node=u, derived_state=strings[u])
+            column = end

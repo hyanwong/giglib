@@ -313,6 +313,123 @@ class TestEdgeCases:
         assert gig.haplotype(0) == "CNNNN"
 
 
+def round_trip(ts):
+    """
+    Convert ts (with alignment columns) to a GIG and back, check the result, and return
+    the GIG and the new tree sequence
+    """
+    gig = alignment.from_tree_sequence(ts)
+    new_ts = alignment.to_tree_sequence(gig)
+    # Each sample's alignment, with the gaps removed, is its haplotype in the GIG
+    for u, row in zip(ts.samples(), alignment.alignments(new_ts)):
+        assert row.replace("-", "") == gig.haplotype(u)
+    # ...and converting back gives the same haplotypes
+    new_gig = alignment.from_tree_sequence(new_ts)
+    for u in ts.samples():
+        assert new_gig.haplotype(u, right=gig.sequence_length(u)) == gig.haplotype(u)
+    return gig, new_ts
+
+
+def tables_with_insertion():
+    """
+    A root (0) with samples 1 and 2 below it. Sample 1 inherits the root's genome, while
+    sample 2 has 3 inserted bases (TTT) after its position 4
+    """
+    tables = gigl.Tables()
+    root = tables.nodes.add_row(1)
+    for _ in range(2):
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+    tables.iedges.add_row(1, root, child_right=10)
+    tables.iedges.add_row(2, root, child_right=5)
+    tables.iedges.add_row(2, root, child_left=8, child_right=13, parent_left=5, parent_right=10)
+    for position, base in enumerate("ACGTACGTAC"):
+        tables.mutations.add_row(root, position, base)
+    for position in range(5, 8):
+        tables.mutations.add_row(2, position, "T")
+    tables.sort()
+    return tables
+
+
+class TestToTreeSequence:
+    @pytest.mark.parametrize("seed", range(1, 11))
+    def test_no_indels_round_trip_exactly(self, seed):
+        # The columns are the tree sequence's positions, including where a node is the
+        # root of one tree but has a parent elsewhere
+        ts = msprime.sim_ancestry(6, sequence_length=300, recombination_rate=2e-3, population_size=1, random_seed=seed)
+        ts = msprime.sim_mutations(ts, rate=5e-3, random_seed=seed)
+        assert ts.num_trees > 1
+        new_ts = alignment.to_tree_sequence(gigl.Graph.from_tree_sequence(ts))
+        assert new_ts.sequence_length == ts.sequence_length
+        assert alignment.alignments(new_ts) == alignment.alignments(ts)
+
+    @pytest.mark.parametrize("seed", [*range(1, 13), 24, 161])
+    def test_random_round_trip(self, seed):
+        # (seed 24 has roots that are absent from some trees, and seed 161 an insertion at
+        # the end of an internal node's recorded genome, which only its child reveals)
+        round_trip(random_indel_ts(seed))
+
+    def test_simple_round_trip(self):
+        gig, new_ts = round_trip(simple_ts())
+        rows = alignment.alignments(new_ts)
+        # Sample 0 has the deletion (gaps), and the other samples gaps in the columns of
+        # the insertion that only sample 1 (with known bases) and sample 2 have
+        assert "---" in rows[0]
+        assert rows[1].replace("-", "") == gig.haplotype(1)
+
+    def test_insertion(self):
+        new_ts = alignment.to_tree_sequence(tables_with_insertion().graph())
+        assert new_ts.sequence_length == 13
+        assert alignment.alignments(new_ts) == ["ACGTA---CGTAC", "ACGTATTTCGTAC"]
+
+    def test_local_root_is_colinear(self):
+        # A sample with no parent at positions 5 to 7, between iedges that leave room for
+        # them, is the root of a tree there (as in a tree sequence), not an insertion
+        tables = gigl.Tables()
+        root = tables.nodes.add_row(1)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.iedges.add_row(1, root, child_right=10)
+        tables.iedges.add_row(2, root, child_right=5)
+        tables.iedges.add_row(2, root, child_left=8, child_right=10)
+        for position, base in enumerate("ACGTACGTAC"):
+            tables.mutations.add_row(root, position, base)
+        tables.mutations.add_row(2, 6, "G")
+        tables.sort()
+        new_ts = alignment.to_tree_sequence(tables.graph())
+        assert new_ts.sequence_length == 10
+        assert alignment.alignments(new_ts) == ["ACGTACGTAC", "ACGTANGNAC"]
+
+    def test_missing_data_is_unknown(self):
+        tables = tables_with_insertion()
+        tables.mutations.clear()  # no known bases at all
+        new_ts = alignment.to_tree_sequence(tables.graph())
+        assert alignment.alignments(new_ts) == ["NNNNN---NNNNN", "NNNNNNNNNNNNN"]
+
+    def test_inversion(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.iedges.add_row(1, 0, child_right=10, parent_left=10, parent_right=0)
+        with pytest.raises(ValueError, match="inversions are not supported"):
+            alignment.to_tree_sequence(tables.graph())
+
+    def test_multiple_chromosomes(self):
+        tables = tables_with_insertion()
+        tables.mutations.add_row(1, 0, "A", chromosome=1)
+        tables.sort()
+        with pytest.raises(ValueError, match="one chromosome"):
+            alignment.to_tree_sequence(tables.graph())
+
+    def test_duplication(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.iedges.add_row(1, 0, child_right=10)
+        tables.iedges.add_row(1, 0, child_left=10, child_right=15, parent_left=5, parent_right=10)
+        with pytest.raises(ValueError, match="not in the same order"):
+            alignment.to_tree_sequence(tables.graph())
+
+
 class TestErrors:
     @staticmethod
     def ts_with_sites(sites, *, recombination_rate=0):
