@@ -13,20 +13,14 @@ _giglib_, but is **not part of the core API**:
   depend on how _giglib_ stores its data internally (see {ref}`sec_design_storage`).
 - **Tested.** Tools are tested along with the rest of _giglib_.
 
-```{eval-rst}
-.. automodule:: giglib.tools
-```
-
 (sec_tools_alignment)=
 
 ## Alignments
 
 The `giglib.tools.alignment` module converts between GIGs with insertions and deletions,
-and tree sequences whose coordinates are the columns of a multiple sequence alignment
-([#139](https://github.com/hyanwong/giglib/issues/139)). Gaps are written as `-`, and a
-site can span several columns, so that e.g. a deletion of three bases is a single
-mutation from `ATCG` to `A---`. Only conversion from a tree sequence to a GIG is
-implemented so far.
+and tree sequences whose coordinates are those of a multiple sequence alignment
+([#139](https://github.com/hyanwong/giglib/issues/139)), with gaps written as `-`. It works
+in both directions: see the module description below for how, and what round trips lose.
 
 ```python
 import giglib.tools.alignment
@@ -38,6 +32,12 @@ rows = giglib.tools.alignment.alignments(ts_with_multi_char_indels)
 for u, row in zip(ts_with_multi_char_indels.samples(), rows):
     sequence = row.replace("-", "")
     assert gig.haplotype(u, right=len(sequence)) == sequence
+
+# ...and converting back gives a tree sequence with the same haplotypes
+ts = giglib.tools.alignment.to_tree_sequence(gig)
+rows = giglib.tools.alignment.alignments(ts)
+for u, row in zip(ts.samples(), rows):
+    assert gig.haplotype(u) == row.replace("-", "")
 ```
 
 ```{eval-rst}

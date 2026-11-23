@@ -1,5 +1,6 @@
 """
-Tests for giglib.tools.alignment: tree sequences whose coordinates are alignment columns
+Tests for giglib.tools.alignment: tree sequences whose coordinates are those of an
+alignment (the reference coordinates)
 """
 
 import msprime
@@ -37,7 +38,7 @@ def simple_ts():
 
 def random_indel_ts(seed, *, num_samples=6, sequence_length=200, max_site_length=5):
     """
-    A tree sequence with recombination, and sites of several columns, with random
+    A tree sequence with recombination, and sites spanning several reference coordinates, with random
     nested mutations: deletions, insertions (with known or unknown bases), and SNPs.
     Sites do not overlap, and do not cross tree boundaries.
     """
@@ -128,9 +129,9 @@ def isolated_sample_ts(sites, *, sequence_length=6):
     return tables.tree_sequence()
 
 
-def column_states(ts):
+def coordinate_states(ts):
     """
-    The state of each sample in each column, decoded directly from the variants (with
+    The state of each sample at each reference coordinate, decoded directly from the variants (with
     missing data as None), for comparing tree sequences without using alignments()
     """
     states = [[None] * int(ts.sequence_length) for _ in range(ts.num_samples)]
@@ -196,12 +197,13 @@ class TestSplitSites:
     def test_genotypes_unchanged(self, seed):
         ts = random_indel_ts(seed)
         assert ts.num_sites > 5
-        assert column_states(alignment.split_sites(ts)) == column_states(ts)
+        assert coordinate_states(alignment.split_sites(ts)) == coordinate_states(ts)
 
-    def test_isolated_sample_unchanged_columns(self):
-        # A mutation above an isolated sample establishes its state in every column
+    def test_isolated_sample_unchanged_coordinates(self):
+        # A mutation above an isolated sample establishes its state at every reference
+        # coordinate of the site
         ts = isolated_sample_ts([(0, "AC", [(2, "AT")])])
-        assert column_states(alignment.split_sites(ts)) == column_states(ts)
+        assert coordinate_states(alignment.split_sites(ts)) == coordinate_states(ts)
         assert alignment.alignments(ts)[2] == "ATNNNN"
 
 
@@ -213,7 +215,7 @@ class TestFromTreeSequence:
         # The deletion is above node 3 (the parent of 0), so 3 has an iedge from 4 with
         # different coordinates in the child (from 6) and the parent (from 9)
         assert any(ie.child_left == 6 and ie.parent_left == 9 for ie in gig.iedges_for_child(3))
-        # Columns without sites have unknown states, and the unknown inserted bases of node
+        # Positions without sites have unknown states, and the unknown inserted bases of node
         # 2 are the allele N (so they are mutations, not missing data)
         assert gig.haplotype(2) == "NNANNANNNGNNNNNN"
 
@@ -233,7 +235,7 @@ class TestFromTreeSequence:
         assert alignment.from_tree_sequence(ts).tables == gigl.Graph.from_tree_sequence(ts).tables
 
     def test_iedges_only_break_at_indels(self):
-        # Columns where both child and parent have a gap don't break an iedge
+        # Reference coordinates where both child and parent have a gap don't break an iedge
         gig = alignment.from_tree_sequence(simple_ts())
         assert len(gig.iedges_for_child(0)) == 1  # 0 and its parent 3 both lack 6-8 and 13-15
 
@@ -243,14 +245,14 @@ class TestEdgeCases:
     Cases raised in review of the first version
     """
 
-    def test_isolated_sample_unchanged_columns(self):
+    def test_isolated_sample_unchanged_coordinates(self):
         ts = isolated_sample_ts([(0, "AC", [(2, "AT")])])
         gig = alignment.from_tree_sequence(ts)
         assert gig.haplotype(2, right=6) == "ATNNNN"
 
     def test_isolated_sample_unknown_is_not_a_gap(self):
         # Sample 2 is isolated, with no mutation at the first site, whose ancestral state is
-        # a gap. Its state there is unknown (not a gap), so the column is kept.
+        # a gap. Its state there is unknown (not a gap), so the position is kept.
         ts = isolated_sample_ts([(0, "-", []), (1, "A", [(2, "C")])])
         assert alignment.alignments(ts)[2] == "NCNNNN"
         gig = alignment.from_tree_sequence(ts)
@@ -299,7 +301,7 @@ class TestEdgeCases:
         assert gig.haplotype(2, missing_data_character="?") == row.replace("-", "")
 
     def test_deleted_by_a_later_mutation_on_the_same_node(self):
-        # AC becomes TC and then -C above the same node, so its first column is deleted
+        # AC becomes TC and then -C above the same node, so its first position is deleted
         tables = isolated_sample_ts([]).dump_tables()
         site = tables.sites.add_row(position=0, ancestral_state="AC")
         tables.mutations.add_row(site=site, node=0, derived_state="TC", time=0.8)
@@ -311,6 +313,187 @@ class TestEdgeCases:
         assert alignment.alignments(ts)[0] == "-CNNNN"
         gig = alignment.from_tree_sequence(ts)
         assert gig.haplotype(0) == "CNNNN"
+
+
+def round_trip(ts):
+    """
+    Convert ts (with reference coordinates) to a GIG and back, check the result, and
+    return the GIG and the new tree sequence
+    """
+    gig = alignment.from_tree_sequence(ts)
+    return gig, gig_round_trip(gig)
+
+
+def gig_round_trip(gig):
+    """
+    Convert a GIG to a tree sequence and back, check that the samples' haplotypes (and
+    so sequence lengths) are unchanged, and return the tree sequence
+    """
+    new_ts = alignment.to_tree_sequence(gig)
+    samples = gig.tables.sample_nodes()
+    # Each sample's alignment, with the gaps removed, is its haplotype in the GIG
+    for u, row in zip(samples, alignment.alignments(new_ts)):
+        assert row.replace("-", "") == gig.haplotype(u)
+    # ...and converting back gives the same haplotypes
+    new_gig = alignment.from_tree_sequence(new_ts)
+    for u in samples:
+        assert new_gig.haplotype(u) == gig.haplotype(u)
+        assert new_gig.sequence_length(u) == gig.sequence_length(u)
+    return new_ts
+
+
+def tables_with_insertion():
+    """
+    A root (0) with samples 1 and 2 below it. Sample 1 inherits the root's genome, while
+    sample 2 has 3 inserted bases (TTT) after its position 4
+    """
+    tables = gigl.Tables()
+    root = tables.nodes.add_row(1)
+    for _ in range(2):
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+    tables.iedges.add_row(1, root, child_right=10)
+    tables.iedges.add_row(2, root, child_right=5)
+    tables.iedges.add_row(2, root, child_left=8, child_right=13, parent_left=5, parent_right=10)
+    for position, base in enumerate("ACGTACGTAC"):
+        tables.mutations.add_row(root, position, base)
+    for position in range(5, 8):
+        tables.mutations.add_row(2, position, "T")
+    tables.sort()
+    return tables
+
+
+class TestToTreeSequence:
+    @pytest.mark.parametrize("seed", range(1, 11))
+    def test_no_indels_round_trip_exactly(self, seed):
+        # The reference coordinates are the tree sequence's, including where a node is the
+        # root of one tree but has a parent elsewhere
+        ts = msprime.sim_ancestry(6, sequence_length=300, recombination_rate=2e-3, population_size=1, random_seed=seed)
+        ts = msprime.sim_mutations(ts, rate=5e-3, random_seed=seed)
+        assert ts.num_trees > 1
+        new_ts = alignment.to_tree_sequence(gigl.Graph.from_tree_sequence(ts))
+        assert new_ts.sequence_length == ts.sequence_length
+        assert alignment.alignments(new_ts) == alignment.alignments(ts)
+
+    @pytest.mark.parametrize("seed", [*range(1, 13), 24, 161])
+    def test_random_round_trip(self, seed):
+        # (seed 24 has roots that are absent from some trees, and seed 161 an insertion at
+        # the end of an internal node's recorded genome, which only its child reveals)
+        round_trip(random_indel_ts(seed))
+
+    def test_simple_round_trip(self):
+        gig, new_ts = round_trip(simple_ts())
+        rows = alignment.alignments(new_ts)
+        # Sample 0 has the deletion (gaps), and the other samples gaps at the reference
+        # coordinates of the insertion that only sample 1 (with known bases) and sample 2 have
+        assert "---" in rows[0]
+        assert rows[1].replace("-", "") == gig.haplotype(1)
+
+    def test_insertion(self):
+        new_ts = alignment.to_tree_sequence(tables_with_insertion().graph())
+        assert new_ts.sequence_length == 13
+        assert alignment.alignments(new_ts) == ["ACGTA---CGTAC", "ACGTATTTCGTAC"]
+
+    def test_local_root_is_colinear(self):
+        # A sample with no parent at positions 5 to 7, between iedges that leave room for
+        # them, is the root of a tree there (as in a tree sequence), not an insertion
+        tables = gigl.Tables()
+        root = tables.nodes.add_row(1)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.iedges.add_row(1, root, child_right=10)
+        tables.iedges.add_row(2, root, child_right=5)
+        tables.iedges.add_row(2, root, child_left=8, child_right=10)
+        for position, base in enumerate("ACGTACGTAC"):
+            tables.mutations.add_row(root, position, base)
+        tables.mutations.add_row(2, 6, "G")
+        tables.sort()
+        new_ts = alignment.to_tree_sequence(tables.graph())
+        assert new_ts.sequence_length == 10
+        assert alignment.alignments(new_ts) == ["ACGTACGTAC", "ACGTANGNAC"]
+
+    def test_missing_data_is_unknown(self):
+        tables = tables_with_insertion()
+        tables.mutations.clear()  # no known bases at all
+        new_ts = alignment.to_tree_sequence(tables.graph())
+        assert alignment.alignments(new_ts) == ["NNNNN---NNNNN", "NNNNNNNNNNNNN"]
+
+    def test_nested_insertion_before_an_inherited_insertion(self):
+        # Node 1 inserts a base between the root's positions 0 and 1, and its child 2 (with
+        # a higher ID) inserts a base just before the one that it inherits from node 1
+        tables = gigl.Tables()
+        tables.nodes.add_row(2)  # 0: root
+        tables.nodes.add_row(1)  # 1
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # 2
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # 3: has the root's genome
+        tables.iedges.add_row(1, 0, child_right=1)
+        tables.iedges.add_row(1, 0, child_left=2, child_right=3, parent_left=1, parent_right=2)
+        tables.iedges.add_row(2, 1, child_right=1)
+        tables.iedges.add_row(2, 1, child_left=2, child_right=4, parent_left=1, parent_right=3)
+        tables.iedges.add_row(3, 0, child_right=2)
+        for position, base in enumerate("AC"):
+            tables.mutations.add_row(0, position, base)
+        tables.mutations.add_row(1, 1, "G")
+        tables.mutations.add_row(2, 1, "T")
+        tables.sort()
+        new_ts = gig_round_trip(tables.graph())
+        assert alignment.alignments(new_ts) == ["ATGC", "A--C"]
+
+    def test_isolated_sample_with_unknown_base(self):
+        # A mutation to N above an isolated sample is a known allele, not missing data
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.mutations.add_row(0, 0, "N")
+        gig = tables.graph()
+        gig_round_trip(gig)
+        tables = tables_with_insertion()  # (here, another node means the site exists anyway)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.mutations.add_row(3, 0, "N")
+        tables.sort()
+        gig_round_trip(tables.graph())
+
+    def test_roots_that_do_not_share_coordinates(self):
+        # A sample inherits position 0 of two roots, one after the other, so the roots
+        # can't both have the root coordinate 0: an error, rather than an insertion
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.iedges.add_row(2, 0, child_right=1)
+        tables.iedges.add_row(2, 1, child_left=1, child_right=2, parent_left=0, parent_right=1)
+        with pytest.raises(ValueError, match="roots that do not share coordinates"):
+            alignment.to_tree_sequence(tables.graph())
+
+    @pytest.mark.parametrize("allele", ["AC", "", "-", "\0"])
+    def test_unsupported_allele(self, allele):
+        tables = tables_with_insertion()
+        tables.mutations.add_row(1, 3, allele)
+        tables.sort()
+        with pytest.raises(ValueError, match="single character"):
+            alignment.to_tree_sequence(tables.graph())
+
+    def test_inversion(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.iedges.add_row(1, 0, child_right=10, parent_left=10, parent_right=0)
+        with pytest.raises(ValueError, match="inversions are not supported"):
+            alignment.to_tree_sequence(tables.graph())
+
+    def test_multiple_chromosomes(self):
+        tables = tables_with_insertion()
+        tables.mutations.add_row(1, 0, "A", chromosome=1)
+        tables.sort()
+        with pytest.raises(ValueError, match="one chromosome"):
+            alignment.to_tree_sequence(tables.graph())
+
+    def test_duplication(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.iedges.add_row(1, 0, child_right=10)
+        tables.iedges.add_row(1, 0, child_left=10, child_right=15, parent_left=5, parent_right=10)
+        with pytest.raises(ValueError, match="not in the same order"):
+            alignment.to_tree_sequence(tables.graph())
 
 
 class TestErrors:
