@@ -20,7 +20,8 @@ module provides :func:`alignments` (using :func:`split_sites`).
 of its non-gap columns. Each edge becomes iedges over the runs of columns that both the
 child and the parent have, breaking only where exactly one of them has a gap. Columns
 that only the child has are inserted positions, with no parent, and their bases come
-from mutations above the child. Sites must not overlap, must not extend beyond the end
+from mutations above the child: every inserted position has one (``N`` if the base is
+unknown), as required by :ref:`sec_design_insertions`. Sites must not overlap, must not extend beyond the end
 of the sequence, and the columns of a site must all be in the same tree (a site's
 mutations belong to the tree at its position).
 

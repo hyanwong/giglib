@@ -210,8 +210,10 @@ Some details to be aware of:
 - **Multi-base alleles** A mutation is at a single position, but its derived state can be several
   bases long (e.g. a small insertion). This is allowed, with fewer guarantees, but it is better to
   represent indels using iedges with different parent and child coordinates.
-- **Sequence length** A node's length comes from its iedges, so a node with no iedges has length 0.
-  Pass `right=` to `gig.haplotype()` to decode such a node.
+- **Sequence length** A node's length comes from the iedges above and below it, and the mutations
+  above it (which give the bases of inserted material, as it has no parent). So a node with no
+  iedges or mutations has length 0, and missing data at the end of a genome is not counted: pass
+  `right=` to `gig.haplotype()` to decode it.
 - **Algorithms** `sample_resolve()` and `remove_non_ancestral_nodes()` keep the mutations needed by
   the remaining nodes. By default, `decapitate()` adds mutations (with unknown times) where needed,
   so that the haplotypes of the remaining nodes are unchanged. With `discard_old_mutations=True`, old

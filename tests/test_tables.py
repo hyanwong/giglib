@@ -1872,9 +1872,9 @@ class TestDecapitateWithMutations:
         assert gig.haplotype(2) == "ACGCGCGTAC"
         new_gig = gig.decapitate(1)  # removes R and A
         assert len(new_gig.nodes) == 1
-        # S now has no iedges, so its sequence length (taken from iedges) is 0
-        assert new_gig.sequence_length(0, chromosome=0) == 0
-        assert new_gig.haplotype(0, right=10) == "ACGCGCGTAC"
+        # S now has no iedges, but its sequence length is given by its mutations
+        assert new_gig.sequence_length(0, chromosome=0) == 10
+        assert new_gig.haplotype(0) == "ACGCGCGTAC"
         # inherited alleles have unknown times, and come before S's own mutation at 3
         at_3 = [m for m in new_gig.mutations if m.position == 3]
         assert [m.derived_state for m in at_3] == ["T", "C"]

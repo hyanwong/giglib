@@ -213,6 +213,25 @@ class TestMethods:
             assert all_sv_types_no_re_gig.sequence_length(root, chromosome=chrom) == 200
         assert all_sv_types_no_re_gig.total_sequence_length(root) == 200
 
+    def test_sequence_length_counts_mutations(self):
+        # Inserted material has no parent, so an insertion at the end of a genome is only
+        # counted by the mutations that give its bases (see the insertions design note)
+        tables = gigl.Tables()
+        parent = tables.nodes.add_row(1)
+        child = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.iedges.add_row(child, parent, child_right=10)
+        tables.mutations.add_row(child, 10, "A")
+        tables.mutations.add_row(child, 11, "N")  # an inserted base that is unknown
+        tables.mutations.add_row(parent, 4, "G", chromosome=1)  # a chromosome with no iedges
+        tables.sort()
+        gig = tables.graph()
+        assert gig.max_pos_as_child(child) == 10
+        assert gig.sequence_length(child) == 12
+        assert gig.haplotype(child) == "N" * 10 + "AN"
+        assert gig.chromosomes(parent) == (0, 1)
+        assert gig.sequence_length(parent, chromosome=1) == 5
+        assert gig.total_sequence_length(parent) == 15
+
     def test_no_sequence_length(self):
         tables = gigl.Tables()
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
