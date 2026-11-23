@@ -104,9 +104,11 @@ and {issue}`135`). For example, a child `C` that has lost positions 10–12 of i
 {parent: P, child: C, child_left: 10, child_right: 97, parent_left: 13, parent_right: 100}
 ```
 
-An insertion is the reverse: positions in the child that are not inherited from any parent.
-Since they have no ancestry above `C`, their bases are given by mutations above `C`, in the same
-way as ancestral states are given by mutations above a root (see below).
+An insertion is the reverse: positions in the child that are not inherited from any parent
+("local roots"). Since they have no ancestry above `C`, their bases are given by mutations above
+`C`, in the same way as ancestral states are given by mutations above a root (see below), with `N`
+for an unknown base. See {ref}`sec_design_insertions` for the conventions, and for insertions of
+known origin.
 
 Coding indels this way keeps coordinates meaningful: every genome's coordinates correspond
 exactly to the bases in its sequence, and homologous positions in different genomes can be found

@@ -341,5 +341,6 @@ mutations are planned ({issue}`182`):
 - **Keeping flags through future table algorithms:** like `sample_resolve()` and `decapitate()`,
   node-removing simplification should keep the flags that its output satisfies by construction.
 - **More flags:** for mutations ({issue}`182`), e.g. that their times are valid and in order,
-  and that they are grouped and ordered by node. And perhaps for "every position of a non-root
-  genome has a parent" (see {ref}`sec_design_insertions`).
+  and that they are grouped and ordered by node. And perhaps an optional flag for code that never
+  creates insertions, requiring the iedges of each child to cover its chromosomes without gaps
+  (inserted material is allowed to have no parent: see {ref}`sec_design_insertions`).
