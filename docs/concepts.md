@@ -37,6 +37,15 @@ The left and right values in each case refer to the coordinate system of the chi
 ```{note}
 For terminological clarity, we switch to using the term interval-edge (`iedge`)
 to refer to what is normally called an `edge` in a *tskit* Tree Sequence.
+In a graph, an *edge* is usually the link between a parent and a child. But a child often
+inherits several separate pieces of its parent's genome (e.g. either side of a recombination
+breakpoint, or of a deletion), so one parent-child link corresponds to several intervals. As in
+_tskit_, each row of the iedges table is one of these intervals, repeating the parent and child
+in every row: in database terms, the table is *denormalised*, rather than having one table of
+parent-child links and another of their intervals. This makes the intervals above or below a
+node quick to find and process, which is what most algorithms need. So an iedge is one interval
+of a graph edge, with its coordinates in both the child and the parent. (If needed, the iedges
+that belong to the same graph edge can be given the same `edge` ID.)
 Separating child from parent coordinates brings a host of extra complexities,
 and it’s unclear if the efficiency of the tskit approach,
 with its edge indexing etc, will port in any meaningful way to this new structure.
