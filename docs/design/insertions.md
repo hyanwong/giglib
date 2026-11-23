@@ -126,6 +126,12 @@ donor, as in option d) are iedges from their source, as before.
    largest position given by the iedges above or below it, or by mutations above it. With
    convention 1, this counts an insertion at the end of a genome, which iedges alone would not.
 
+Convention 1 is a rule for code that creates insertions (such as the alignment tool), and can't be
+checked from a GIG alone. Positions with no parent and no mutation are common and legitimate: e.g.
+the parts of an internal node's genome that are not ancestral to any sample, or positions where a
+node is the root of one of a tree sequence's trees, and its state is unknown. These are all
+missing data, and an inserted base without a mutation would look the same.
+
 **What is lost** compared with source nodes:
 
 - **Checking for accidental gaps.** Code that should never create insertions (e.g. a simulator
@@ -144,8 +150,5 @@ donor, as in option d) are iedges from their source, as before.
 - **An optional validity flag** for code that never creates insertions, e.g. requiring the iedges
   of each child to cover each of its chromosomes without gaps, starting from position 0. This is
   cheap to check incrementally once the iedges are sorted.
-- **Checking convention 1:** should validation (or creating a `Graph`) check that every inserted
-  position has a mutation? This needs the positions with no parent of each node, which can be
-  found from the sorted iedges.
 - **Placing insertions that are ambiguous within repeats:** what rule should conversions from data
   use (e.g. left-alignment, as in VCF)?
