@@ -22,7 +22,7 @@ def test_import_without_optional_module(optional):
     code = f"""
 import sys
 sys.modules[{optional!r}] = None
-import giglib, giglib.tools, giglib.tools.alignment, giglib.tools.simulation
+import giglib, giglib.tools, giglib.tools.alignment, giglib.tools.homology, giglib.tools.simulation
 tables = giglib.Tables()
 tables.nodes.add_row(1)
 tables.nodes.add_row(0, flags=giglib.NODE_IS_SAMPLE)
