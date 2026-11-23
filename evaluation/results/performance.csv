@@ -1,0 +1,16 @@
+case,variant,size,value,unit,repeat,giglib_version,git_sha,cpu,cpu_cores,os,python,timestamp
+add_iedges,validate_none,2000,2.635641722008586,us_per_iedge,0,0.1.dev371+gaefdf42ba.d20261123,62cf8af,Apple M2,8,Darwin 25.6.0,3.12.10,2026-11-23T14:27:58
+add_iedges,validate_end,2000,1.7754000145941973,us_per_iedge,0,0.1.dev371+gaefdf42ba.d20261123,62cf8af,Apple M2,8,Darwin 25.6.0,3.12.10,2026-11-23T14:27:58
+add_iedges,validate_child,2000,11.960158310830593,us_per_iedge,0,0.1.dev371+gaefdf42ba.d20261123,62cf8af,Apple M2,8,Darwin 25.6.0,3.12.10,2026-11-23T14:27:58
+add_iedges,validate_row,2000,48.86317923665047,us_per_iedge,0,0.1.dev371+gaefdf42ba.d20261123,62cf8af,Apple M2,8,Darwin 25.6.0,3.12.10,2026-11-23T14:27:58
+add_iedges,validate_none,2000,1.4630416873842478,us_per_iedge,1,0.1.dev371+gaefdf42ba.d20261123,62cf8af,Apple M2,8,Darwin 25.6.0,3.12.10,2026-11-23T14:27:58
+add_iedges,validate_end,2000,1.5209415927529335,us_per_iedge,1,0.1.dev371+gaefdf42ba.d20261123,62cf8af,Apple M2,8,Darwin 25.6.0,3.12.10,2026-11-23T14:27:58
+add_iedges,validate_child,2000,11.84217082336545,us_per_iedge,1,0.1.dev371+gaefdf42ba.d20261123,62cf8af,Apple M2,8,Darwin 25.6.0,3.12.10,2026-11-23T14:27:58
+add_iedges,validate_row,2000,48.11277501285076,us_per_iedge,1,0.1.dev371+gaefdf42ba.d20261123,62cf8af,Apple M2,8,Darwin 25.6.0,3.12.10,2026-11-23T14:27:58
+add_iedges,validate_none,2000,1.5113082714378834,us_per_iedge,2,0.1.dev371+gaefdf42ba.d20261123,62cf8af,Apple M2,8,Darwin 25.6.0,3.12.10,2026-11-23T14:27:58
+add_iedges,validate_end,2000,1.5660833101719618,us_per_iedge,2,0.1.dev371+gaefdf42ba.d20261123,62cf8af,Apple M2,8,Darwin 25.6.0,3.12.10,2026-11-23T14:27:58
+add_iedges,validate_child,2000,11.575275007635355,us_per_iedge,2,0.1.dev371+gaefdf42ba.d20261123,62cf8af,Apple M2,8,Darwin 25.6.0,3.12.10,2026-11-23T14:27:58
+add_iedges,validate_row,2000,48.00475840456784,us_per_iedge,2,0.1.dev371+gaefdf42ba.d20261123,62cf8af,Apple M2,8,Darwin 25.6.0,3.12.10,2026-11-23T14:27:58
+haplotypes,haplotype,50,12.050531250424683,ms_per_haplotype,0,0.1.dev371+gaefdf42ba.d20261123,62cf8af,Apple M2,8,Darwin 25.6.0,3.12.10,2026-11-23T14:27:58
+haplotypes,haplotype,50,11.638610418885946,ms_per_haplotype,1,0.1.dev371+gaefdf42ba.d20261123,62cf8af,Apple M2,8,Darwin 25.6.0,3.12.10,2026-11-23T14:27:58
+haplotypes,haplotype,50,11.55704541131854,ms_per_haplotype,2,0.1.dev371+gaefdf42ba.d20261123,62cf8af,Apple M2,8,Darwin 25.6.0,3.12.10,2026-11-23T14:27:58
