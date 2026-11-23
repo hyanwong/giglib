@@ -409,40 +409,6 @@ class TestIEdgeTable:
         with pytest.raises(ValueError, match="Cannot use this method"):
             _ = tables.iedges.ids_for_child(10)
 
-    # TODO - add gigl.LEAFWARDS test
-    @pytest.mark.parametrize("direction", [Const.ROOTWARDS])
-    def test_notransform_interval(self, direction):
-        flags = ValidFlags.IEDGES_COMBO_STANDALONE
-        iedges = gigl.tables.IEdgeTable()
-        iedges.add_row(0, 1, child_left=10, child_right=20, validate=flags)
-        assert iedges.transform_interval(0, (12, 17), direction) == (12, 17)
-        assert iedges.transform_interval(0, (10, 20), direction) == (10, 20)
-        nd_type = "child" if direction == Const.ROOTWARDS else "parent"
-        with pytest.raises(ValueError, match=f"not in {nd_type} interval"):
-            iedges.transform_interval(0, (9, 12), direction)
-        with pytest.raises(ValueError, match=f"not in {nd_type} interval"):
-            iedges.transform_interval(0, (17, 21), direction)
-
-    def test_transform_interval_linear(self):
-        flags = ValidFlags.IEDGES_COMBO_STANDALONE
-        iedges = gigl.tables.IEdgeTable()
-        iedges.add_row(0, 1, child_left=0, child_right=10, parent_left=10, parent_right=20, validate=flags)
-        assert iedges.transform_interval(0, (0, 10), Const.ROOTWARDS) == (10, 20)
-        assert iedges.transform_interval(0, (2, 7), Const.ROOTWARDS) == (12, 17)
-        with pytest.raises(ValueError, match="not in child interval"):
-            iedges.transform_interval(0, (-1, 10), Const.ROOTWARDS)
-        with pytest.raises(ValueError, match="not in child interval"):
-            iedges.transform_interval(0, (1, 11), Const.ROOTWARDS)
-
-    def test_transform_interval_inversion(self):
-        flags = ValidFlags.IEDGES_COMBO_STANDALONE
-        iedges = gigl.tables.IEdgeTable()
-        iedges.add_row(0, 1, child_left=10, child_right=20, parent_left=30, parent_right=20, validate=flags)
-        assert iedges.transform_interval(0, (10, 20), Const.ROOTWARDS) == (30, 20)
-        assert iedges.transform_interval(0, (11, 19), Const.ROOTWARDS) == (29, 21)
-        with pytest.raises(ValueError, match="not in child interval"):
-            iedges.transform_interval(0, (5, 21), Const.ROOTWARDS)
-
     def test_clear(self, trivial_gig):
         tables = trivial_gig.tables.copy()
         tables.iedges.add_row(0, 4, child_left=10, child_right=20)
@@ -2074,3 +2040,59 @@ class TestNodeFlagConstants:
         flags = np.array([flag | 2, 2], dtype=np.uint32)
         flags &= ~flag
         assert flags.tolist() == [2, 2]
+
+
+# (child interval, parent interval) pairs, as in iedges
+MAP_INTERVALS = [
+    ((10, 20), (10, 20)),  # no change
+    ((0, 10), (10, 20)),  # shifted
+    ((10, 20), (20, 10)),  # inverted in place
+    ((10, 20), (30, 20)),  # inverted and shifted
+    ((0, 5), (5, 0)),  # inverted at the start of the genome
+]
+
+
+class TestPositionMap:
+    def test_docstring_example(self):
+        m = gigl.PositionMap.from_intervals((10, 20), (30, 20))
+        assert m == gigl.PositionMap(-1, 40)
+        assert m.interval(10, 20) == (30, 20)
+        assert (m.position(10), m.position(19)) == (29, 20)
+
+    @pytest.mark.parametrize(("child", "parent"), MAP_INTERVALS)
+    def test_from_intervals(self, child, parent):
+        m = gigl.PositionMap.from_intervals(child, parent)
+        assert m.interval(*child) == parent
+        assert m.is_reversing == ((child[0] < child[1]) != (parent[0] < parent[1]))
+        assert m.inverse().interval(*parent) == child
+
+    @pytest.mark.parametrize(("child", "parent"), MAP_INTERVALS)
+    def test_positions(self, child, parent):
+        # Each position maps to the position between the ends its own ends map to
+        m = gigl.PositionMap.from_intervals(child, parent)
+        positions = [m.position(x) for x in range(*child)]
+        assert sorted(positions) == list(range(min(parent), max(parent)))
+        for x in range(*child):
+            assert m.position(x) == min(m.interval(x, x + 1))
+            assert m.inverse().position(m.position(x)) == x
+
+    def test_different_lengths(self):
+        with pytest.raises(ValueError, match="different lengths"):
+            gigl.PositionMap.from_intervals((0, 10), (0, 11))
+
+    def test_from_iedge(self):
+        iedges = gigl.tables.IEdgeTable()
+        iedges.add_row(0, 1, child_left=10, child_right=20, parent_left=30, parent_right=20)
+        assert gigl.PositionMap.from_iedge(iedges[0]) == gigl.PositionMap.from_intervals((10, 20), (30, 20))
+
+    @pytest.mark.parametrize(("a", "b"), [(x, y) for x in MAP_INTERVALS for y in MAP_INTERVALS])
+    def test_then(self, a, b):
+        # Mapping through a chain is the same as mapping through each in turn
+        a = gigl.PositionMap.from_intervals(*a)
+        b = gigl.PositionMap.from_intervals(*b)
+        both = a.then(b)
+        for x in range(-5, 30):
+            assert both.position(x) == b.position(a.position(x))
+            assert both.interval(x, x + 3) == b.interval(*a.interval(x, x + 3))
+        assert both.is_reversing == (a.is_reversing != b.is_reversing)
+        assert a.then(a.inverse()) == gigl.PositionMap(1, 0)

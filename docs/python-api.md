@@ -29,6 +29,9 @@ This page provides formal documentation for the {ref}`giglib<sec_welcome>` Pytho
 .. autoclass:: giglib.Position
   :members:
 
+.. autoclass:: giglib.PositionMap
+  :members: from_intervals, from_iedge, is_reversing, interval, position, inverse, then
+
 .. autoclass:: giglib.TskitNameWarning
 
 .. py:data:: UNKNOWN_TIME
