@@ -1359,6 +1359,29 @@ class MutationTable(BaseExtraTable):
             return (next(iter(ranges.values()))[0], next(reversed(ranges.values()))[1])
         return tuple(ranges.get(chromosome, (0, 0)))
 
+    def _chromosomes_for_node(self, u):
+        """
+        Return the chromosome IDs of the mutations above node ``u``, as a tuple in
+        ascending order
+        """
+        self._range_for_node(u)  # (checks that the index is valid)
+        return tuple(self._id_range_for_node.get(u, {}))
+
+    def _max_pos_for_node(self, u, *, chromosome=None):
+        """
+        Return one more than the highest position of the mutations above node ``u``, on
+        the given chromosome (or on any chromosome, if ``None``), or None if there are no
+        such mutations. Like the maximum position of an iedge, this is an exclusive bound.
+        """
+        self._range_for_node(u)  # (checks that the index is valid)
+        ranges = self._id_range_for_node.get(u, {})
+        if chromosome is not None:
+            ranges = {chromosome: ranges[chromosome]} if chromosome in ranges else {}
+        if len(ranges) == 0:
+            return None
+        # Mutations are ordered by position within each node and chromosome
+        return max(int(self.position[end - 1]) for _, end in ranges.values()) + 1
+
 
 class MRCAdict(dict):
     """

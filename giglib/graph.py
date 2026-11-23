@@ -596,10 +596,16 @@ class Graph:
     def chromosomes(self, u):
         """
         Return the chromosome IDs of node ``u`` that are traced by any iedge above
-        or below it, as a tuple in ascending order.
+        or below it, or that have mutations above it, as a tuple in ascending order.
         """
         u = as_id(u)
-        return tuple(sorted(set(self.chromosomes_as_child(u)) | set(self.chromosomes_as_parent(u))))
+        return tuple(
+            sorted(
+                set(self.chromosomes_as_child(u))
+                | set(self.chromosomes_as_parent(u))
+                | set(self.tables.mutations._chromosomes_for_node(u))
+            )
+        )
 
     def max_pos_as_child(self, u, *, chromosome=None):
         u = as_id(u)
@@ -619,20 +625,24 @@ class Graph:
 
     def max_pos(self, u, *, chromosome=None):
         """
-        Return the maximum position in the edges above or below this node.
-        This defines the known sequence length of the node u for a given
-        chromosome (or the maximum position in any chromosome if not specified)
+        Return the maximum position (an exclusive bound, i.e. one more than the
+        highest position) given by the iedges above or below this node, or by the
+        mutations above it. This defines the known sequence length of the node u for a
+        given chromosome (or the maximum position in any chromosome if not specified),
+        or None if there are no such iedges or mutations.
+
+        Mutations are included because inserted material has no parent, and its bases
+        are given by mutations above the node (see :ref:`sec_design_insertions`), so an
+        insertion at the end of a genome is only counted by its mutations.
         """
         u = as_id(u)
-        max_child = self.max_pos_as_child(u, chromosome=chromosome)
-        max_parent = self.max_pos_as_parent(u, chromosome=chromosome)
-        if max_parent is None and max_child is None:
-            return None
-        if max_parent is None:
-            return max_child
-        if max_child is None:
-            return max_parent
-        return max(max_child, max_parent)
+        positions = [
+            self.max_pos_as_child(u, chromosome=chromosome),
+            self.max_pos_as_parent(u, chromosome=chromosome),
+            self.tables.mutations._max_pos_for_node(u, chromosome=chromosome),
+        ]
+        positions = [x for x in positions if x is not None]
+        return max(positions) if positions else None
 
     def min_pos_as_child(self, u, *, chromosome=None):
         u = as_id(u)
@@ -645,8 +655,9 @@ class Graph:
     def sequence_length(self, u, *, chromosome=0):
         """
         Return the known sequence length of the given chromosome (default 0) of
-        node u: equivalent to ``max_pos(u, chromosome=chromosome)`` but returns 0
-        rather than None if this is an isolated node (with no associated edges).
+        node u: equivalent to ``max_pos(u, chromosome=chromosome)`` (which counts the
+        iedges above and below ``u``, and the mutations above it) but returns 0 rather
+        than None if this is an isolated node (with no associated iedges or mutations).
         See :meth:`total_sequence_length` for the length over all chromosomes.
         """
         u = as_id(u)

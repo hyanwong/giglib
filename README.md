@@ -80,7 +80,7 @@ simulations with structural variants and recombination: see the
 
 - **No global coordinate system.** Each genome has its own coordinates, and positions are integers
   (base pairs). There is no global sequence length: a node's length comes from the iedges above and
-  below it (`gig.sequence_length(u, chromosome=c)`).
+  below it, and the mutations above it (`gig.sequence_length(u, chromosome=c)`).
 - **One parent per position.** Within a child's chromosome, each position is inherited from at
   most one parent. Iedges are grouped by child, so tracing the ancestry of any point upwards
   through the graph is always unambiguous, however rearranged the genomes are.

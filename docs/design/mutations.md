@@ -143,7 +143,7 @@ length, and haplotypes from different genomes cannot be compared base by base us
 They are therefore best kept small and isolated, and coding indels using iedges is preferable.
 
 In particular, the sequence length of a node (e.g. {meth}`~giglib.Graph.sequence_length`), which
-comes from its iedges, counts *positions*, not bases ({issue}`5`). A deleted base (`-` or the
+comes from its iedges and mutations, counts *positions*, not bases ({issue}`5`). A deleted base (`-` or the
 empty string) keeps its position, so the sequence length overstates the number of bases, and
 {meth}`~giglib.Graph.haplotype` includes the `-` characters (which can be removed to give the
 actual sequence). Conversely, a multi-character insertion adds bases without adding positions,

@@ -145,12 +145,14 @@ def column_states(ts):
 
 def assert_haplotypes_match(gig, ts):
     # Check with a missing data character other than N, so that missing data is
-    # distinguished from N alleles (e.g. unknown inserted bases)
+    # distinguished from N alleles: this checks that every inserted base (including an
+    # unknown one, N) is given by a mutation, as required by the insertions design note
     for missing in ("N", "?"):
         for u, row in zip(ts.samples(), alignment.alignments(ts, missing_data_character=missing)):
             expected = row.replace("-", "")
-            # A sequence length from the iedges excludes inserted positions at the end of
-            # a genome (which have no parent), so give the length explicitly
+            # A genome's length (from its iedges and mutations) excludes positions at the
+            # end with neither, e.g. missing data in an isolated sample, so give the length
+            # explicitly
             assert gig.sequence_length(u) <= len(expected)
             assert gig.haplotype(u, right=len(expected), missing_data_character=missing) == expected
 
@@ -211,7 +213,8 @@ class TestFromTreeSequence:
         # The deletion is above node 3 (the parent of 0), so 3 has an iedge from 4 with
         # different coordinates in the child (from 6) and the parent (from 9)
         assert any(ie.child_left == 6 and ie.parent_left == 9 for ie in gig.iedges_for_child(3))
-        # Unknown inserted bases have no mutations, so are missing data
+        # Columns without sites have unknown states, and the unknown inserted bases of node
+        # 2 are the allele N (so they are mutations, not missing data)
         assert gig.haplotype(2) == "NNANNANNNGNNNNNN"
 
     @pytest.mark.parametrize("seed", range(1, 9))
