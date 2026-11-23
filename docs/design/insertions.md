@@ -84,11 +84,11 @@ Further considerations (written when source nodes were proposed):
 
 ## Conversions
 
-- **From tree sequences with alignment columns** ({pr}`175`): an insertion is a mutation from `-`
+- **From tree sequences with alignment coordinates** ({pr}`175`): an insertion is a mutation from `-`
   to some bases above a node, so the inserted positions of that node have no parent, and their
   bases are mutations above it (`N` if unknown).
-- **To tree sequences** ({issue}`194`): each inserted position gets a new alignment column,
-  with ancestral state `-`, and a mutation above the node that gained the insertion. Which
+- **To tree sequences** ({issue}`194`): each inserted position gets a new reference coordinate
+  (of the alignment), with ancestral state `-`, and a mutation above the node that gained the insertion. Which
   positions with no parent are inserted needs care: see
   {ref}`sec_design_insertions_shared_coordinates`.
 
@@ -113,8 +113,8 @@ donor, as in option d) are iedges from their source, as before.
   is unary), the inserted positions become local roots of its child, and their mutations are moved
   down to it. If several descendants inherit the insertion, the node is a coalescence there, so is
   kept.
-- Converting to a tree sequence ({issue}`194`) gives each position with no parent a new column,
-  which is exactly an inserted position.
+- Converting to a tree sequence ({issue}`194`) gives inserted positions new reference
+  coordinates (see {ref}`sec_design_insertions_shared_coordinates`).
 
 **Conventions,** to keep this unambiguous:
 
@@ -141,14 +141,16 @@ A position with no parent can mean two things: an **insertion** (new material), 
 the recorded genealogy**, where the node is the root of one of a tree sequence's trees. This is
 common: a node is often the root of one tree but has a parent elsewhere. Within a GIG, the two are
 treated the same (both have no ancestry above the node), but they differ when genomes are placed
-in a shared coordinate system, e.g. when converting to a tree sequence with alignment columns
+in a shared coordinate system, e.g. when converting to a tree sequence whose coordinates are those of
+an alignment
 ({func}`~giglib.tools.alignment.to_tree_sequence`). In _tskit_, roots are implicitly homologous by
-position, so the top of a genealogy belongs in the reference columns, while an insertion needs new
-columns.
+position, so the top of a genealogy belongs in the root coordinates (those shared by the roots),
+while an insertion needs new reference coordinates.
 
 Only the iedges either side of a run of positions with no parent can tell which it is, so that
-is how it is decided: the run fills the reference columns between its neighbours (being colinear
-with the other genomes), and only the positions in excess of the available columns are inserted.
+is how it is decided: the run fills the root coordinates between its neighbours (being colinear
+with the other genomes), and only the positions in excess of the available root coordinates are
+inserted.
 In other words, an insertion is shown by a *shift* in coordinates, as it is relative to the
 genomes around it. This has some limits:
 

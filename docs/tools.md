@@ -22,9 +22,12 @@ _giglib_, but is **not part of the core API**:
 ## Alignments
 
 The `giglib.tools.alignment` module converts between GIGs with insertions and deletions,
-and tree sequences whose coordinates are the columns of a multiple sequence alignment
-([#139](https://github.com/hyanwong/giglib/issues/139)). Gaps are written as `-`, and a
-site can span several columns, so that e.g. a deletion of three bases is a single
+and tree sequences whose coordinates are those of a multiple sequence alignment
+([#139](https://github.com/hyanwong/giglib/issues/139)). We call these the *reference
+coordinates*, as they are shared by all the genomes. (They are often called the "columns"
+of an alignment, but we avoid that term, so as not to confuse them with the columns of
+giglib's tables.) Gaps are written as `-`, and a site can span several reference
+coordinates, so that e.g. a deletion of three bases is a single
 mutation from `ATCG` to `A---`. Conversion works in both directions, for GIGs whose
 rearrangements are insertions and deletions.
 
