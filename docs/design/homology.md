@@ -108,54 +108,60 @@ position in `v`. Homology appears as line segments, one for each block:
 
 import matplotlib.pyplot as plt
 
-# Homology blocks between genomes u and v: (u_start, u_end, v_start), all in the same
-# orientation. The allelic blocks are separated by small shifts: v has a TE insertion
-# at 10-15, u has 3 extra microsatellite repeats at 30-32, v has 2 extra at 58-59, and
-# u has a TE insertion at 80-85.
-allelic = [(0, 10, 0), (10, 30, 16), (33, 55, 36), (55, 80, 60), (86, 100, 85)]
-# The two TE copies are homologous to each other, but not allelic
-paralogous = [(80, 86, 10)]
+import giglib as gigl
+from giglib.tools import homology
 
-fig, ax = plt.subplots(figsize=(6, 6))
-for i, (a, b, c) in enumerate(allelic):
-    ax.plot([a, b], [c, c + b - a], color="tab:blue", lw=4, solid_capstyle="butt",
-            label="homology blocks in one chain" if i == 0 else None)
-for (a, b, c), (d, e, f) in zip(allelic, allelic[1:]):
-    ax.plot([b, d], [c + b - a, f], color="tab:blue", lw=1, ls=":",
-            label="gaps of at most g between them" if a == 0 else None)
-for a, b, c in paralogous:
-    ax.plot([a, b], [c, c + b - a], color="tab:red", lw=4, solid_capstyle="butt",
-            label="TE copies: homologous, not allelic")
+# A small GIG: an old ancestor R, with a TE at its positions 100-105, and a recent common
+# ancestor P of genomes u and v, which inherits R's positions 0-90. u has 3 extra
+# microsatellite repeats at 30-32 (with no parent), and a TE copied from R at 80-85. v has
+# a TE copied from R at 10-15, and 2 extra repeats at 58-59.
+tables = gigl.Tables()
+R = tables.nodes.add_row(10)
+P = tables.nodes.add_row(1)
+u = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+v = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+tables.iedges.add_row(P, R, child_right=91)
+for child, pieces in [
+    (u, [(0, 30, P, 0), (33, 80, P, 30), (80, 86, R, 100), (86, 100, P, 77)]),
+    (v, [(0, 10, P, 0), (10, 16, R, 100), (16, 58, P, 10), (60, 99, P, 52)]),
+]:
+    for cl, cr, parent, pl in pieces:
+        tables.iedges.add_row(child, parent, child_left=cl, child_right=cr, parent_left=pl, parent_right=pl + cr - cl)
+tables.sort()
+tables.validate()
+
+ax = homology.plot(tables, u, v)
 ax.annotate("TE in v", (10, 13), xytext=(22, 6), arrowprops={"arrowstyle": "->"})
 ax.annotate("extra repeats in u", (31.5, 37), xytext=(36, 26), arrowprops={"arrowstyle": "->"})
 ax.annotate("extra repeats in v", (55, 58.5), xytext=(58, 48), arrowprops={"arrowstyle": "->"})
 ax.annotate("TE in u", (83, 85), xytext=(85, 72), arrowprops={"arrowstyle": "->"})
 ax.set_xlabel("position in genome u")
 ax.set_ylabel("position in genome v")
-ax.set_xlim(0, 100)
-ax.set_ylim(0, 100)
-ax.set_aspect("equal")
-ax.legend(loc="upper left")
 plt.show()
 ```
+
+This plot is drawn from a small GIG by {func}`giglib.tools.homology.plot`, which colours each
+segment of homology by its time to the most recent common ancestor (TMRCA). Here, `u` and `v`
+share a recent common ancestor, and each has gained a copy of a TE from a much older one.
 
 In this example, `u` and `v` are two homologous chromosomes, and the maximum gap `g` is at least
 as long as the TE (6 positions):
 
 - **Allelic homology** runs along the diagonal, from bottom left to top right, but is broken into
-  five blocks (blue). Each break is a small shift: a horizontal step where `u` has material that
+  five blocks, with a recent TMRCA (yellow). Each break is a small shift: a horizontal step where `u` has material that
   `v` lacks (extra repeats, or a TE inserted in `u`), or a vertical step where `v` has material
   that `u` lacks. Joining the blocks across these small steps gives one long **chain**, covering
   almost the whole chromosome.
 - **The two TE copies** (one inserted in `u`, one in `v`, from the same family) are homologous to
-  each other, so they appear as a short segment (red), far from the diagonal. It can't join the
-  chain: reaching it from the blue block before it in `u` would mean going *backwards* in `v`, and
-  reaching the blue block after it from the red one would need a jump far larger than `g`. So it
+  each other, so they appear as a short segment, far from the diagonal, with an old TMRCA
+  (purple). It can't join the chain: reaching it from the allelic block before it in `u` would mean
+  going *backwards* in `v`, and reaching the allelic block after it from the TE segment would need
+  a jump far larger than `g`. So it
   is a chain on its own, only as long as the TE.
 
 Each block is a point of the chain where a crossover could happen, but the chain's length is what
-suggests that the homology is allelic. A crossover is then allowed well inside a long chain (blue),
-but not in a short one (red), however many shifts the long chain has. In the same way:
+suggests that the homology is allelic. A crossover is then allowed well inside a long chain (the allelic
+one), but not in a short one (the TE copies), however many shifts the long chain has. In the same way:
 
 - **Different chromosomes, or chromosome arms,** give homology on a different pair of chromosomes,
   or far off the diagonal, so it can't join an allelic chain.
@@ -194,49 +200,49 @@ Copy-number variants (CNVs) are regions present in different numbers of copies i
 genomes, e.g. tandem copies of a gene. All the copies of a region are homologous to each other (they
 descend from one ancestral copy), so every copy in `u` is homologous to every copy in `v`. In a dot
 plot, this gives a small grid of parallel segments. Here, region B is present in 3 tandem copies in
-`u`, but 2 in `v`:
+`u`, but 2 in `v`: it was duplicated in a common ancestor of `u` and `v`, and one of the copies was
+duplicated again in `u`'s lineage:
 
 ```{code-cell}
 :tags: [remove-input]
 
-import matplotlib.pyplot as plt
+# An old ancestor R has A (0-30), B (30-40), C (40-80). B was duplicated in the common
+# ancestor P of u and v (A, B1, B2, C), and v inherits P's genome. In u's lineage, P's B2 was
+# duplicated again (A, B1, B2, B3, C).
+tables = gigl.Tables()
+R = tables.nodes.add_row(10)
+P = tables.nodes.add_row(1)
+u = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+v = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+for child, pieces in [
+    (P, [(0, 40, R, 0), (40, 50, R, 30), (50, 90, R, 40)]),
+    (v, [(0, 90, P, 0)]),
+    (u, [(0, 50, P, 0), (50, 60, P, 40), (60, 100, P, 50)]),
+]:
+    for cl, cr, parent, pl in pieces:
+        tables.iedges.add_row(child, parent, child_left=cl, child_right=cr, parent_left=pl, parent_right=pl + cr - cl)
+tables.sort()
+tables.validate()
 
-# u = A (0-30), B1 (30-40), B2 (40-50), B3 (50-60), C (60-100)
-# v = A (0-30), B1 (30-40), B2 (40-50), C (50-90)
-u_copies = [30, 40, 50]
-v_copies = [30, 40]
-chain = [(0, 30, 0), (30, 40, 30), (40, 50, 40), (60, 100, 50)]  # (u_start, u_end, v_start)
-
-fig, ax = plt.subplots(figsize=(6, 6))
-for i, a in enumerate(u_copies):
-    for j, c in enumerate(v_copies):
-        if (a, a + 10, c) not in chain:
-            ax.plot([a, a + 10], [c, c + 10], color="tab:orange", lw=4, solid_capstyle="butt",
-                    label="other pairings of copies" if (i, j) == (0, 1) else None)
-for i, (a, b, c) in enumerate(chain):
-    ax.plot([a, b], [c, c + b - a], color="tab:blue", lw=4, solid_capstyle="butt",
-            label="the chain with the most homology" if i == 0 else None)
-ax.plot([50, 60], [50, 50], color="tab:blue", lw=1, ls=":", label="a gap (the extra copy in u)")
-for y in (30, 40, 50):
-    ax.axhline(y, color="0.85", lw=0.5, zorder=0)
+ax = homology.plot(tables, u, v)
 for x in (30, 40, 50, 60):
     ax.axvline(x, color="0.85", lw=0.5, zorder=0)
+for y in (30, 40, 50):
+    ax.axhline(y, color="0.85", lw=0.5, zorder=0)
 ax.set_xlabel("position in genome u (A, B1, B2, B3, C)")
 ax.set_ylabel("position in genome v (A, B1, B2, C)")
-ax.set_xlim(0, 100)
-ax.set_ylim(0, 100)
-ax.set_aspect("equal")
-ax.legend(loc="upper left")
 plt.show()
 ```
 
-- **The allelic chain is ambiguous within the CNV.** Here, the chain with the most homology pairs
-  `u`'s first two copies with `v`'s two copies, and treats `u`'s third copy as a gap (if it is no
-  longer than `g`). But pairing `u`'s last two copies with `v`'s, with the gap at the start, has
-  just as much homology. This is the usual ambiguity of aligning CNVs, and is real: nothing in
+- **The allelic chain is ambiguous within the CNV.** Here, `v`'s second copy has equally recent
+  homology with `u`'s second and third copies (the two recent segments that overlap in `v`). The
+  chain with the most homology pairs `u`'s first two copies with `v`'s two copies, and treats
+  `u`'s third copy as a gap (if it is no longer than `g`). But pairing `u`'s third copy with `v`'s
+  second instead, with the gap before it, has just as much homology. This is the usual ambiguity of aligning CNVs, and is real: nothing in
   either genome says which copies are "the same".
 - **Unequal crossovers change copy number.** A crossover between copies that are *not* paired in
-  the chosen chain (orange) is unequal crossing over, and gives one product with more copies and
+  the chosen chain (e.g. the older segments, between the copies made in the common ancestor) is
+  unequal crossing over, and gives one product with more copies and
   one with fewer. This is how CNVs grow and shrink, by non-allelic homologous recombination, so a
   simulator should be able to allow it, e.g. at a rate relative to allelic crossovers, between
   copies that lie close to the allelic chain (parallel segments near the diagonal).

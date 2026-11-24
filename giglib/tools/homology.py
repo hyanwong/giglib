@@ -17,7 +17,9 @@ genomes that share a common ancestor, and stops tracing each region at its most 
   common ancestor of each pair of positions. Unlike
   :meth:`~giglib.Tables.find_mrca_regions`, this doesn't stop at the first common
   ancestor, so it also finds older homology, e.g. between copies of a region that was
-  duplicated in a common ancestor of the two genomes.
+  duplicated in a common ancestor of the two genomes;
+- :func:`plot`: a dot plot of all the homology between two genomes, coloured by the time to
+  the most recent common ancestor.
 
 This module is experimental: see :ref:`sec_tools`. It provides *mechanism* (finding
 homology, and chaining it), not *policy* (e.g. where crossovers are allowed), which is up
@@ -331,3 +333,67 @@ def find_homology(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=N
                 add(ie.parent, side, ie.parent_chromosome, to_parent.inverse().then(to_original), parent_intervals)
     result.sort()
     return result
+
+
+def plot(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=None, ax=None, cmap="viridis_r", linewidth=3):
+    """
+    Plot the homology between a chromosome of genome ``u`` and a chromosome of genome
+    ``v`` as a dot plot: each homologous segment is a line from its start to its end, at
+    its position in ``u`` (horizontally) and in ``v`` (vertically), coloured by its time to
+    the most recent common ancestor (TMRCA). All the homology is shown (found with
+    :func:`find_homology`), including that older than a more recent common ancestor of
+    other positions. Allelic homology is a diagonal line, with a
+    recent TMRCA; copies (e.g. of a TE, or of a copy-number variant) are lines off the
+    diagonal, coloured by the age of the duplication; and reversed homology (e.g. an
+    inversion) runs from top left to bottom right. See :ref:`sec_design_homology`.
+
+    This needs matplotlib, which is not a requirement of giglib itself.
+
+    :param giglib.Tables tables: The tables (which need the flags required by
+        :meth:`~giglib.Tables.find_mrca_regions`)
+    :param int u: The first genome (node ID)
+    :param int v: The second genome (node ID)
+    :param int u_chromosome: The chromosome of ``u`` (default 0)
+    :param int v_chromosome: The chromosome of ``v`` (default 0)
+    :param float time_cutoff: If given, only show homology with a TMRCA at most this old
+        (when everything is ultimately homologous, this hides ancient homology, and limits
+        the work done)
+    :param ax: The matplotlib axes to draw on (default: a new figure)
+    :param str cmap: The matplotlib colour map for the TMRCA
+    :param float linewidth: The width of the lines
+    :return: The axes
+    """
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from matplotlib.collections import LineCollection
+
+    segments = find_homology(
+        tables, u, v, u_chromosome=u_chromosome, v_chromosome=v_chromosome, time_cutoff=time_cutoff
+    )
+    # Draw older homology first, so that more recent homology is drawn on top of it
+    segments.sort(key=lambda h: -h.tmrca)
+    lines = [[(h.u_left, h.v_left), (h.u_right, h.v_right)] for h in segments]
+    times = [h.tmrca for h in segments]
+    if ax is None:
+        _, ax = plt.subplots(figsize=(6, 6))
+    collection = LineCollection(lines, array=np.array(times), cmap=cmap, linewidths=linewidth)
+    ax.add_collection(collection)
+    # The axes cover every plotted end (in v, both ends, as a segment may be reversed), and
+    # the iedges above each genome (a root has none, so only the plotted ends count)
+    u_ends = [x for h in segments for x in (h.u_left, h.u_right)]
+    v_ends = [y for h in segments for y in (h.v_left, h.v_right)]
+    ax.set_xlim(0, max([*u_ends, *_child_rights(tables, u, u_chromosome)], default=1))
+    ax.set_ylim(0, max([*v_ends, *_child_rights(tables, v, v_chromosome)], default=1))
+    ax.set_aspect("equal")
+    ax.set_xlabel(f"position in genome {u}")
+    ax.set_ylabel(f"position in genome {v}")
+    ax.figure.colorbar(collection, ax=ax, label="TMRCA", shrink=0.8)
+    return ax
+
+
+def _child_rights(tables, u, chromosome):
+    """
+    The right ends of the iedges above a chromosome of ``u``
+    """
+    ids = tables.iedges.ids_for_child(u, chromosome=chromosome)
+    return tables.iedges.child_right[ids].tolist()
