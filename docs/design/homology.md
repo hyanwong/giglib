@@ -101,10 +101,12 @@ each genome. Chains are a standard idea in comparing whole genomes (e.g. the "ch
 genome assemblies), used here for homology by descent rather than similarity.
 
 The clearest way to see this is a **dot plot**: plot each position of `u` against its homologous
-position in `v`. Homology appears as line segments, one for each block:
+position in `v`. Homology appears as line segments, one for each block. The plots on this page are
+drawn by _giglib_'s own {func}`giglib.tools.homology.plot`, from small GIGs (show the code to see
+how), and colour each segment of homology by its time to the most recent common ancestor (TMRCA):
 
 ```{code-cell}
-:tags: [remove-input]
+:tags: [hide-input]
 
 import matplotlib.pyplot as plt
 
@@ -140,9 +142,8 @@ ax.set_ylabel("position in genome v")
 plt.show()
 ```
 
-This plot is drawn from a small GIG by {func}`giglib.tools.homology.plot`, which colours each
-segment of homology by its time to the most recent common ancestor (TMRCA). Here, `u` and `v`
-share a recent common ancestor, and each has gained a copy of a TE from a much older one.
+Here, `u` and `v` share a recent common ancestor, and each has gained a copy of a TE from a much
+older one.
 
 In this example, `u` and `v` are two homologous chromosomes, and the maximum gap `g` is at least
 as long as the TE (6 positions):
@@ -204,7 +205,7 @@ plot, this gives a small grid of parallel segments. Here, region B is present in
 duplicated again in `u`'s lineage:
 
 ```{code-cell}
-:tags: [remove-input]
+:tags: [hide-input]
 
 # An old ancestor R has A (0-30), B (30-40), C (40-80). B was duplicated in the common
 # ancestor P of u and v (A, B1, B2, C), and v inherits P's genome. In u's lineage, P's B2 was
