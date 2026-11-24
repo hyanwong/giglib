@@ -84,10 +84,12 @@ def homology_blocks(tables, u, v, *, u_chromosome=0, v_chromosome=0):
                     if u_chr != u_chromosome or v_chr != v_chromosome:
                         continue
                     # The ends of the MRCA interval map to (u_left, u_right) in u, and to
-                    # (v_left, v_right) in v: so u_left corresponds to v_left
-                    if u_left > u_right:  # put u in increasing order
-                        u_left, u_right, v_left, v_right = u_right, u_left, v_right, v_left
-                    pieces.add((u_left, u_right, v_left, v_right))
+                    # (v_left, v_right) in v: so u_left corresponds to v_left. Put u in
+                    # increasing order (for this pair only: u's ends are reused for others)
+                    if u_left > u_right:
+                        pieces.add((u_right, u_left, v_right, v_left))
+                    else:
+                        pieces.add((u_left, u_right, v_left, v_right))
     blocks = []
     for u_left, u_right, v_left, v_right in sorted(pieces):
         block = Block(u_left, u_right, u_chromosome, v_left, v_right, v_chromosome)
@@ -161,7 +163,9 @@ def chains(blocks, *, max_gap):
         with the most homology
     :rtype: list(list(Block))
     """
-    remaining = sorted(blocks)
+    # Blocks are ordered by where they end in u: a block can only follow one that ends
+    # before it does, so every possible predecessor of a block comes before it
+    remaining = sorted(blocks, key=_end_order)
     result = []
     while remaining:
         # For each block, the most homology in a chain ending with it, the block before it
@@ -184,8 +188,12 @@ def chains(blocks, *, max_gap):
         # The parts trimmed from the starts of blocks remain, for other chains
         trimmed = [_start(remaining[k], trims[k]) for k in chain if trims[k] > 0]
         used = set(chain)
-        remaining = sorted([b for k, b in enumerate(remaining) if k not in used] + trimmed)
+        remaining = sorted([b for k, b in enumerate(remaining) if k not in used] + trimmed, key=_end_order)
     return result
+
+
+def _end_order(block):
+    return (block.u_chromosome, block.u_right, block.u_left, block.v_chromosome, block.v_left, block.v_right)
 
 
 def chain_length(chain):

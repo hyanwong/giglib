@@ -171,3 +171,23 @@ class TestFindHomology:
     def test_same_genome(self):
         with pytest.raises(ValueError, match="different genomes"):
             homology.find_homology(cnv_tables(), 2, 2)
+
+
+class TestReviewCases:
+    def test_inverted_segment_with_two_copies(self):
+        # u inherits the root's positions 0-10 inverted, and v has two (forward) copies
+        # of them, so u's segment matches both copies, through the same inverted map
+        tables = two_samples([(0, 10, 10, 0)], [(0, 10, 0, 10), (10, 20, 0, 10)])
+        blocks = homology.homology_blocks(tables, 1, 2)
+        assert spans(blocks) == [(0, 10, 10, 0), (0, 10, 20, 10)]
+        assert all(b.is_reversed for b in blocks)
+
+    def test_predecessor_that_starts_later(self):
+        # A starts after B, but ends before it, so can precede it in a chain: the best
+        # chain is C, A, then B (trimmed where it overlaps A), with 40 positions
+        c = homology.Block(0, 10, 0, 0, 10, 0)
+        b = homology.Block(5, 40, 0, 15, 50, 0)
+        a = homology.Block(10, 20, 0, 15, 25, 0)
+        chains = homology.chains([c, b, a], max_gap=5)
+        assert spans(chains[0]) == [(0, 10, 0, 10), (10, 20, 15, 25), (20, 40, 30, 50)]
+        assert homology.chain_length(chains[0]) == 40
