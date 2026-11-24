@@ -13,7 +13,14 @@ chapters:
 - file: api
   sections:
   - file: python-api
-  - file: tools
+- file: tools
+  sections:
+  - file: tools/alignment
+  - file: tools/homology
+  - file: tools/simulations
+    sections:
+    - file: tools/simulations/no_recombination
+    - file: tools/simulations/one_break_inversions
 - file: design
   sections:
   - file: design/mutations

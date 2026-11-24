@@ -245,5 +245,5 @@ could be created).
 For examples of using the simulation code directly, see
 [this comment](https://github.com/hyanwong/giglib/issues/86#issuecomment-1970029273)
 or [this one](https://github.com/hyanwong/giglib/issues/82#issuecomment-1972153550) (written
-when the simulators were in the test suite, so import them from `giglib.tools.simulation`
-instead).
+when the simulators were in the test suite, so import them from the modules of
+`giglib.tools.simulation` instead, e.g. `giglib.tools.simulation.one_break_inversions`).
