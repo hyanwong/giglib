@@ -340,6 +340,16 @@ a real difference between them. So the homology table makes the blocks between `
 find, and as few as possible, while chaining is still what decides which homology is allelic. The
 homology table is an optional cache for speed, not part of the definition of homology.
 
+(sec_design_homology_root_maps)=
+
+**Maps to the roots are enough for blocks.** Homology blocks don't depend on *which* ancestor gives
+the homology, only on *where* positions map to. As each position traces up to exactly one root
+position, the blocks between `u` and `v` are where their maps to the roots reach the same root
+position. These maps are what the most aggressive simplification (removing every node between the
+genomes and their roots) would give, and in a forward simulation they can be kept up to date at
+each birth, by composing the parents' maps through the child's iedges. But they find homology of
+every age, so queries that report the TMRCA need the coalescence nodes as well ({issue}`210`).
+
 ## What giglib would provide
 
 The line to draw is between **policy** and **mechanism**. Policy is any choice that depends on the

@@ -171,7 +171,8 @@ ancestors, and so would allow a much wider range of times.
 
 ## The homology table
 
-Proposed in {issue}`140`. It would be used by a "homologous location" method, e.g.
+Proposed in {issue}`140`. For finding homology blocks between two genomes, maps all the way to the
+roots are enough (see {ref}`the homology note <sec_design_homology_root_maps>`, and {issue}`210`). It would be used by a "homologous location" method, e.g.
 `gig.homologous_location(source_node, source_position, target_node)`, returning the equivalent
 position (and orientation) in the target genome. It could also speed up other methods that trace
 positions up the graph, such as {meth}`~giglib.Graph.ancestral_allele_at` (which only needs to
