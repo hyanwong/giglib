@@ -1,6 +1,7 @@
 """
-Convert between GIGs with insertions and deletions, and tree sequences whose
-coordinates are those of a multiple sequence alignment.
+Convert between GIGs with insertions and deletions (indels), and tree sequences whose
+coordinates are those of a multiple sequence alignment. Other structural variants, such
+as inversions and duplications, can't be represented in a tree sequence this way.
 
 This module is experimental: see :ref:`sec_tools`. Discussion: :issue:`139` and
 :issue:`194`.

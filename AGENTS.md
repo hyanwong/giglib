@@ -13,7 +13,7 @@ concept, aimed at forward simulation of structural variants. Start with `README.
 | `giglib/tables.py` | The tables (`Tables`, `IEdgeTable`, `NodeTable`, `MutationTable`, ...), validation, and table algorithms (`sort`, `sample_resolve`, `decapitate`, `find_mrca_regions`, ...) |
 | `giglib/graph.py` | `Graph`: a validated, frozen view of a set of tables, with indexes and allele decoding |
 | `giglib/constants.py` | `ValidFlags` (the validity requirements) and other constants |
-| `giglib/tools/` | Tools that build on the core, e.g. converting alignments (`giglib.tools.alignment`) and simple forward simulators (`giglib.tools.simulation`) |
+| `giglib/tools/` | Tools that build on the core, e.g. converting tree sequences with indels (`giglib.tools.indels`) and simple forward simulators (`giglib.tools.simulation`) |
 | `tests/` | Unit tests (`tests/tools/` for the tools). `tests/gigutil.py` has small helpers for building test fixtures |
 | `docs/` | Documentation (jupyter-book; code cells are executed). `docs/design/` has design notes, which record decisions and open questions |
 | `evaluation/` | Scripts run by hand to measure performance (see `evaluation/README.md`), not part of the package or the tests |

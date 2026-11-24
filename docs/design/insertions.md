@@ -3,7 +3,7 @@
 # Inserted material
 
 **Status: Decided** (see {ref}`sec_design_insertions_decision`), apart from the remaining open
-questions. Discussion: {issue}`178`, and the alignment tool ({issue}`139`, {pr}`175`, {issue}`194`),
+questions. Discussion: {issue}`178`, and the indels tool ({issue}`139`, {pr}`175`, {issue}`194`),
 which raised the question. Related: {issue}`158` (sequence lengths), {issue}`126` (pseudo-roots),
 {ref}`sec_design_mutations`, {ref}`sec_design_simplification`.
 
@@ -50,7 +50,7 @@ should document it.
 ## Options for new material, or material of unknown origin
 
 a. **Positions with no parent** (local roots), inside a non-root node. This is what nothing
-   forbids, and what the alignment tool ({pr}`175`) does. **This is the option chosen** (see
+   forbids, and what the indels tool ({pr}`175`) does. **This is the option chosen** (see
    {ref}`sec_design_insertions_decision`).
 b. **A source node for each insertion event**: a new root, with an iedge into the node that gained
    the insertion (covering just the inserted positions), and the inserted bases as mutations
@@ -119,7 +119,7 @@ donor, as in option d) are iedges from their source, as before.
 **Conventions,** to keep this unambiguous:
 
 1. **Every inserted position has a mutation** above the node that gained it, with derived state
-   `N` if the base is unknown (`N` is treated as an allele, e.g. by the alignment tool). So a
+   `N` if the base is unknown (`N` is treated as an allele, e.g. by the indels tool). So a
    position with no parent and no mutation is *missing data* (as for an isolated sample in
    _tskit_), not an inserted base of unknown sequence: the two would otherwise look the same,
    although only inserted bases are part of the genome (e.g. for statistics).
@@ -127,7 +127,7 @@ donor, as in option d) are iedges from their source, as before.
    largest position given by the iedges above or below it, or by mutations above it. With
    convention 1, this counts an insertion at the end of a genome, which iedges alone would not.
 
-Convention 1 is a rule for code that creates insertions (such as the alignment tool), and can't be
+Convention 1 is a rule for code that creates insertions (such as the indels tool), and can't be
 checked from a GIG alone. Positions with no parent and no mutation are common and legitimate: e.g.
 the parts of an internal node's genome that are not ancestral to any sample, or positions where a
 node is the root of one of a tree sequence's trees, and its state is unknown. These are all
@@ -143,7 +143,7 @@ common: a node is often the root of one tree but has a parent elsewhere. Within 
 treated the same (both have no ancestry above the node), but they differ when genomes are placed
 in a shared coordinate system, e.g. when converting to a tree sequence whose coordinates are those of
 an alignment
-({func}`~giglib.tools.alignment.to_tree_sequence`). In _tskit_, roots are implicitly homologous by
+({func}`~giglib.tools.indels.to_tree_sequence`). In _tskit_, roots are implicitly homologous by
 position, so the top of a genealogy belongs in the root coordinates (those shared by the roots),
 while an insertion needs new reference coordinates.
 

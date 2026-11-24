@@ -150,8 +150,8 @@ empty string) keeps its position, so the sequence length overstates the number o
 {meth}`~giglib.Graph.haplotype` includes the `-` characters (which can be removed to give the
 actual sequence). Conversely, a multi-character insertion adds bases without adding positions,
 so the sequence length understates the number of bases. Coding a deletion as a gap is still
-convenient for some purposes, e.g. to mirror an alignment. But note that the alignment tool in
-{ref}`giglib.tools <sec_tools>` (which reads tree sequences whose alleles contain `-`) instead
+convenient for some purposes, e.g. to mirror an alignment. But note that the indels tool in
+{ref}`giglib.tools <sec_tools_indels>` (which reads tree sequences whose alleles contain `-`) instead
 converts gaps into changes of coordinates, so the GIGs it creates do not have this problem.
 
 (sec_design_mutations_ancestral)=

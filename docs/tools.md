@@ -15,8 +15,9 @@ _giglib_, but is **not part of the core API**:
 
 The tools are:
 
-- {ref}`sec_tools_alignment` (`giglib.tools.alignment`): converting between GIGs and tree
-  sequences whose coordinates are those of a multiple sequence alignment.
+- {ref}`sec_tools_indels` (`giglib.tools.indels`): converting between GIGs and tree
+  sequences with insertions and deletions, whose coordinates are those of a multiple
+  sequence alignment.
 - {ref}`sec_tools_homology` (`giglib.tools.homology`): finding the homology between two
   genomes, joining it into chains, and plotting it.
 - {ref}`sec_tools_simulation` (`giglib.tools.simulation`): simple simulators that record
