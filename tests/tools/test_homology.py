@@ -232,3 +232,15 @@ class TestReviewCases:
         )
         with pytest.raises(ValueError, match="not older than child"):
             homology.find_homology(tables, 0, 1)
+
+    def test_axes_cover_a_root(self):
+        # A root (0) has no iedges above it, but the axes cover its homology with a child
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0)
+        tables.iedges.add_row(1, 0, child_right=100, parent_left=100, parent_right=0)
+        tables.sort()
+        tables.validate(gigl.ValidFlags.IEDGES_FOR_TRACING)  # (only these flags)
+        ax = homology.plot(tables, 0, 1)
+        assert ax.get_xlim() == (0, 100)
+        assert ax.get_ylim() == (0, 100)

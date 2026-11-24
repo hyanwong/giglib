@@ -378,10 +378,22 @@ def plot(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=None, ax=N
         _, ax = plt.subplots(figsize=(6, 6))
     collection = LineCollection(lines, array=np.array(times), cmap=cmap, linewidths=linewidth)
     ax.add_collection(collection)
-    ax.set_xlim(0, tables.iedges.max_pos_as_child(u, chromosome=u_chromosome) or 1)
-    ax.set_ylim(0, tables.iedges.max_pos_as_child(v, chromosome=v_chromosome) or 1)
+    # The axes cover every plotted end (in v, both ends, as a segment may be reversed), and
+    # the iedges above each genome (a root has none, so only the plotted ends count)
+    u_ends = [x for h in segments for x in (h.u_left, h.u_right)]
+    v_ends = [y for h in segments for y in (h.v_left, h.v_right)]
+    ax.set_xlim(0, max([*u_ends, *_child_rights(tables, u, u_chromosome)], default=1))
+    ax.set_ylim(0, max([*v_ends, *_child_rights(tables, v, v_chromosome)], default=1))
     ax.set_aspect("equal")
     ax.set_xlabel(f"position in genome {u}")
     ax.set_ylabel(f"position in genome {v}")
     ax.figure.colorbar(collection, ax=ax, label="TMRCA", shrink=0.8)
     return ax
+
+
+def _child_rights(tables, u, chromosome):
+    """
+    The right ends of the iedges above a chromosome of ``u``
+    """
+    ids = tables.iedges.ids_for_child(u, chromosome=chromosome)
+    return tables.iedges.child_right[ids].tolist()
