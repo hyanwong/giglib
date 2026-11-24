@@ -3,10 +3,8 @@ import pytest
 import tskit
 
 import giglib as gigl
-from giglib.tools.simulation import (
-    DTWF_no_recombination_sim,
-    DTWF_one_break_no_rec_inversions_slow_sim,
-)
+from giglib.tools.simulation.no_recombination import DTWF_no_recombination_sim
+from giglib.tools.simulation.one_break_inversions import DTWF_one_break_no_rec_inversions_slow_sim
 
 INVERTED_CHILD_FLAG = 1 << 17
 

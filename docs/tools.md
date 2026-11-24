@@ -13,65 +13,11 @@ _giglib_, but is **not part of the core API**:
   depend on how _giglib_ stores its data internally (see {ref}`sec_design_storage`).
 - **Tested.** Tools are tested along with the rest of _giglib_.
 
-(sec_tools_alignment)=
+The tools are:
 
-## Alignments
-
-The `giglib.tools.alignment` module converts between GIGs with insertions and deletions,
-and tree sequences whose coordinates are those of a multiple sequence alignment
-([#139](https://github.com/hyanwong/giglib/issues/139)), with gaps written as `-`. It works
-in both directions: see the module description below for how, and what round trips lose.
-
-```python
-import giglib.tools.alignment
-
-gig = giglib.tools.alignment.from_tree_sequence(ts_with_multi_char_indels)
-
-# Each sample's haplotype in the GIG is its alignment with the gaps removed
-rows = giglib.tools.alignment.alignments(ts_with_multi_char_indels)
-for u, row in zip(ts_with_multi_char_indels.samples(), rows):
-    sequence = row.replace("-", "")
-    assert gig.haplotype(u, right=len(sequence)) == sequence
-
-# ...and converting back gives a tree sequence with the same haplotypes
-ts = giglib.tools.alignment.to_tree_sequence(gig)
-rows = giglib.tools.alignment.alignments(ts)
-for u, row in zip(ts.samples(), rows):
-    assert gig.haplotype(u) == row.replace("-", "")
-```
-
-```{eval-rst}
-.. automodule:: giglib.tools.alignment
-  :members:
-```
-
-(sec_tools_homology)=
-
-## Homology
-
-The `giglib.tools.homology` module finds the homology between two genomes (positions that
-trace back to the same position in a common ancestor), building on
-{meth}`~giglib.Tables.find_mrca_regions`, as described in {ref}`sec_design_homology`. It
-can join homology into *chains*, which distinguish allelic homology (long chains, even across
-many small differences in length, e.g. at microsatellites) from non-allelic homology (e.g.
-between copies of a transposable element), and can find *all* the homology between two
-genomes, not just the most recent.
-
-```{eval-rst}
-.. automodule:: giglib.tools.homology
-  :members:
-```
-
-(sec_tools_simulation)=
-
-## Simulations
-
-The `giglib.tools.simulation` module has some simple forward-time (discrete-time
-Wright-Fisher) simulators, which record their genealogies as GIGs. They are used in the
-tests, and are a starting point for simulating structural variants (see
-{ref}`sec_usage_simulations`).
-
-```{eval-rst}
-.. automodule:: giglib.tools.simulation
-  :members:
-```
+- {ref}`sec_tools_alignment` (`giglib.tools.alignment`): converting between GIGs and tree
+  sequences whose coordinates are those of a multiple sequence alignment.
+- {ref}`sec_tools_homology` (`giglib.tools.homology`): finding the homology between two
+  genomes, joining it into chains, and plotting it.
+- {ref}`sec_tools_simulation` (`giglib.tools.simulation`): simple simulators that record
+  their genealogies as GIGs, each described on a page of its own.
