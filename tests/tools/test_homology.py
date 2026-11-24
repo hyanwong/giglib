@@ -191,3 +191,17 @@ class TestReviewCases:
         chains = homology.chains([c, b, a], max_gap=5)
         assert spans(chains[0]) == [(0, 10, 0, 10), (10, 20, 15, 25), (20, 40, 30, 50)]
         assert homology.chain_length(chains[0]) == 40
+
+    def test_parent_not_older(self):
+        # A node that is its own parent would make the tracing loop forever: the
+        # requirements for tracing are checked instead
+        tables = gigl.Tables()
+        tables.nodes.add_row(0)
+        tables.nodes.add_row(0)
+        tables.iedges.add_row(0, 0, child_right=10)
+        tables.iedges.add_row(1, 0, child_right=10)
+        tables.iedges.set_bitflag(
+            gigl.ValidFlags.IEDGES_FOR_CHILD_ADJACENT | gigl.ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
+        )
+        with pytest.raises(ValueError, match="not older than child"):
+            homology.find_homology(tables, 0, 1)

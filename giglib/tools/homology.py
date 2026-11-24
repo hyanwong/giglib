@@ -26,7 +26,7 @@ to the simulators that use it. Discussion: :issue:`202`.
 
 import collections
 
-from giglib import PositionMap
+from giglib import PositionMap, ValidFlags
 
 
 class Block(collections.namedtuple("Block", "u_left, u_right, u_chromosome, v_left, v_right, v_chromosome")):
@@ -235,9 +235,10 @@ def find_homology(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=N
         sharing its internals with :meth:`~giglib.Tables.find_mrca_regions` (see
         :issue:`207`).
 
-    :param giglib.Tables tables: The tables (which need the iedges for each child to be
-        adjacent and ordered by chromosome, as for
-        :meth:`~giglib.tables.IEdgeTable.ids_for_child`)
+    :param giglib.Tables tables: The tables, whose iedges must satisfy the requirements for
+        tracing through them (:data:`~giglib.ValidFlags.IEDGES_FOR_TRACING`, e.g. that every
+        parent is older than its child). These are checked with
+        :meth:`~giglib.Tables.validate`, which is cheap if they have already been checked.
     :param int u: The first genome (node ID)
     :param int v: The second genome (node ID)
     :param int u_chromosome: The chromosome of ``u`` (default 0)
@@ -252,6 +253,9 @@ def find_homology(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=N
 
     if u == v:
         raise ValueError("u and v must be different genomes")
+    # Tracing needs every parent to be older than its child (otherwise e.g. a node that is
+    # its own parent would be visited forever), and iedges that can be found for each child
+    tables.validate(ValidFlags.IEDGES_FOR_TRACING)
     if time_cutoff is None:
         time_cutoff = float("inf")
     node_time = tables.nodes.time
