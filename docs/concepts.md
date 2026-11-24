@@ -46,10 +46,11 @@ parent-child links and another of their intervals. This makes the intervals abov
 node quick to find and process, which is what most algorithms need. So an iedge is one interval
 of a graph edge, with its coordinates in both the child and the parent. (If needed, the iedges
 that belong to the same graph edge can be given the same `edge` ID.)
-Separating child from parent coordinates brings a host of extra complexities,
-and it’s unclear if the efficiency of the tskit approach,
-with its edge indexing etc, will port in any meaningful way to this new structure.
 ```
+
+Separating child from parent coordinates means that some of _tskit_'s machinery, such as the edge
+indexes used to iterate over local trees, doesn't apply (a GIG has no local trees), so _giglib_ has
+its own indexes (see {ref}`sec_design_storage`).
 
 ## Structural variation
 
