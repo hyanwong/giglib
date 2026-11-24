@@ -149,13 +149,13 @@ In this example, `u` and `v` are two homologous chromosomes, and the maximum gap
 as long as the TE (6 positions):
 
 - **Allelic homology** runs along the diagonal, from bottom left to top right, but is broken into
-  five blocks, with a recent TMRCA (yellow). Each break is a small shift: a horizontal step where `u` has material that
+  five blocks, with a recent TMRCA (dark blue). Each break is a small shift: a horizontal step where `u` has material that
   `v` lacks (extra repeats, or a TE inserted in `u`), or a vertical step where `v` has material
   that `u` lacks. Joining the blocks across these small steps gives one long **chain**, covering
   almost the whole chromosome.
 - **The two TE copies** (one inserted in `u`, one in `v`, from the same family) are homologous to
   each other, so they appear as a short segment, far from the diagonal, with an old TMRCA
-  (purple). It can't join the chain: reaching it from the allelic block before it in `u` would mean
+  (yellow). It can't join the chain: reaching it from the allelic block before it in `u` would mean
   going *backwards* in `v`, and reaching the allelic block after it from the TE segment would need
   a jump far larger than `g`. So it
   is a chain on its own, only as long as the TE.

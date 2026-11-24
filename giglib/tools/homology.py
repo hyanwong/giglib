@@ -335,7 +335,7 @@ def find_homology(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=N
     return result
 
 
-def plot(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=None, ax=None, cmap="viridis_r", linewidth=3):
+def plot(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=None, ax=None, cmap="viridis", linewidth=3):
     """
     Plot the homology between a chromosome of genome ``u`` and a chromosome of genome
     ``v`` as a dot plot: each homologous segment is a line from its start to its end, at
@@ -345,7 +345,9 @@ def plot(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=None, ax=N
     other positions. Allelic homology is a diagonal line, with a
     recent TMRCA; copies (e.g. of a TE, or of a copy-number variant) are lines off the
     diagonal, coloured by the age of the duplication; and reversed homology (e.g. an
-    inversion) runs from top left to bottom right. See :ref:`sec_design_homology`.
+    inversion) runs from top left to bottom right. With the default colour map, recent
+    homology is dark blue and older homology lighter, up to yellow; places with no
+    homology are left white, as if their TMRCA were infinite. See :ref:`sec_design_homology`.
 
     This needs matplotlib, which is not a requirement of giglib itself.
 
@@ -359,7 +361,8 @@ def plot(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=None, ax=N
         (when everything is ultimately homologous, this hides ancient homology, and limits
         the work done)
     :param ax: The matplotlib axes to draw on (default: a new figure)
-    :param str cmap: The matplotlib colour map for the TMRCA
+    :param str cmap: The matplotlib colour map for the TMRCA (default ``"viridis"``, so
+        that more recent homology is darker)
     :param float linewidth: The width of the lines
     :return: The axes
     """
