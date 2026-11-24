@@ -15,7 +15,7 @@ chapters:
   - file: python-api
 - file: tools
   sections:
-  - file: tools/alignment
+  - file: tools/indels
   - file: tools/homology
   - file: tools/simulations
     sections:
