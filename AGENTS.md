@@ -35,7 +35,7 @@ python evaluation/performance.py --quick           # a quick performance smoke t
 - **One implementation of each rule.** For example, all the iedge validity rules are in
   `Tables._check_iedges()`, and all mapping of positions through iedges uses `PositionMap`. Don't
   add a second version of either; extend the existing one.
-- **Follow the API conventions** in the "API consistency" section of `docs/usage.md`, e.g.
+- **Follow the API conventions** in the "Conventions" section of `docs/usage.md`, e.g.
   methods on a `Graph` return objects and those on `Tables` return IDs; nodes come first when
   adding rows, and iedge coordinates and chromosomes are given by keyword.
 
