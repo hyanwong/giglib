@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/hyanwong/giglib/main/docs/_static/giglib_logo.png" alt="giglib logo" width="120" align="right">
+
 # The Genetic Inheritance Graph Library (giglib)
 
 **Genetic ancestry for genomes that rearrange.**
