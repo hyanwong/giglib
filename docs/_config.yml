@@ -4,6 +4,7 @@
 title: Giglib manual
 author: Yan Wong and Duncan Mbuli Robertson
 copyright: "2024"
+logo: _static/giglib_logo.png
 only_build_toc_files: true
 
 execute:
@@ -21,6 +22,7 @@ bibtex_bibfiles:
   - references.bib
 
 html:
+  favicon: _static/giglib_icon.png
   use_issues_button: true
   use_repository_button: true
   use_edit_page_button: true
@@ -45,6 +47,8 @@ sphinx:
       html_theme: sphinx_book_theme
       html_theme_options:
         pygments_dark_style: monokai
+        logo:
+          image_dark: _static/giglib_logo_dark.png
       pygments_style: monokai
       bibtex_reference_style: author_year
       myst_enable_extensions:

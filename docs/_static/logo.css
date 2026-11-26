@@ -1,0 +1,5 @@
+/* The logo is tall, so stop it filling the whole width of the sidebar */
+.navbar-brand img.logo__image {
+  max-height: 160px;
+  width: auto;
+}
