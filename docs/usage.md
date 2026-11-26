@@ -63,7 +63,7 @@ see {ref}`sec_tools_homology`.
 
 **Tools.** The experimental {ref}`giglib.tools <sec_tools>` package has extras built on these:
 converting tree sequences with indels, finding and plotting homology, and some simple
-simulators that show how to build targeted ones.
+examples to show how to build targeted simulators.
 
 (sec_usage_consistency)=
 
