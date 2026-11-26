@@ -20,9 +20,54 @@ intentionally mirror that of [tskit](https://tskit.dev/learn/) (which makes it e
 from an msprime-simulated tree sequence 🎉). Nevertheless, there are a number of terminological
 and implementation differences, an incomplete list of which are below.
 
+(sec_usage_overview)=
+
+## Overview
+
+**Building a GIG.** Create an empty set of tables with `gigl.Tables()`, then add genomes with
+`tables.nodes.add_row()` and inheritance with `tables.iedges.add_row()`, which gives the
+inherited interval in both the child's and the parent's coordinates, so it can record
+inversions, duplications and other rearrangements. Genetic variation is stored with
+`tables.mutations.add_row()`, and individuals (e.g. diploids) with
+`tables.individuals.add_row()`. Put the tables in order with `tables.sort()`, check them with
+`tables.validate()`, then freeze them into a read-only `Graph` with `tables.graph()`. A GIG
+with no structural variation can also be made from a _tskit_ tree sequence with
+`Graph.from_tree_sequence()`, and converted back with `gig.to_tree_sequence()`. For tree
+sequences with indels, see {ref}`sec_tools_indels`.
+
+**Using tables while they grow.** Algorithms can run on the tables as well as on a frozen
+graph, as long as the tables meet the validity requirements that the algorithm needs (see
+{ref}`sec_validation`). Validation only checks the rows added since it was last called, so a
+simulator can keep adding generations and keep using the tables, without freezing them each
+time.
+
+**Reading sequences.** `gig.haplotype(u)` gives a genome's sequence,
+`gig.allele_at(u, position)` a single allele, and `gig.sequence_length(u)` its length (which
+can differ between genomes).
+
+**Tracing through the graph.** `gig.iedges_for_child(u)` and `gig.iedges_for_parent(u)` give
+the iedges above and below a genome, and `IEdge.transform_position()` (or a
+{class}`~giglib.PositionMap`) maps a position between the child's and the parent's coordinates.
+
+**Homology.** A key task when comparing two chromosomes is to find which of their regions are
+homologous, e.g. to place crossovers. `find_mrca_regions(u, v)` finds the regions that `u` and
+`v` inherit from their most recent common ancestors, and `random_match_pos()` picks a random
+homologous pair of positions from them. In a GIG, sequences can be homologous at different
+levels (reflecting the fact that e.g. genes within a gene family are homologous to some
+degree). To find more distant homology than that defined by the most recent common ancestor,
+see {ref}`sec_tools_homology`.
+
+**Trimming.** `sample_resolve()` removes material that doesn't reach the samples, and
+`decapitate()` removes everything older than a given time. (A full equivalent of _tskit_'s
+`simplify()` doesn't exist yet: see {ref}`sec_design_simplification`.)
+
+**Tools.** The experimental {ref}`giglib.tools <sec_tools>` package has extras built on these:
+converting tree sequences with indels, finding and plotting homology, and some simple
+simulators that show how to build targeted ones.
+
 (sec_usage_consistency)=
 
-## API consistency
+## Conventions
 
 Where there is a conflict, _giglib_ aims for internal consistency rather than
 compatibility with _tskit_. In particular:
@@ -69,7 +114,9 @@ compatibility with _tskit_. In particular:
   These warnings can be silenced in the usual way, e.g.
   `warnings.simplefilter("ignore", giglib.TskitNameWarning)`.
 
-## API differences
+(sec_usage_tskit_differences)=
+
+## Differences from _tskit_
 
 - **Iedges** Intervals in a GIG as defined by giglib are stored
   in the iedges table, which has a `parent_left` and `child_left` column rather than a simple `left`
@@ -82,9 +129,8 @@ compatibility with _tskit_. In particular:
   means that node 1 inherits positions 0 to 100 from node 0, unchanged. If no coordinates are given,
   the iedge covers position 0 only (like the default sequence length of 1 in _msprime_), which is
   handy for building simple trees, e.g. `tables.iedges.add_row(1, 0)`.
-- **Tables and Graphs** giglib provides a `Tables` and `Graph` class, corresponding
-  to `TableCollection` and `TreeSequence` classes in _tskit_. Thus to create a GIG from scratch,
-  you do `gig = tables.graph()`
+- **Tables and Graphs** `Tables` and `Graph` correspond to _tskit_'s `TableCollection` and
+  `TreeSequence` (see {ref}`sec_usage_overview`).
 - **Chromosomes** The API includes the possibility of having genetic material on different chromosomes.
   This is implemented using two extra columns in the iedges table (see
   https://github.com/hyanwong/giglib/issues/11 for the rationale)
