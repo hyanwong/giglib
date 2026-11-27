@@ -146,11 +146,14 @@ class ValidFlags(IntFlag):
     #: The requirements of algorithms that trace intervals up through the iedges on a
     #: set of tables, such as :meth:`~giglib.Tables.find_homology` and
     #: :meth:`~giglib.Tables.sample_resolve`: parents older than children, valid
-    #: intervals, and the iedges for each child adjacent and ordered by chromosome (so
-    #: that the iedges above a node can be found).
+    #: intervals (non-negative, with the child interval increasing, and the same span as
+    #: the parent interval), and the iedges for each child adjacent and ordered by
+    #: chromosome (so that the iedges above a node can be found).
     IEDGES_FOR_TRACING = (
         IEDGES_PARENT_OLDER_THAN_CHILD
+        | IEDGES_INTEGERS
         | IEDGES_INTERVALS
+        | IEDGES_CHILD_INTERVAL_POSITIVE
         | IEDGES_FOR_CHILD_ADJACENT
         | IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
     )
