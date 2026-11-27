@@ -103,37 +103,10 @@ descend from. Its `mode` says which homology to find:
 - `"all"` finds all the homology, through every common ancestor. This can be much more work
   (and much more homology), which the `time_cutoff` parameter can limit.
 
-For example, here a region was duplicated in an ancestor `A` of genomes `u` and `v`, and `u`
-inherits both copies, but `v` only the first:
-
-```{code-cell}
-import giglib as gigl
-
-tables = gigl.Tables()
-R = tables.nodes.add_row(10)
-A = tables.nodes.add_row(5)
-u = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
-v = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
-tables.iedges.add_row(A, R, child_left=0, child_right=10, parent_left=0, parent_right=10)
-tables.iedges.add_row(A, R, child_left=10, child_right=20, parent_left=0, parent_right=10)
-tables.iedges.add_row(u, A, child_right=20)  # both copies
-tables.iedges.add_row(v, A, child_right=10)  # only the first copy
-tables.sort()
-tables.validate()
-
-for mode in ["first_mrca", "closest_homologues", "all"]:
-    print(f"{mode}:")
-    for h in tables.find_homology(u, v, mode=mode):
-        print(f"  u {h.u.left}-{h.u.right} ~ v {h.v.left}-{h.v.right}, MRCA {h.mrca} at time {tables.nodes.time[h.mrca]:g}")
-```
-
-All the modes find the allelic homology between the first copies, through `A`. But with
-`"first_mrca"`, the lineage of `v`'s copy stops at `A`, where it meets the lineage of `u`'s first
-copy, so it isn't there for `u`'s second copy to meet. The other modes find that `u`'s second
-copy is homologous to `v`'s only copy, through the older ancestor `R`: this is the closest
-homology of `u`'s second copy, as `v` has nothing closer. The experimental
-{ref}`homology tools <sec_tools_homology>` build on this, e.g. to join homology into chains,
-and to plot it. The {ref}`homology design note <sec_design_homology>` discusses homology in more detail.
+See {ref}`this example <sec_examples_homology>` for how to use and interpret the records, and
+how the modes differ. The experimental {ref}`homology tools <sec_tools_homology>` build on this,
+e.g. to join homology into chains, and to plot it. The
+{ref}`homology design note <sec_design_homology>` discusses homology in more detail.
 
 (sec_usage_consistency)=
 
