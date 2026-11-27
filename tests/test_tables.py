@@ -8,7 +8,7 @@ import tskit
 import giglib as gigl
 from giglib.constants import Const, ValidFlags
 from giglib.tools.homology import random_homologous_positions
-from tests.gigutil import homologous_positions, same_homology, valid_tables_without_flags
+from tests.gigutil import homologous_positions, random_tables, same_homology, valid_tables_without_flags
 
 
 class TestCreation:
@@ -1441,52 +1441,6 @@ class TestFindHomologyModes:
         assert same_homology(tables.find_homology(0, 3), tables.find_homology(0, 3, mode="all"))
 
 
-def clonal_tables_with_copies(seed, generations=15, size=6):
-    """
-    A small clonal population, from one genome of 20 positions, in which each child has a
-    tandem duplication (with probability 0.6) or else a deletion of up to 5 positions: so
-    it has many nested copies, which differ in number between genomes
-    """
-    rng = np.random.default_rng(seed)
-    tables = gigl.Tables()
-    tables.nodes.add_row(generations)
-    lengths = {0: 20}
-    population = [0]
-    for time in range(generations - 1, -1, -1):
-        children = []
-        for _ in range(size):
-            parent = population[rng.integers(len(population))]
-            n = lengths[parent]
-            child = tables.nodes.add_row(time, flags=gigl.NODE_IS_SAMPLE if time == 0 else 0)
-            length = int(rng.integers(1, min(5, n) + 1))
-            start = int(rng.integers(0, n - length + 1))
-            if rng.random() < 0.6:  # duplicate [start, start + length)
-                pieces = [(0, start + length, 0), (start + length, start + 2 * length, start)]
-                pieces.append((start + 2 * length, n + length, start + length))
-                lengths[child] = n + length
-            elif length < n:  # delete [start, start + length)
-                pieces = [(0, start, 0), (start, n - length, start + length)]
-                lengths[child] = n - length
-            else:
-                pieces = [(0, n, 0)]
-                lengths[child] = n
-            for child_left, child_right, parent_left in pieces:
-                if child_right > child_left:
-                    tables.iedges.add_row(
-                        child,
-                        parent,
-                        child_left=child_left,
-                        child_right=child_right,
-                        parent_left=parent_left,
-                        parent_right=parent_left + child_right - child_left,
-                    )
-            children.append(child)
-        population = children
-    tables.sort()
-    tables.validate()
-    return tables, population
-
-
 class TestFindClosestHomologues:
     def test_copy_lost(self):
         # As in TestFindHomologyModes: u's second copy's closest homologue is v's only
@@ -1523,11 +1477,11 @@ class TestFindClosestHomologues:
 
     @pytest.mark.parametrize("seed", range(10))
     def test_closest_part_of_all_homology(self, seed):
-        # In a population with many nested copies: the closest homologues are the pairs
-        # of positions, from all the homology, whose MRCA is the most recent one for the
-        # position in u, or for the position in v
-        tables, samples = clonal_tables_with_copies(seed)
-        u, v = samples[0], samples[1]
+        # In a population with nested copies, and (unequal) crossovers: the closest
+        # homologues are the pairs of positions, from all the homology, whose MRCA is the
+        # most recent one for the position in u, or for the position in v
+        tables = random_tables(seed, recombination=0.3)
+        u, v = tables.sample_nodes()[:2]
         closest = homologous_positions(tables.find_homology(u, v, mode="closest_homologues"))
         everything = homologous_positions(tables.find_homology(u, v, mode="all"))
         time = tables.nodes.time
@@ -1578,8 +1532,9 @@ class TestHomologyRecords:
     @staticmethod
     def examples():
         for seed in range(5):
-            tables, samples = clonal_tables_with_copies(seed)
-            yield tables, samples[0], samples[1]
+            tables = random_tables(seed, recombination=0.3)
+            u, v = tables.sample_nodes()[:2]
+            yield tables, u, v
         tables = copy_lost_tables()
         yield tables, 2, 3
 

@@ -15,63 +15,7 @@ import giglib as gigl
 from giglib.tools.simulation.microsatellites_forward import DTWF_microsatellite_sim
 from giglib.tools.simulation.one_break_inversions import DTWF_one_break_no_rec_inversions_slow_sim
 from giglib.tools.simulation.single_origin import sim_single_origin
-from tests.gigutil import homologous_positions
-
-
-def clonal_tables_with_rearrangements(seed, generations=12, size=5):
-    """
-    A small clonal population, from one genome of 20 positions, in which each child has an
-    inversion, a tandem duplication, or a deletion, of up to 5 positions (or none). The
-    single genome at the start has a random base at every position, and each child gains a
-    mutation, so the haplotypes depend on mutations passed through (often chained)
-    inversions and copies.
-    """
-    rng = np.random.default_rng(seed)
-    tables = gigl.Tables()
-    root = tables.nodes.add_row(generations)
-    lengths = {root: 20}
-    for x in range(20):
-        tables.mutations.add_row(root, x, str(rng.choice(list("ACGT"))))
-    population = [root]
-    for time in range(generations - 1, -1, -1):
-        children = []
-        for _ in range(size):
-            parent = population[rng.integers(len(population))]
-            n = lengths[parent]
-            child = tables.nodes.add_row(time, flags=gigl.NODE_IS_SAMPLE if time == 0 else 0)
-            length = int(rng.integers(1, min(5, n) + 1))
-            start = int(rng.integers(0, n - length + 1))
-            end = start + length
-            event = rng.choice(["inversion", "duplication", "deletion", "none"])
-            # Each piece is (child_left, child_right, parent_left, parent_right)
-            if event == "inversion":
-                pieces = [(0, start, 0, start), (start, end, end, start), (end, n, end, n)]
-                lengths[child] = n
-            elif event == "duplication":
-                pieces = [(0, end, 0, end), (end, end + length, start, end), (end + length, n + length, end, n)]
-                lengths[child] = n + length
-            elif event == "deletion" and length < n:
-                pieces = [(0, start, 0, start), (start, n - length, end, n)]
-                lengths[child] = n - length
-            else:
-                pieces = [(0, n, 0, n)]
-                lengths[child] = n
-            for child_left, child_right, parent_left, parent_right in pieces:
-                if child_right > child_left:
-                    tables.iedges.add_row(
-                        child,
-                        parent,
-                        child_left=child_left,
-                        child_right=child_right,
-                        parent_left=parent_left,
-                        parent_right=parent_right,
-                    )
-            tables.mutations.add_row(child, int(rng.integers(lengths[child])), str(rng.choice(list("ACGT"))))
-            children.append(child)
-        population = children
-    tables.sort()
-    tables.validate()
-    return tables
+from tests.gigutil import homologous_positions, random_tables
 
 
 def check_homology_unchanged(tables, simplified, node_map, samples, mode):
@@ -150,6 +94,7 @@ class TestInvariants:
             "all_sv_types_2re_gig",
             "inverted_duplicate_gig",
             "inverted_duplicate_with_missing_gig",
+            "unequal_crossover_gig",
         ],
     )
     def test_examples(self, name, request):
@@ -157,6 +102,13 @@ class TestInvariants:
         check_invariants(gig, [int(u) for u in gig.sample_nodes().ids])
         for seed in range(3):
             check_invariants(gig, some_nodes(gig, seed))
+
+    @pytest.mark.parametrize("seed", range(5))
+    @pytest.mark.parametrize("recombination", [0, 0.3])
+    def test_random_tables(self, seed, recombination):
+        gig = random_tables(seed, recombination=recombination).graph()
+        check_invariants(gig, [int(u) for u in gig.sample_nodes().ids])
+        check_invariants(gig, some_nodes(gig, seed))
 
     @pytest.mark.parametrize("seed", range(1, 6))
     def test_microsatellites(self, seed):
@@ -254,8 +206,9 @@ class TestWithoutStructuralVariants:
 
 class TestWithRearrangements:
     @pytest.mark.parametrize("seed", range(10))
-    def test_haplotypes_unchanged(self, seed):
-        tables = clonal_tables_with_rearrangements(seed)
+    @pytest.mark.parametrize("recombination", [0, 0.3])
+    def test_haplotypes_unchanged(self, seed, recombination):
+        tables = random_tables(seed, recombination=recombination)
         samples = [int(u) for u in tables.sample_nodes()]
         gig = tables.copy().graph()
         simplified = tables.copy()
@@ -266,9 +219,10 @@ class TestWithRearrangements:
             assert simplified.haplotype(int(node_map[u])) == gig.haplotype(u)
 
     @pytest.mark.parametrize("seed", range(10))
+    @pytest.mark.parametrize("recombination", [0, 0.3])
     @pytest.mark.parametrize("mode", ["first_mrca", "closest_homologues", "all"])
-    def test_homology_unchanged(self, seed, mode):
-        tables = clonal_tables_with_rearrangements(seed)
+    def test_homology_unchanged(self, seed, recombination, mode):
+        tables = random_tables(seed, recombination=recombination)
         samples = [int(u) for u in tables.sample_nodes()]
         simplified = tables.copy()
         node_map = simplified.simplify(samples)
@@ -276,10 +230,11 @@ class TestWithRearrangements:
 
     @pytest.mark.skip(reason="needs find_homology of a genome with itself (#236)")
     @pytest.mark.parametrize("seed", range(10))
+    @pytest.mark.parametrize("recombination", [0, 0.3])
     @pytest.mark.parametrize("mode", ["first_mrca", "closest_homologues", "all"])
-    def test_homology_with_itself_unchanged(self, seed, mode):
+    def test_homology_with_itself_unchanged(self, seed, recombination, mode):
         # The paralogous homology of a genome with itself is unchanged too
-        tables = clonal_tables_with_rearrangements(seed)
+        tables = random_tables(seed, recombination=recombination)
         samples = [int(u) for u in tables.sample_nodes()]
         simplified = tables.copy()
         node_map = simplified.simplify(samples)
@@ -305,7 +260,7 @@ class TestWithRearrangements:
 
 class TestSimplify:
     def test_twice_is_the_same_as_once(self):
-        tables = clonal_tables_with_rearrangements(1)
+        tables = random_tables(1)
         tables.simplify()
         once = tables.copy()
         node_map = tables.simplify()
@@ -313,7 +268,7 @@ class TestSimplify:
         assert tables == once
 
     def test_samples_first_in_order(self):
-        tables = clonal_tables_with_rearrangements(1)
+        tables = random_tables(1)
         samples = [int(u) for u in tables.sample_nodes()][::-1]
         node_map = tables.simplify(samples)
         assert [int(node_map[u]) for u in samples] == list(range(len(samples)))
@@ -342,7 +297,7 @@ class TestSimplify:
         ]
 
     def test_graph(self):
-        tables = clonal_tables_with_rearrangements(2)
+        tables = random_tables(2)
         gig = tables.graph()
         samples = gig.sample_nodes()
         simplified = gig.simplify(samples)  # Node objects are accepted
@@ -350,13 +305,13 @@ class TestSimplify:
             assert simplified.haplotype(i) == gig.haplotype(u)
 
     def test_distinct_samples(self):
-        tables = clonal_tables_with_rearrangements(1)
+        tables = random_tables(1)
         with pytest.raises(ValueError, match="distinct"):
             tables.simplify([20, 20])
 
     @pytest.mark.parametrize("sample", [-1, 1000])
     def test_samples_are_nodes(self, sample):
-        tables = clonal_tables_with_rearrangements(1)
+        tables = random_tables(1)
         with pytest.raises(ValueError, match="not a node ID"):
             tables.simplify([sample])
 
