@@ -273,6 +273,30 @@ class TestSimplify:
         assert [int(node_map[u]) for u in samples] == list(range(len(samples)))
         assert list(tables.sample_nodes()) == list(range(len(samples)))
 
+    @pytest.mark.parametrize(
+        ("parent_left", "parent_right", "expected"),
+        [
+            (3, 10, (2, "T")),  # X has A's 3-10: A's position 5 is X's 2
+            (10, 0, (4, "A")),  # X has A's 0-10 inverted: A's 5 is X's 4, and T becomes A
+        ],
+    )
+    def test_mutation_moved_to_its_position_below(self, parent_left, parent_right, expected):
+        # A (node 1) has a mutation T at its position 5, and is bypassed, so the mutation
+        # moves down to the sample X (node 2), at the position that A's 5 maps to in X
+        tables = gigl.Tables()
+        tables.nodes.add_row(2)  # 0: R
+        tables.nodes.add_row(1)  # 1: A
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # 2: X
+        tables.iedges.add_row(1, 0, child_right=10)
+        length = abs(parent_right - parent_left)
+        tables.iedges.add_row(2, 1, child_right=length, parent_left=parent_left, parent_right=parent_right)
+        tables.mutations.add_row(1, 5, "T")
+        tables.sort()
+        tables.validate()
+        node_map = tables.simplify()
+        assert node_map[1] == gigl.NULL
+        assert [(m.node, m.position, m.derived_state) for m in tables.mutations] == [(0, *expected)]
+
     def test_tandem_duplication_keeps_the_parent(self):
         # The copies of a tandem duplication merge in the parent, which is kept, but the
         # duplicated genome (if not a sample) is bypassed
