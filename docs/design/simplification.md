@@ -2,9 +2,8 @@
 
 # Simplification
 
-**Status: Proposed.** Nothing here is implemented yet, apart from
-{meth}`~giglib.Tables.sample_resolve`, which does not remove nodes. What simplification keeps
-(the branch points of the position tree, below) is proposed for agreement before implementing it.
+**Status: Partly implemented.** {meth}`~giglib.Tables.simplify` keeps the branch points of the
+position tree, region by region, with the algorithm below. The homology table is not implemented.
 Several other choices are left open, to be decided by performance measurements on forward
 simulations (see {ref}`sec_design_simplification_evaluation`).
 Related: {issue}`140` (a "homology table" for locating recombination breakpoints),
@@ -82,7 +81,10 @@ ancestral node where two or more lineages of sample positions merge, either
 **Simplification keeps exactly the branch points**, together with the samples. Like _tskit_'s
 `simplify()`, it works region by region: a node is kept in the regions where it is a branch point,
 and bypassed (by composing iedges) where it is not. A node that is a branch point nowhere is
-removed.
+removed. The ends of lineages that never merge are also kept (as with _tskit_'s
+`keep_input_roots=True`): a GIG has no separate record of a genome's length, which is known
+only from its iedges and mutations, so without an iedge for each sample position a sample with
+missing data at the end of its genome would become shorter.
 
 This definition gives the main test of correctness. The MRCA of any two homologous positions, as
 reported by {meth}`~giglib.Tables.find_homology`, is where their lineages merge, so it is a branch
@@ -322,10 +324,13 @@ These belong in the unit tests (or slower validation scripts), not in the perfor
 - {meth}`~giglib.Tables.find_homology` gives the same results after simplifying, in every mode
   (after relabelling the nodes), on graphs with structural variants (e.g. from the simulators of
   tandem duplications, microsatellites, and genomes from a single base pair).
-- Haplotypes of the remaining samples are unchanged by simplification.
+- Haplotypes of the remaining samples are unchanged by simplification, including missing data,
+  except that a sample whose genome was only known to be longer from descendants that are removed
+  becomes shorter (losing only missing data: a GIG has no record of genome lengths, see
+  {issue}`158`).
 - Simplifying twice gives the same as simplifying once.
-- With no structural variants, the result matches _tskit_'s `simplify()` (after converting with
-  `to_tree_sequence()`).
+- With no structural variants, the result matches _tskit_'s `simplify(keep_input_roots=True)`
+  (after converting with `to_tree_sequence()`).
 - Homologous locations found with the homology table match those found by tracing the full
   iedges.
 - If duplication nodes are kept, those detected match those recorded by the simulator.

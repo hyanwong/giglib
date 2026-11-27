@@ -2260,6 +2260,214 @@ class Tables:
         if len(keep) < len(mutations):
             mutations._subset(keep)
 
+    def simplify(self, samples=None):
+        """
+        Simplify the tables in place, keeping only what is needed to describe the
+        ancestry of the samples: the samples, and the branch points of the position tree
+        (see :ref:`sec_design_simplification_branch_points`). Each position of a genome
+        inherits from a single position of a single parent, so the lineages of the
+        samples' positions form a tree. A node is kept in the regions where lineages of
+        sample positions merge, either from different children, or through two iedges of
+        the same child (a copy, e.g. the parent of a tandem duplication). Elsewhere it is
+        bypassed, by composing the iedges above and below it, and a node that is not a
+        branch point anywhere is removed. A node is also kept where a lineage ends without
+        merging (at a root, or a node that doesn't inherit those positions), so that every
+        sample position still has an iedge above it. This is a generalisation of _tskit_'s
+        ``simplify()``, with ``keep_input_roots=True``.
+
+        The ancestry of the samples is unchanged:
+
+        * their haplotypes are the same, including missing data. A GIG has no record of
+          genome lengths (:meth:`Graph.sequence_length` is the furthest position known from
+          the iedges and mutations), so the one exception is a sample whose genome was
+          only known to be longer from descendants that are removed: it can become shorter,
+          losing only missing data;
+        * their homology is the same, as found by :meth:`find_homology` in every mode
+          (after relabelling the nodes);
+        * simplifying again changes nothing.
+
+        Mutations above a bypassed region of a node are moved down to the node below it
+        that is kept (complemented if the path between them includes an odd number of
+        inversions), and mutations at positions with no descendant samples are removed.
+        The individuals table is unchanged.
+
+        :param list samples: The node IDs of the samples to simplify with respect to. In
+            the result, these are the first nodes, in this order, and are the only nodes
+            flagged as samples. If None (default), use the current sample nodes.
+        :return: For each node of the original tables, its ID in the simplified tables, or
+            ``NULL`` if it was removed
+        :rtype: numpy.ndarray
+        """
+        self._require_iedge_flags(ValidFlags.IEDGES_FOR_TRACING, "simplify()")
+        if samples is None:
+            samples = self.sample_nodes()
+        old_nodes, old_iedges, old_mutations = self.nodes, self.iedges, self.mutations
+        samples = [int(u) for u in samples]
+        if len(set(samples)) != len(samples):
+            raise ValueError("The samples must be distinct")
+        for u in samples:
+            if not 0 <= u < len(old_nodes):
+                raise ValueError(f"Sample {u} is not a node ID")
+        node_map = np.full(len(old_nodes), NULL, dtype=np.int64)
+        nodes = NodeTable()
+
+        def output_node(u, is_sample):
+            # The ID of node u in the simplified tables, adding it if needed
+            if node_map[u] == NULL:
+                row = old_nodes[u]
+                flags = row.flags | NODE_IS_SAMPLE if is_sample else row.flags & ~NODE_IS_SAMPLE
+                node_map[u] = nodes.add_row(row.time, flags=flags, individual=row.individual, metadata=row.metadata)
+            return int(node_map[u])
+
+        for u in samples:
+            output_node(u, is_sample=True)
+
+        # The ancestral material at each node: for each chromosome of the node, a dict
+        # mapping (output node, output chromosome, map) to a list of intervals of the
+        # node's genome, where the map is the PositionMap from the node's coordinates to
+        # the output node's. So the intervals are ancestral to the output node's positions
+        # that they map to. The lists are filled as material is passed up from children.
+        material = collections.defaultdict(lambda: collections.defaultdict(lambda: collections.defaultdict(list)))
+        identity = PositionMap(1, 0)
+        iedge_rows = []
+        mutation_rows = []
+        mutation_origins = []  # for each mutation row, (time of its original node, original ID)
+
+        def add_iedge(key, parent, parent_chromosome, left, right):
+            # An output iedge, by which the output node of ``key`` inherits the interval
+            # [left, right) of ``parent`` (on ``parent_chromosome``), through the key's map
+            child, child_chromosome, to_child = key
+            child_ends = to_child.interval(left, right)
+            parent_ends = (left, right)
+            if child_ends[0] > child_ends[1]:
+                # Child intervals increase: reverse the parent's interval instead
+                child_ends, parent_ends = child_ends[::-1], parent_ends[::-1]
+            iedge_rows.append(
+                dict(
+                    child=child,
+                    parent=parent,
+                    child_left=int(child_ends[0]),
+                    child_right=int(child_ends[1]),
+                    parent_left=int(parent_ends[0]),
+                    parent_right=int(parent_ends[1]),
+                    child_chromosome=child_chromosome,
+                    parent_chromosome=parent_chromosome,
+                )
+            )
+
+        sample_set = set(samples)
+        # Visit the nodes from the youngest to the oldest (in order of ID, at equal times)
+        for u in np.lexsort((np.arange(len(old_nodes)), old_nodes.time)):
+            u = int(u)
+            if u not in material and u not in sample_set:
+                continue
+            arriving = material.pop(u, {})
+            # The material that u passes up: for each of u's chromosomes, a dict mapping keys
+            # (as above) to sets of intervals
+            passing_up = {}
+            if u in sample_set:
+                # A sample is kept: the material from its descendants is inherited from it,
+                # and it passes up its whole genome
+                out = int(node_map[u])
+                for chromosome, keys in arriving.items():
+                    for key, intervals in keys.items():
+                        for left, right in interval_sets.normalise(intervals):
+                            add_iedge(key, out, chromosome, left, right)
+                for chromosome in old_iedges.chromosomes_as_child(u):
+                    passing_up[chromosome] = {(out, chromosome, identity): [(0, math.inf)]}
+            else:
+                for chromosome, keys in arriving.items():
+                    sets = {key: interval_sets.normalise(intervals) for key, intervals in keys.items()}
+                    # The positions of u that it inherits: lineages end at u elsewhere
+                    inherited = interval_sets.normalise(
+                        [
+                            (old_iedges[ie_id].child_left, old_iedges[ie_id].child_right)
+                            for ie_id in old_iedges.ids_for_child(u, chromosome=chromosome)
+                        ]
+                    )
+                    here = collections.defaultdict(list)
+                    for left, right, covering in interval_sets.coverage(sets):
+                        if len(covering) == 1:
+                            (key,) = covering
+                            # Where the lineage ends here without merging, keep u (like
+                            # tskit's keep_input_roots), as otherwise the positions would
+                            # have no iedge, and a sample could lose the end of its genome
+                            # (e.g. missing data at the end)
+                            ended = interval_sets.subtract([(left, right)], inherited)
+                            if ended:
+                                out = output_node(u, is_sample=False)
+                                for end_left, end_right in ended:
+                                    add_iedge(key, out, chromosome, end_left, end_right)
+                                    here[(out, chromosome, identity)].append((end_left, end_right))
+                            # Elsewhere, not a branch point: bypass u, passing the material
+                            # straight up
+                            for pass_left, pass_right in interval_sets.subtract([(left, right)], ended):
+                                here[key].append((pass_left, pass_right))
+                        else:
+                            # A branch point: keep u here, inherited by each output node
+                            out = output_node(u, is_sample=False)
+                            for key in covering:
+                                add_iedge(key, out, chromosome, left, right)
+                            here[(out, chromosome, identity)].append((left, right))
+                    passing_up[chromosome] = here
+
+            # Move u's mutations to the output node whose material covers them (u itself,
+            # if u is kept there), or remove them if no material covers them. A sample keeps
+            # all its mutations (even on chromosomes it doesn't pass up, e.g. as a root).
+            for i in old_mutations.ids_for_node(u):
+                m = old_mutations[i]
+                if u in sample_set:
+                    keys = {(int(node_map[u]), m.chromosome, identity): [(0, math.inf)]}
+                else:
+                    keys = passing_up.get(m.chromosome, {})
+                for (out, out_chromosome, to_out), intervals in keys.items():
+                    if interval_sets.contains(intervals, m.position):
+                        derived_state = m.derived_state
+                        if to_out.is_reversing:
+                            derived_state = complement_allele(derived_state, self.allele_complements)
+                        # (with the time of the node it was above, to order it below)
+                        mutation_rows.append(
+                            dict(
+                                node=out,
+                                position=int(to_out.position(m.position)),
+                                derived_state=derived_state,
+                                chromosome=out_chromosome,
+                                time=m.time,
+                                metadata=m.metadata,
+                            )
+                        )
+                        mutation_origins.append((old_nodes.time[u], i))
+                        break
+
+            # Pass the material up through the iedges above u
+            for ie_id in old_iedges.ids_for_child(u):
+                ie = old_iedges[ie_id]
+                to_parent = PositionMap.from_iedge(ie)
+                from_parent = to_parent.inverse()
+                for (out, out_chromosome, to_out), intervals in passing_up.get(ie.child_chromosome, {}).items():
+                    parent_key = (out, out_chromosome, from_parent.then(to_out))
+                    for left, right in intervals:
+                        # The part of this interval that the iedge passes to the parent
+                        left, right = max(left, ie.child_left), min(right, ie.child_right)
+                        if left < right:
+                            ends = to_parent.interval(left, right)
+                            material[ie.parent][ie.parent_chromosome][parent_key].append((min(ends), max(ends)))
+
+        iedges = IEdgeTable()
+        for row in iedge_rows:
+            iedges.add_row(**row)
+        # Mutations moved down to a node are older than that node's own mutations, so must
+        # come before them (at the same position): add them from the oldest original node
+        # (the sort below is stable, so keeps this order at each node and position)
+        mutations = MutationTable()
+        for _, row in sorted(zip(mutation_origins, mutation_rows), key=lambda pair: (-pair[0][0], pair[0][1])):
+            mutations.add_row(**row)
+        self.nodes, self.iedges, self.mutations = nodes, iedges, mutations
+        self.sort()
+        self.iedges.squash()
+        self.validate()
+        return node_map
+
     def remove_non_ancestral_nodes(self):
         """
         Subset the node table to remove any nonsample nodes that are not referenced

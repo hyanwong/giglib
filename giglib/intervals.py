@@ -77,6 +77,47 @@ def subtract(a, b):
     return result
 
 
+def coverage(sets):
+    """
+    Cut the positions covered by any of the sets of intervals in ``sets`` (a dict mapping
+    keys to sets of intervals) into pieces, each covered by the same keys. Adjacent pieces
+    covered by the same keys are joined.
+
+    :return: A list of ``(left, right, keys)`` tuples, sorted by position, where ``keys``
+        is the (frozen) set of keys whose intervals cover the piece
+    """
+    # Each interval starts and ends at an "event": sweep through them in order of
+    # position, keeping track of which keys cover the current position
+    events = []
+    for key, intervals in sets.items():
+        for left, right in intervals:
+            events.append((left, 1, key))
+            events.append((right, -1, key))
+    events.sort(key=lambda event: event[0])
+    covering = set()
+    result = []
+    i = 0
+    while i < len(events):
+        position = events[i][0]
+        # Apply all the events at this position
+        while i < len(events) and events[i][0] == position:
+            _, change, key = events[i]
+            if change > 0:
+                covering.add(key)
+            else:
+                covering.discard(key)
+            i += 1
+        if i == len(events) or not covering:
+            continue
+        next_position = events[i][0]
+        keys = frozenset(covering)
+        if result and result[-1][1] == position and result[-1][2] == keys:
+            result[-1] = (result[-1][0], next_position, keys)
+        else:
+            result.append((position, next_position, keys))
+    return result
+
+
 def pieces(u_sets, v_sets):
     """
     Cut the positions covered by both some set of intervals in ``u_sets`` and some set in
@@ -87,34 +128,13 @@ def pieces(u_sets, v_sets):
         where ``u_keys`` and ``v_keys`` are the sets of keys whose intervals cover the
         piece
     """
-    # Each interval starts and ends at an "event": sweep through them in order of
-    # position, keeping track of which keys cover the current position
-    events = []
-    for side, sets in enumerate((u_sets, v_sets)):
-        for key, intervals in sets.items():
-            for left, right in intervals:
-                events.append((left, 1, side, key))
-                events.append((right, -1, side, key))
-    events.sort(key=lambda event: event[0])
-    covering = (set(), set())
+    # Tag each key with its side (0 for u, 1 for v), so the keys of each side stay apart
+    tagged = {(0, key): intervals for key, intervals in u_sets.items()}
+    tagged.update({(1, key): intervals for key, intervals in v_sets.items()})
     result = []
-    i = 0
-    while i < len(events):
-        position = events[i][0]
-        # Apply all the events at this position
-        while i < len(events) and events[i][0] == position:
-            _, change, side, key = events[i]
-            if change > 0:
-                covering[side].add(key)
-            else:
-                covering[side].discard(key)
-            i += 1
-        if i == len(events) or not (covering[0] and covering[1]):
-            continue
-        next_position = events[i][0]
-        u_keys, v_keys = frozenset(covering[0]), frozenset(covering[1])
-        if result and result[-1][1] == position and result[-1][2:] == (u_keys, v_keys):
-            result[-1] = (result[-1][0], next_position, u_keys, v_keys)
-        else:
-            result.append((position, next_position, u_keys, v_keys))
+    for left, right, keys in coverage(tagged):
+        u_keys = frozenset(key for side, key in keys if side == 0)
+        v_keys = frozenset(key for side, key in keys if side == 1)
+        if u_keys and v_keys:
+            result.append((left, right, u_keys, v_keys))
     return result

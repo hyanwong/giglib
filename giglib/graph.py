@@ -836,6 +836,23 @@ class Graph:
         new_tables.sample_resolve()
         return new_tables.graph()
 
+    def simplify(self, samples=None):
+        """
+        Simplify a GIG, keeping only what is needed to describe the ancestry of the
+        samples. This is identical to the :meth:`Tables.simplify` method (which describes
+        what is kept, and also returns the map from old to new node IDs), but returns a
+        new GIG instead.
+
+        :param list samples: The node IDs (or :class:`~giglib.graph.Node` objects) of the
+            samples to simplify with respect to. If None (default), use the current
+            sample nodes.
+        :return: A new GIG object
+        :rtype: Graph
+        """
+        new_tables = self.tables.copy()
+        new_tables.simplify(None if samples is None else [as_id(u) for u in samples])
+        return new_tables.graph()
+
     def find_homology(self, u, v, *, mode="first_mrca", u_chromosome=None, v_chromosome=None, time_cutoff=None):
         """
         Find the homology between genomes ``u`` and ``v``: a wrapper around
