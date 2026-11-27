@@ -2324,6 +2324,12 @@ class Tables:
           e.g. if a region was duplicated in a common ancestor of ``u`` and ``v``, and
           ``v`` later lost one copy, the copy that ``v`` lost has no homology in ``v``
           through the duplication, as the lineage it would meet has already stopped.
+        * ``"closest_homologues"``: the closest homologues of each position, i.e. its
+          homologous positions in the other genome with the most recent MRCA (several, if
+          tied), for each position of ``u`` and of ``v``. Lineages are traced as for
+          ``"all"`` (so ``time_cutoff`` can be used to limit the work), but only the
+          closest homology of each position is reported, which is much less, as it
+          excludes the *remote* homology through older ancestors.
         * ``"all"``: all the homology, through every common ancestor, each pair of
           positions at its MRCA. This can be much more work, and in the extreme (if every
           position descends from a single ancestral position) covers every pair of
@@ -2336,7 +2342,8 @@ class Tables:
 
         :param int u: The first genome (node ID)
         :param int v: The second genome (node ID)
-        :param str mode: Which homology to find: ``"first_mrca"`` or ``"all"`` (see above)
+        :param str mode: Which homology to find: ``"first_mrca"``, ``"closest_homologues"``
+            or ``"all"`` (see above)
         :param int u_chromosome: Only find homology on this chromosome of ``u``. If None
             (default), use all of ``u``'s chromosomes
         :param int v_chromosome: Only find homology on this chromosome of ``v``. If None
@@ -2346,8 +2353,9 @@ class Tables:
         :return: The homologous segments, sorted by their position in ``u``
         :rtype: list(Homology)
         """
-        if mode not in ("first_mrca", "all"):
-            raise ValueError(f"Unknown mode {mode!r}: must be 'first_mrca' or 'all'")
+        modes = ("first_mrca", "closest_homologues", "all")
+        if mode not in modes:
+            raise ValueError(f"Unknown mode {mode!r}: must be one of {', '.join(modes)}")
         if not isinstance(u, (int, np.integer)) or not isinstance(v, (int, np.integer)):
             raise ValueError("u and v must be integers")
         if u == v:
@@ -2379,10 +2387,14 @@ class Tables:
         stack[v] = ({}, {c: {(identity, c): P.closedopen(0, np.inf)} for c in v_chromosomes})
 
         result = []
-        # For mode "all": the positions of u already reported, for each map from u to v
-        # (and pair of chromosomes). As nodes are visited from the most recent, a pair of
-        # positions is reported at its MRCA, and not again when it meets in older ancestors
-        reported = {}
+        # What has been reported so far. As nodes are visited from the most recent, a pair
+        # of positions is first met at its MRCA. For mode "all": the positions of u already
+        # reported, for each map from u to v (and pair of chromosomes), so that a pair isn't
+        # reported again when it meets in older ancestors. For mode "closest_homologues":
+        # the positions of u and of v (for each chromosome) with homology at a more recent
+        # time ("found"), and at the time of the current node ("pending", added to "found"
+        # once all the nodes at that time have been visited, so that ties are kept).
+        reported = {"all": {}, "found": ({}, {}), "pending": ({}, {}), "time": -np.inf}
 
         def concat(x, y):
             # combine a pair of sets in x and a pair of sets in y
@@ -2392,6 +2404,12 @@ class Tables:
             node, (u_dict, v_dict) = stack.popitem()
             if node_times[node] > time_cutoff:
                 break
+            if node_times[node] > reported["time"]:
+                for found, pending in zip(reported["found"], reported["pending"]):
+                    for chromosome, intervals in pending.items():
+                        found[chromosome] = found.get(chromosome, P.empty()) | intervals
+                    pending.clear()
+                reported["time"] = node_times[node]
             # The chromosomes of u (or v) are found from the iedges above it, but it can
             # also have chromosomes without a parent (e.g. if it is a root). These only
             # matter if the other genome descends from it, i.e. if the other genome's
@@ -2464,7 +2482,9 @@ class Tables:
         of :meth:`find_homology`, given the keys ``(to_original, original chromosome)`` of
         the material of u and v, where ``to_original`` maps from the MRCA's coordinates to
         those of u or v. In mode "all", only add the positions of u not already reported
-        with the same map to v (as they met at a more recent MRCA).
+        with the same map to v (as they met at a more recent MRCA). In mode
+        "closest_homologues", only add pairs of positions for which this is the most
+        recent homology of the position in u, or of the position in v.
         """
         (to_u, u_chr), (to_v, v_chr) = u_key, v_key
         u_to_mrca = to_u.inverse()
@@ -2473,12 +2493,29 @@ class Tables:
         u_left, u_right = int(min(u_ends)), int(max(u_ends))
         if mode == "all":
             key = (u_to_v, u_chr, v_chr)
-            already = reported.get(key, P.empty())
+            already = reported["all"].get(key, P.empty())
             new = P.closedopen(u_left, u_right) - already
-            reported[key] = already | new
-            u_intervals = [(i.lower, i.upper) for i in new if not i.empty]
+            reported["all"][key] = already | new
+        elif mode == "closest_homologues":
+            (u_found, v_found), (u_pending, v_pending) = reported["found"], reported["pending"]
+            here = P.closedopen(u_left, u_right)
+            # The positions of u, and those (in u's coordinates) whose homologues in v,
+            # have no homology at a more recent time
+            new = here - u_found.get(u_chr, P.empty())
+            v_ends = u_to_v.interval(u_left, u_right)
+            v_to_u = u_to_v.inverse()
+            for v_interval in P.closedopen(min(v_ends), max(v_ends)) - v_found.get(v_chr, P.empty()):
+                if not v_interval.empty:
+                    ends = v_to_u.interval(v_interval.lower, v_interval.upper)
+                    new |= P.closedopen(min(ends), max(ends))
+            for interval in new:
+                if not interval.empty:
+                    u_pending[u_chr] = u_pending.get(u_chr, P.empty()) | interval
+                    ends = u_to_v.interval(interval.lower, interval.upper)
+                    v_pending[v_chr] = v_pending.get(v_chr, P.empty()) | P.closedopen(min(ends), max(ends))
         else:
-            u_intervals = [(u_left, u_right)]
+            new = P.closedopen(u_left, u_right)
+        u_intervals = [(i.lower, i.upper) for i in new if not i.empty]
         for left, right in u_intervals:
             result.append(
                 Homology(

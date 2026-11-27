@@ -1,3 +1,5 @@
+import functools
+
 import msprime
 import numpy as np
 import pytest
@@ -1383,6 +1385,25 @@ class TestFindHomology:
             double_inversion_gig.tables.find_homology(0, 0)
 
 
+def copy_lost_tables():
+    """
+    A region B was duplicated in an ancestor A (node 1, from R, node 0), and u (node 2)
+    inherits both copies, but v (node 3) only the first
+    """
+    tables = gigl.Tables()
+    tables.nodes.add_row(10)  # R
+    tables.nodes.add_row(5)  # A
+    tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # u
+    tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # v
+    tables.iedges.add_row(1, 0, child_left=0, child_right=10, parent_left=0, parent_right=10)
+    tables.iedges.add_row(1, 0, child_left=10, child_right=20, parent_left=0, parent_right=10)
+    tables.iedges.add_row(2, 1, child_right=20)
+    tables.iedges.add_row(3, 1, child_right=10)
+    tables.sort()
+    tables.validate()
+    return tables
+
+
 class TestFindHomologyModes:
     """
     The difference between "first_mrca" and "all": a region B was duplicated in an
@@ -1391,18 +1412,7 @@ class TestFindHomologyModes:
 
     @pytest.fixture()
     def tables(self):
-        tables = gigl.Tables()
-        tables.nodes.add_row(10)  # R
-        tables.nodes.add_row(5)  # A
-        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # u
-        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # v
-        tables.iedges.add_row(1, 0, child_left=0, child_right=10, parent_left=0, parent_right=10)
-        tables.iedges.add_row(1, 0, child_left=10, child_right=20, parent_left=0, parent_right=10)
-        tables.iedges.add_row(2, 1, child_right=20)
-        tables.iedges.add_row(3, 1, child_right=10)
-        tables.sort()
-        tables.validate()
-        return tables
+        return copy_lost_tables()
 
     def test_first_mrca(self, tables):
         # Once u's first copy and v's copy meet at A, v's lineage stops, so u's second
@@ -1428,6 +1438,112 @@ class TestFindHomologyModes:
         ts = msprime.sim_ancestry(3, sequence_length=60, recombination_rate=0.03, random_seed=seed)
         tables = gigl.Tables.from_tree_sequence(ts)
         assert tables.find_homology(0, 3) == tables.find_homology(0, 3, mode="all")
+
+
+def clonal_tables_with_copies(seed, generations=15, size=6):
+    """
+    A small clonal population, from one genome of 20 positions, in which each child has a
+    tandem duplication (with probability 0.6) or else a deletion of up to 5 positions: so
+    it has many nested copies, which differ in number between genomes
+    """
+    rng = np.random.default_rng(seed)
+    tables = gigl.Tables()
+    tables.nodes.add_row(generations)
+    lengths = {0: 20}
+    population = [0]
+    for time in range(generations - 1, -1, -1):
+        children = []
+        for _ in range(size):
+            parent = population[rng.integers(len(population))]
+            n = lengths[parent]
+            child = tables.nodes.add_row(time, flags=gigl.NODE_IS_SAMPLE if time == 0 else 0)
+            length = int(rng.integers(1, min(5, n) + 1))
+            start = int(rng.integers(0, n - length + 1))
+            if rng.random() < 0.6:  # duplicate [start, start + length)
+                pieces = [(0, start + length, 0), (start + length, start + 2 * length, start)]
+                pieces.append((start + 2 * length, n + length, start + length))
+                lengths[child] = n + length
+            elif length < n:  # delete [start, start + length)
+                pieces = [(0, start, 0), (start, n - length, start + length)]
+                lengths[child] = n - length
+            else:
+                pieces = [(0, n, 0)]
+                lengths[child] = n
+            for child_left, child_right, parent_left in pieces:
+                if child_right > child_left:
+                    tables.iedges.add_row(
+                        child,
+                        parent,
+                        child_left=child_left,
+                        child_right=child_right,
+                        parent_left=parent_left,
+                        parent_right=parent_left + child_right - child_left,
+                    )
+            children.append(child)
+        population = children
+    tables.sort()
+    tables.validate()
+    return tables, population
+
+
+def homologous_pairs(tables, homology):
+    """
+    The homology as a set of (position in u, position in v, time of the MRCA)
+    """
+    return {(x, h.map.position(x), tables.nodes.time[h.mrca]) for h in homology for x in range(h.u.left, h.u.right)}
+
+
+@functools.cache
+def homology_in_each_mode(seed):
+    """
+    The homologous pairs of positions between two genomes of a clonal population with
+    copies, in each mode of find_homology (computed once per seed, as it takes a while)
+    """
+    tables, samples = clonal_tables_with_copies(seed)
+    u, v = samples[0], samples[1]
+    return {
+        mode: homologous_pairs(tables, tables.find_homology(u, v, mode=mode))
+        for mode in ["first_mrca", "closest_homologues", "all"]
+    }
+
+
+class TestFindClosestHomologues:
+    def test_copy_lost(self):
+        # As in TestFindHomologyModes: u's second copy's closest homologue is v's only
+        # copy, through R, which is all the homology there is
+        tables = copy_lost_tables()
+        assert tables.find_homology(2, 3, mode="closest_homologues") == tables.find_homology(2, 3, mode="all")
+
+    @pytest.mark.parametrize("seed", range(10))
+    def test_matches_filtered_all(self, seed):
+        # The closest homologues are the pairs of all homology whose MRCA is the most
+        # recent for the position in u, or for the position in v
+        pairs = homology_in_each_mode(seed)
+        closest_u, closest_v = {}, {}
+        for x, y, t in pairs["all"]:
+            closest_u[x] = min(t, closest_u.get(x, np.inf))
+            closest_v[y] = min(t, closest_v.get(y, np.inf))
+        expected = {(x, y, t) for x, y, t in pairs["all"] if t == closest_u[x] or t == closest_v[y]}
+        assert pairs["closest_homologues"] == expected
+
+    @pytest.mark.parametrize("seed", range(10))
+    def test_every_homologous_position_has_closest_homology(self, seed):
+        pairs = homology_in_each_mode(seed)
+        assert {x for x, _, _ in pairs["closest_homologues"]} == {x for x, _, _ in pairs["all"]}
+        assert {y for _, y, _ in pairs["closest_homologues"]} == {y for _, y, _ in pairs["all"]}
+
+    def test_tests_are_not_trivial(self):
+        # In these graphs, the closest homologues are usually less than all the homology,
+        # and often more than the homology found by "first_mrca"
+        pairs = [homology_in_each_mode(seed) for seed in range(10)]
+        assert sum(p["closest_homologues"] != p["all"] for p in pairs) > 4
+        assert sum(p["closest_homologues"] != p["first_mrca"] for p in pairs) > 4
+
+    @pytest.mark.parametrize("seed", [1, 2, 3])
+    def test_same_without_duplications(self, seed):
+        ts = msprime.sim_ancestry(3, sequence_length=60, recombination_rate=0.03, random_seed=seed)
+        tables = gigl.Tables.from_tree_sequence(ts)
+        assert tables.find_homology(0, 3, mode="closest_homologues") == tables.find_homology(0, 3)
 
 
 class TestHomology:

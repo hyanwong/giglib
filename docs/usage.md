@@ -96,8 +96,12 @@ descend from. Its `mode` says which homology to find:
 - `"first_mrca"` (the default) stops tracing each lineage at the first MRCA that it reaches.
   This is the least work, and finds the homology usually wanted for placing a crossover. But it
   can miss some homology of a region that has more copies in one genome than the other.
-- `"all"` finds all the homology, through every common ancestor. This can be much more work,
-  which the `time_cutoff` parameter can limit.
+- `"closest_homologues"` finds the closest homologues of every position (in either genome): the
+  homologous positions in the other genome with the most recent MRCA. Unlike `"first_mrca"`,
+  every position with any homology gets some, but the remote homology through older ancestors
+  is left out.
+- `"all"` finds all the homology, through every common ancestor. This can be much more work
+  (and much more homology), which the `time_cutoff` parameter can limit.
 
 For example, here a region was duplicated in an ancestor `A` of genomes `u` and `v`, and `u`
 inherits both copies, but `v` only the first:
@@ -117,16 +121,17 @@ tables.iedges.add_row(v, A, child_right=10)  # only the first copy
 tables.sort()
 tables.validate()
 
-for mode in ["first_mrca", "all"]:
+for mode in ["first_mrca", "closest_homologues", "all"]:
     print(f"{mode}:")
     for h in tables.find_homology(u, v, mode=mode):
         print(f"  u {h.u.left}-{h.u.right} ~ v {h.v.left}-{h.v.right}, MRCA {h.mrca} at time {tables.nodes.time[h.mrca]:g}")
 ```
 
-Both modes find the allelic homology between the first copies, through `A`. Only `"all"` finds
-that `u`'s second copy is homologous to `v`'s only copy, through the older ancestor `R`: with
+All the modes find the allelic homology between the first copies, through `A`. But with
 `"first_mrca"`, the lineage of `v`'s copy stops at `A`, where it meets the lineage of `u`'s first
-copy, so it isn't there for the second copy to meet. The experimental
+copy, so it isn't there for `u`'s second copy to meet. The other modes find that `u`'s second
+copy is homologous to `v`'s only copy, through the older ancestor `R`: this is the closest
+homology of `u`'s second copy, as `v` has nothing closer. The experimental
 {ref}`homology tools <sec_tools_homology>` build on this, e.g. to join homology into chains,
 and to plot it. The {ref}`sec_design_homology` design note discusses homology in more detail.
 
