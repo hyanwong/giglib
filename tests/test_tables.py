@@ -1,5 +1,4 @@
 import collections
-import functools
 
 import msprime
 import numpy as np
@@ -8,7 +7,7 @@ import tskit
 
 import giglib as gigl
 from giglib.constants import Const, ValidFlags
-from tests.gigutil import homologous_positions, valid_tables_without_flags
+from tests.gigutil import homologous_positions, same_homology, valid_tables_without_flags
 
 
 class TestCreation:
@@ -1173,9 +1172,7 @@ class TestFindHomology:
         comb_ts = comb_ts.simplify([0, 4], keep_unary=True)
         gig = gigl.Graph.from_tree_sequence(comb_ts)
         whole = (0, span, 0)
-        assert homologous_positions(gig.tables.find_homology(0, 1)) == homologous_positions(
-            {(whole, whole, comb_ts.first().root, whole)}
-        )
+        assert same_homology(gig.tables.find_homology(0, 1), {(whole, whole, comb_ts.first().root, whole)})
 
     def test_2_trees(self, degree2_2_tip_ts):
         assert degree2_2_tip_ts.num_trees == 2
@@ -1185,7 +1182,7 @@ class TestFindHomology:
         for tree in degree2_2_tip_ts.trees():
             interval = (int(tree.interval.left), int(tree.interval.right), 0)
             expected.add((interval, interval, tree.root, interval))
-        assert homologous_positions(homology) == homologous_positions(expected)
+        assert same_homology(homology, expected)
         # sorted by position in u
         assert [h.u for h in homology] == sorted(h.u for h in homology)
 
@@ -1225,9 +1222,7 @@ class TestFindHomology:
         assert len(iedges) == 1
         assert iedges[0].is_inversion()
         whole = (0, 100, 0)
-        assert homologous_positions(double_inversion_gig.tables.find_homology(0, 1)) == homologous_positions(
-            {(whole, whole, 3, whole)}
-        )
+        assert same_homology(double_inversion_gig.tables.find_homology(0, 1), {(whole, whole, 3, whole)})
 
     @pytest.mark.parametrize("sample_resolve", [True, False])
     def test_extended_inversion(self, extended_inversion_gig, sample_resolve):
@@ -1242,47 +1237,49 @@ class TestFindHomology:
         # The inversion only leaves 15..100 of the MRCA shared, which is 155 leftwards
         # (to 70) in u: so u's segment 70..155 runs backwards in v and in the MRCA
         homology = gig.tables.find_homology(0, 1)
-        assert homologous_positions(homology) == homologous_positions([((70, 155, 0), (100, 15, 0), 3, (100, 15, 0))])
+        assert same_homology(homology, [((70, 155, 0), (100, 15, 0), 3, (100, 15, 0))])
         assert all(h.is_reversed for h in homology)
         assert sum(h.length for h in homology) == 85
 
     def test_inverted_duplicate(self, inverted_duplicate_gig):
         assert len(inverted_duplicate_gig.sample_nodes()) == 2
-        assert homologous_positions(inverted_duplicate_gig.tables.find_homology(0, 1)) == homologous_positions(
+        assert same_homology(
+            inverted_duplicate_gig.tables.find_homology(0, 1),
             {
                 # The duplicated and inverted section of the MRCA (10..15) has two copies in u
                 ((0, 5, 0), (0, 5, 0), 3, (10, 15, 0)),
                 ((10, 15, 0), (5, 0, 0), 3, (15, 10, 0)),
                 # Only the inverted section
                 ((5, 10, 0), (10, 5, 0), 3, (20, 15, 0)),
-            }
+            },
         )
 
     def test_inverted_duplicate_with_missing(self, inverted_duplicate_with_missing_gig):
         assert len(inverted_duplicate_with_missing_gig.sample_nodes()) == 2
-        assert homologous_positions(
-            inverted_duplicate_with_missing_gig.tables.find_homology(0, 1)
-        ) == homologous_positions(
+        assert same_homology(
+            inverted_duplicate_with_missing_gig.tables.find_homology(0, 1),
             {
                 ((0, 5, 0), (0, 5, 0), 3, (10, 15, 0)),
                 ((30, 35, 0), (5, 0, 0), 3, (15, 10, 0)),
                 ((25, 30, 0), (10, 5, 0), 3, (20, 15, 0)),
-            }
+            },
         )
 
     def test_no_recomb_sv_dup_del(self, all_sv_types_no_re_gig):
-        assert homologous_positions(all_sv_types_no_re_gig.tables.find_homology(8, 10)) == homologous_positions(
+        assert same_homology(
+            all_sv_types_no_re_gig.tables.find_homology(8, 10),
             {
                 # (0, 50) is unchanged
                 ((0, 50, 0), (0, 50, 0), 1, (0, 50, 0)),
                 # (50, 150) of the MRCA is deleted in u, and (150, 200) duplicated in v
                 ((50, 100, 0), (150, 200, 0), 1, (150, 200, 0)),
                 ((50, 100, 0), (250, 300, 0), 1, (150, 200, 0)),
-            }
+            },
         )
 
     def test_no_recomb_sv_dup_inv(self, all_sv_types_no_re_gig):
-        assert homologous_positions(all_sv_types_no_re_gig.tables.find_homology(10, 12)) == homologous_positions(
+        assert same_homology(
+            all_sv_types_no_re_gig.tables.find_homology(10, 12),
             {
                 # "normal" region
                 ((0, 20, 0), (0, 20, 0), 0, (0, 20, 0)),
@@ -1294,7 +1291,7 @@ class TestFindHomology:
                 # duplicated non-inverted region
                 ((120, 200, 0), (120, 200, 0), 0, (120, 200, 0)),
                 ((220, 300, 0), (120, 200, 0), 0, (120, 200, 0)),
-            }
+            },
         )
 
     def test_chromosomes(self):
@@ -1311,10 +1308,8 @@ class TestFindHomology:
         tables.sort()
         tables.validate()
         expected = [gigl.Homology((0, 10, 1), (10, 0, 0), 2, (0, 10, 1))]
-        assert homologous_positions(tables.find_homology(0, 1)) == homologous_positions(expected)  # all chromosomes
-        assert homologous_positions(tables.find_homology(0, 1, u_chromosome=1, v_chromosome=0)) == homologous_positions(
-            expected
-        )
+        assert same_homology(tables.find_homology(0, 1), expected)  # all chromosomes
+        assert same_homology(tables.find_homology(0, 1, u_chromosome=1, v_chromosome=0), expected)
 
     @pytest.mark.parametrize("mode", ["first_mrca", "all"])
     def test_root_with_descendant(self, mode):
@@ -1327,8 +1322,8 @@ class TestFindHomology:
         tables.validate()
         whole = gigl.Segment(0, 10, 0)
         expected = [gigl.Homology(whole, whole, 0, whole)]
-        assert homologous_positions(tables.find_homology(0, 1, mode=mode)) == homologous_positions(expected)
-        assert homologous_positions(tables.find_homology(1, 0, mode=mode)) == homologous_positions(expected)
+        assert same_homology(tables.find_homology(0, 1, mode=mode), expected)
+        assert same_homology(tables.find_homology(1, 0, mode=mode), expected)
 
     def test_chromosome_without_parent(self):
         # u (node 1) has a parent for chromosome 0, but not for chromosome 1, which its
@@ -1342,9 +1337,7 @@ class TestFindHomology:
         tables.sort()
         tables.validate()
         segment = gigl.Segment(0, 5, 1)
-        assert homologous_positions(tables.find_homology(1, 2)) == homologous_positions(
-            [gigl.Homology(segment, segment, 1, segment)]
-        )
+        assert same_homology(tables.find_homology(1, 2), [gigl.Homology(segment, segment, 1, segment)])
 
     def test_graph_accepts_nodes(self, double_inversion_gig):
         gig = double_inversion_gig
@@ -1391,18 +1384,17 @@ class TestFindHomologyModes:
     def test_first_mrca(self, tables):
         # Once u's first copy and v's copy meet at A, v's lineage stops, so u's second
         # copy finds no homology
-        assert homologous_positions(tables.find_homology(2, 3)) == homologous_positions(
-            [gigl.Homology((0, 10, 0), (0, 10, 0), 1, (0, 10, 0))]
-        )
+        assert same_homology(tables.find_homology(2, 3), [gigl.Homology((0, 10, 0), (0, 10, 0), 1, (0, 10, 0))])
 
     def test_all(self, tables):
         # u's second copy is homologous to v's copy through R (the closest homology of
         # u's second copy, as v has nothing closer)
-        assert homologous_positions(tables.find_homology(2, 3, mode="all")) == homologous_positions(
+        assert same_homology(
+            tables.find_homology(2, 3, mode="all"),
             [
                 gigl.Homology((0, 10, 0), (0, 10, 0), 1, (0, 10, 0)),
                 gigl.Homology((10, 20, 0), (0, 10, 0), 0, (0, 10, 0)),
-            ]
+            ],
         )
 
     def test_all_reports_each_pair_once(self, tables):
@@ -1415,9 +1407,7 @@ class TestFindHomologyModes:
         # Without duplications, each position has at most one homologue
         ts = msprime.sim_ancestry(3, sequence_length=60, recombination_rate=0.03, random_seed=seed)
         tables = gigl.Tables.from_tree_sequence(ts)
-        assert homologous_positions(tables.find_homology(0, 3)) == homologous_positions(
-            tables.find_homology(0, 3, mode="all")
-        )
+        assert same_homology(tables.find_homology(0, 3), tables.find_homology(0, 3, mode="all"))
 
 
 def clonal_tables_with_copies(seed, generations=15, size=6):
@@ -1466,68 +1456,66 @@ def clonal_tables_with_copies(seed, generations=15, size=6):
     return tables, population
 
 
-def homologous_pairs(tables, homology):
-    """
-    The homology as a set of (position in u, position in v, time of the MRCA)
-    """
-    return {(x, y, tables.nodes.time[mrca]) for x, y, mrca, _ in homologous_positions(homology)}
-
-
-@functools.cache
-def homology_in_each_mode(seed):
-    """
-    The homologous pairs of positions between two genomes of a clonal population with
-    copies, in each mode of find_homology (computed once per seed, as it takes a while)
-    """
-    tables, samples = clonal_tables_with_copies(seed)
-    u, v = samples[0], samples[1]
-    return {
-        mode: homologous_pairs(tables, tables.find_homology(u, v, mode=mode))
-        for mode in ["first_mrca", "closest_homologues", "all"]
-    }
-
-
 class TestFindClosestHomologues:
     def test_copy_lost(self):
         # As in TestFindHomologyModes: u's second copy's closest homologue is v's only
-        # copy, through R, which is all the homology there is
+        # copy, through R, which "first_mrca" misses
         tables = copy_lost_tables()
-        assert homologous_positions(tables.find_homology(2, 3, mode="closest_homologues")) == homologous_positions(
-            tables.find_homology(2, 3, mode="all")
+        assert same_homology(
+            tables.find_homology(2, 3, mode="closest_homologues"),
+            [
+                ((0, 10, 0), (0, 10, 0), 1, (0, 10, 0)),
+                ((10, 20, 0), (0, 10, 0), 0, (0, 10, 0)),
+            ],
         )
 
-    @pytest.mark.parametrize("seed", range(10))
-    def test_matches_filtered_all(self, seed):
-        # The closest homologues are the pairs of all homology whose MRCA is the most
-        # recent for the position in u, or for the position in v
-        pairs = homology_in_each_mode(seed)
-        closest_u, closest_v = {}, {}
-        for x, y, t in pairs["all"]:
-            closest_u[x] = min(t, closest_u.get(x, np.inf))
-            closest_v[y] = min(t, closest_v.get(y, np.inf))
-        expected = {(x, y, t) for x, y, t in pairs["all"] if t == closest_u[x] or t == closest_v[y]}
-        assert pairs["closest_homologues"] == expected
+    def test_remote_homology_left_out(self):
+        # A region B (positions 0-10 of R) was duplicated in A, and u and v both inherit
+        # both copies. Each copy's closest homologue is the same copy in the other genome,
+        # through A. The two copies are also homologous to each other through R, but that
+        # is remote homology, found only by "all".
+        tables = gigl.Tables()
+        tables.nodes.add_row(10)  # R
+        tables.nodes.add_row(5)  # A
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # u
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # v
+        tables.iedges.add_row(1, 0, child_left=0, child_right=10, parent_left=0, parent_right=10)
+        tables.iedges.add_row(1, 0, child_left=10, child_right=20, parent_left=0, parent_right=10)
+        tables.iedges.add_row(2, 1, child_right=20)
+        tables.iedges.add_row(3, 1, child_right=20)
+        tables.sort()
+        tables.validate()
+        allelic = [((0, 20, 0), (0, 20, 0), 1, (0, 20, 0))]
+        remote = [((0, 10, 0), (10, 20, 0), 0, (0, 10, 0)), ((10, 20, 0), (0, 10, 0), 0, (0, 10, 0))]
+        assert same_homology(tables.find_homology(2, 3, mode="closest_homologues"), allelic)
+        assert same_homology(tables.find_homology(2, 3, mode="all"), allelic + remote)
 
     @pytest.mark.parametrize("seed", range(10))
-    def test_every_homologous_position_has_closest_homology(self, seed):
-        pairs = homology_in_each_mode(seed)
-        assert {x for x, _, _ in pairs["closest_homologues"]} == {x for x, _, _ in pairs["all"]}
-        assert {y for _, y, _ in pairs["closest_homologues"]} == {y for _, y, _ in pairs["all"]}
-
-    def test_tests_are_not_trivial(self):
-        # The graphs used for these tests include some in which the closest homologues
-        # differ from all the homology, and from that found by "first_mrca"
-        pairs = [homology_in_each_mode(seed) for seed in range(10)]
-        assert any(p["closest_homologues"] != p["all"] for p in pairs)
-        assert any(p["closest_homologues"] != p["first_mrca"] for p in pairs)
+    def test_closest_part_of_all_homology(self, seed):
+        # In a population with many nested copies: the closest homologues are the pairs
+        # of positions, from all the homology, whose MRCA is the most recent one for the
+        # position in u, or for the position in v
+        tables, samples = clonal_tables_with_copies(seed)
+        u, v = samples[0], samples[1]
+        closest = homologous_positions(tables.find_homology(u, v, mode="closest_homologues"))
+        everything = homologous_positions(tables.find_homology(u, v, mode="all"))
+        time = tables.nodes.time
+        # The time of the most recent MRCA of each position of u, and of v
+        closest_in_u, closest_in_v = {}, {}
+        for x, y, mrca, _ in everything:
+            closest_in_u[x] = min(time[mrca], closest_in_u.get(x, np.inf))
+            closest_in_v[y] = min(time[mrca], closest_in_v.get(y, np.inf))
+        expected = set()
+        for x, y, mrca, z in everything:
+            if time[mrca] == closest_in_u[x] or time[mrca] == closest_in_v[y]:
+                expected.add((x, y, mrca, z))
+        assert closest == expected
 
     @pytest.mark.parametrize("seed", [1, 2, 3])
     def test_same_without_duplications(self, seed):
         ts = msprime.sim_ancestry(3, sequence_length=60, recombination_rate=0.03, random_seed=seed)
         tables = gigl.Tables.from_tree_sequence(ts)
-        assert homologous_positions(tables.find_homology(0, 3, mode="closest_homologues")) == homologous_positions(
-            tables.find_homology(0, 3)
-        )
+        assert same_homology(tables.find_homology(0, 3, mode="closest_homologues"), tables.find_homology(0, 3))
 
 
 class TestHomology:
@@ -1582,11 +1570,18 @@ class TestHomologyRecords:
         # homologous through it to every copy in v (as random_homologous_positions needs)
         for tables, u, v in self.examples():
             positions = homologous_positions(tables.find_homology(u, v))
-            copies = collections.defaultdict(lambda: (set(), set()))
+            # The copies in u and in v of each position of a common ancestor, and the
+            # pairs of them that are reported
+            copies_in_u = collections.defaultdict(set)
+            copies_in_v = collections.defaultdict(set)
+            pairs = collections.defaultdict(set)
             for x, y, mrca, z in positions:
-                copies[(mrca, z)][0].add(x)
-                copies[(mrca, z)][1].add(y)
-            assert len(positions) == sum(len(xs) * len(ys) for xs, ys in copies.values())
+                copies_in_u[(mrca, z)].add(x)
+                copies_in_v[(mrca, z)].add(y)
+                pairs[(mrca, z)].add((x, y))
+            for ancestral_position, reported in pairs.items():
+                every_pair = {(x, y) for x in copies_in_u[ancestral_position] for y in copies_in_v[ancestral_position]}
+                assert reported == every_pair
 
 
 class TestSegment:
@@ -2240,9 +2235,7 @@ class TestValidatedRows:
     def test_find_homology(self):
         tables = self.tables_with_new_rows()
         whole = gigl.Segment(0, 10, 0)
-        assert homologous_positions(tables.find_homology(1, 2)) == homologous_positions(
-            [gigl.Homology(whole, whole, 0, whole)]
-        )
+        assert same_homology(tables.find_homology(1, 2), [gigl.Homology(whole, whole, 0, whole)])
 
     def test_refuses_nodes_with_unvalidated_rows(self):
         tables = self.tables_with_new_rows()

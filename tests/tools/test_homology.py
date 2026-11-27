@@ -8,7 +8,7 @@ import pytest
 
 import giglib as gigl
 from giglib.tools import homology
-from tests.gigutil import homologous_positions
+from tests.gigutil import same_homology
 
 
 def two_samples(iedges_u, iedges_v, *, root_length=None):
@@ -140,7 +140,8 @@ class TestFindAllHomology:
         # As well as the recent homology, the copies made in the common ancestor are
         # homologous to each other through the old ancestor (which mode "first_mrca" misses)
         found = cnv_tables().find_homology(2, 3, mode="all")
-        assert homologous_positions(found) == homologous_positions(
+        assert same_homology(
+            found,
             [
                 # Allelic homology, through the common ancestor (node 1), at the same
                 # positions as in it (as genome 3 inherits it unchanged)
@@ -150,7 +151,7 @@ class TestFindAllHomology:
                 ((30, 40, 0), (40, 50, 0), 0, (30, 40, 0)),
                 ((40, 50, 0), (30, 40, 0), 0, (30, 40, 0)),
                 ((50, 60, 0), (30, 40, 0), 0, (30, 40, 0)),
-            ]
+            ],
         )
 
     def test_time_cutoff(self):

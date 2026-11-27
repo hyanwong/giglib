@@ -64,3 +64,12 @@ def valid_tables_without_flags():
     tables.iedges.add_row(3, 1, child_right=10, child_chromosome=1, parent_chromosome=0)
     tables.iedges.unset_bitflag(gigl.ValidFlags.IEDGES_ALL)
     return tables
+
+
+def same_homology(found, expected):
+    """
+    Whether ``found`` and ``expected`` describe the same homology, i.e. the same
+    homologous positions, each with the same MRCA and position in it (see
+    :func:`homologous_positions`), however it is cut into records
+    """
+    return homologous_positions(found) == homologous_positions(expected)
