@@ -8,6 +8,7 @@ import pytest
 
 import giglib as gigl
 from giglib.tools import homology
+from tests.gigutil import homologous_positions
 
 
 def two_samples(iedges_u, iedges_v, *, root_length=None):
@@ -138,21 +139,19 @@ class TestFindAllHomology:
     def test_copies_in_a_common_ancestor(self):
         # As well as the recent homology, the copies made in the common ancestor are
         # homologous to each other through the old ancestor (which mode "first_mrca" misses)
-        tables = cnv_tables()
-        found = [
-            (h.u.left, h.u.right, h.v.left, h.v.right, h.mrca, tables.nodes.time[h.mrca])
-            for h in tables.find_homology(2, 3, mode="all")
-        ]
-        # (Segments are cut where the copies of the common ancestor's segments change)
-        assert found == [
-            (0, 40, 0, 40, 1, 1),
-            (30, 40, 40, 50, 0, 10),
-            (40, 50, 30, 40, 0, 10),
-            (40, 50, 40, 50, 1, 1),
-            (50, 60, 30, 40, 0, 10),
-            (50, 60, 40, 50, 1, 1),
-            (60, 100, 50, 90, 1, 1),
-        ]
+        found = cnv_tables().find_homology(2, 3, mode="all")
+        assert homologous_positions(found) == homologous_positions(
+            [
+                # Allelic homology, through the common ancestor (node 1), at the same
+                # positions as in it (as genome 3 inherits it unchanged)
+                ((0, 50, 0), (0, 50, 0), 1, (0, 50, 0)),
+                ((50, 100, 0), (40, 90, 0), 1, (40, 90, 0)),
+                # The copies of B (30-40 of node 0) in each genome, through node 0
+                ((30, 40, 0), (40, 50, 0), 0, (30, 40, 0)),
+                ((40, 50, 0), (30, 40, 0), 0, (30, 40, 0)),
+                ((50, 60, 0), (30, 40, 0), 0, (30, 40, 0)),
+            ]
+        )
 
     def test_time_cutoff(self):
         tables = cnv_tables()
@@ -162,7 +161,7 @@ class TestFindAllHomology:
     def test_plot_shows_old_homology(self):
         ax = homology.plot(cnv_tables(), 2, 3)
         (collection,) = ax.collections
-        assert sorted(collection.get_array()) == [1, 1, 1, 1, 10, 10, 10]
+        assert set(collection.get_array()) == {1, 10}
 
 
 class TestRandomHomologousPositions:

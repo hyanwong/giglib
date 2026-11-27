@@ -174,7 +174,9 @@ class TestDTWF_one_break_no_rec_inversions_slow:
     def test_vs_tskit_implementation(self, seed):
         # The tskit_DTWF_simulator should produce identical results to the GIG simulator:
         # without duplications, the homology between two parents is sorted by position, so
-        # the breakpoints are chosen in the same way
+        # the breakpoints are chosen in the same way. This relies on both drawing random
+        # numbers in the same order, so if the GIG simulator changes how it chooses
+        # breakpoints (e.g. by rejection sampling, issue 102), change the tskit one to match.
         gens = self.default_gens
         self.simulator = DTWF_one_break_no_rec_inversions_slow_sim()
         ts_simulator = tskit_DTWF_simulator(sequence_length=self.seq_lens[0])
@@ -235,7 +237,10 @@ class TestDTWF_one_break_no_rec_inversions_slow:
             if ie.child == inverted_child_id and ie.child_left == 0:
                 assert ie.parent_left == 0
                 assert ie.child_right == ie.parent_right
-                assert ie.child_right > 200  # check seed gives breakpoint a bit along
+                # The inversion is inserted into this iedge, so it must cover it. This holds
+                # for this seed (if the simulator draws its breakpoints differently, pick a
+                # seed for which it does)
+                assert ie.child_right > self.inversion.right, "the random seed doesn't suit this test"
 
                 new_tables.iedges.add_row(
                     inverted_child_id,

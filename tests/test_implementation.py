@@ -15,6 +15,8 @@ import numpy as np
 import pytest
 
 import giglib as gigl
+from giglib.constants import ValidFlags
+from tests.gigutil import valid_tables_without_flags
 
 
 class TestPreallocation:
@@ -137,3 +139,61 @@ class TestGraphParentIndex:
         assert np.all(getattr(gig.tables.iedges, name)[ts_order] == getattr(simple_ts, "edges_" + suffix))
         ie = gig.iedges[ts_order[0]]
         assert getattr(ie, name) == getattr(simple_ts.edge(0), suffix)
+
+
+class TestIncrementalValidationChecks:
+    """
+    Which rows and flags Tables.validate() checks, as recorded by wrapping the private
+    method that checks them: incremental validation only checks what it needs to
+    """
+
+    @staticmethod
+    def record_checks(tables, monkeypatch):
+        # Record the (flags, start) of each check of some iedges
+        checks = []
+        check = tables._check_iedges
+
+        def recording_check(flags, start=0, stop=None):
+            if flags and start < (len(tables.iedges) if stop is None else stop):
+                checks.append((flags, start))
+            check(flags, start, stop)
+
+        monkeypatch.setattr(tables, "_check_iedges", recording_check)
+        return checks
+
+    def test_only_new_rows_are_checked(self, monkeypatch):
+        tables = valid_tables_without_flags()
+        tables.validate()
+        checks = self.record_checks(tables, monkeypatch)
+        tables.validate()
+        assert checks == []  # nothing new to check
+        n = len(tables.iedges)
+        tables.nodes.add_row(0)  # adding nodes doesn't affect the existing iedges
+        tables.iedges.add_row(4, 1, child_right=10)
+        tables.validate()
+        assert checks == [(ValidFlags.GIG, n)]
+        assert tables.iedges.flags == ValidFlags.GIG
+
+    def test_newly_required_flags_checked_for_all_rows(self, monkeypatch):
+        tables = valid_tables_without_flags()
+        tables.validate(ValidFlags.IEDGES_INTERVALS)
+        checks = self.record_checks(tables, monkeypatch)
+        tables.iedges.add_row(3, 1, child_left=10, child_right=12, child_chromosome=1)
+        tables.validate(ValidFlags.IEDGES_INTERVALS | ValidFlags.IEDGES_INTEGERS)
+        assert checks == [(ValidFlags.IEDGES_INTEGERS, 0), (ValidFlags.IEDGES_INTERVALS, len(tables.iedges) - 1)]
+
+    def test_changed_nodes_rechecked_for_all_rows(self, monkeypatch):
+        tables = valid_tables_without_flags()
+        tables.validate()
+        checks = self.record_checks(tables, monkeypatch)
+        tables.change_times(1)
+        tables.validate()
+        assert checks == [(ValidFlags.IEDGES_COMBO_NODE_TABLE, 0)]
+
+    def test_copied_tables_keep_node_time_flags(self, monkeypatch):
+        tables = valid_tables_without_flags()
+        tables.validate()
+        copy = tables.copy()
+        checks = self.record_checks(copy, monkeypatch)
+        copy.validate()
+        assert checks == []  # nothing needs checking again
