@@ -57,15 +57,16 @@ file = "README.md"
 content-type = "text/markdown"
 
 [tool.setuptools]
-packages = [
-    "giglib",
-    "giglib.tools",
-]
 include-package-data = true
 platforms = [
     "POSIX",
     "Windows",
     "MacOS X",
+]
+
+[tool.setuptools.packages.find]
+include = [
+    "giglib*",
 ]
 
 [tool.pytest.ini_options]
