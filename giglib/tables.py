@@ -2392,6 +2392,17 @@ class Tables:
             node, (u_dict, v_dict) = stack.popitem()
             if node_times[node] > time_cutoff:
                 break
+            # The chromosomes of u (or v) are found from the iedges above it, but it can
+            # also have chromosomes without a parent (e.g. if it is a root). These only
+            # matter if the other genome descends from it, i.e. if the other genome's
+            # material reaches it, so add them (all of each one) when it is visited
+            for genome, chromosome, own, other in (
+                (u, u_chromosome, u_dict, v_dict),
+                (v, v_chromosome, v_dict, u_dict),
+            ):
+                if node == genome and chromosome is None:
+                    for c in other.keys() - own.keys():
+                        own[c] = {(identity, c): P.closedopen(0, np.inf)}
             for chrom in u_dict.keys() & v_dict.keys():
                 # Cut the node's chromosome into pieces that each have the same material of
                 # u and of v (there can be several of each, e.g. copies of a duplicated

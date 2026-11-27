@@ -204,6 +204,13 @@ class TestRandomHomologousPositions:
             assert pos.opposite_orientations
             assert pos.u.position + pos.v.position == 9
 
+    def test_needs_first_mrca(self):
+        # In mode "all", u's copy at 30-40 pairs with v's copy at 40-50 through node 0,
+        # but not with v's copy at 30-40 (whose MRCA with it is node 1)
+        shared = cnv_tables().find_homology(2, 3, mode="all")
+        with pytest.raises(ValueError, match="first_mrca"):
+            homology.random_homologous_positions(shared, np.random.default_rng(1))
+
     def test_copies(self):
         # Positions 40-50 of the common ancestor (node 1) have two copies in genome 2
         # (40-50 and 50-60), and one in genome 3 (40-50): either copy can be chosen

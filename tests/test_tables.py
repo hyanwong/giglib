@@ -1341,6 +1341,35 @@ class TestFindHomology:
         assert tables.find_homology(0, 1, u_chromosome=0) == []
         assert tables.find_homology(0, 1, v_chromosome=1) == []
 
+    @pytest.mark.parametrize("mode", ["first_mrca", "all"])
+    def test_root_with_descendant(self, mode):
+        # A root has no iedges above it, but has homology with its descendants
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0)
+        tables.iedges.add_row(1, 0, child_right=10)
+        tables.sort()
+        tables.validate()
+        whole = gigl.Segment(0, 10, 0)
+        expected = [gigl.Homology(whole, whole, 0, whole)]
+        assert tables.find_homology(0, 1, mode=mode) == expected
+        assert tables.find_homology(1, 0, mode=mode) == expected
+
+    def test_chromosome_without_parent(self):
+        # u (node 1) has a parent for chromosome 0, but not for chromosome 1, which its
+        # child (node 2) inherits
+        tables = gigl.Tables()
+        tables.nodes.add_row(2)
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0)
+        tables.iedges.add_row(1, 0, child_right=10)
+        tables.iedges.add_row(2, 1, child_right=5, child_chromosome=1, parent_chromosome=1)
+        tables.sort()
+        tables.validate()
+        segment = gigl.Segment(0, 5, 1)
+        assert tables.find_homology(1, 2) == [gigl.Homology(segment, segment, 1, segment)]
+        assert tables.find_homology(1, 2, u_chromosome=0) == []
+
     def test_graph_accepts_nodes(self, double_inversion_gig):
         gig = double_inversion_gig
         assert gig.find_homology(gig.nodes[0], gig.nodes[1]) == gig.tables.find_homology(0, 1)

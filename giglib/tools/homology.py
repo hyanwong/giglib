@@ -209,24 +209,42 @@ def random_homologous_positions(homology, rng):
         positions is left to the user.
 
     :param list(giglib.Homology) homology: The homology, as returned by
-        :meth:`~giglib.Tables.find_homology`
+        :meth:`~giglib.Tables.find_homology` in its default mode, ``"first_mrca"``. (In
+        that mode, every copy in ``u`` of a segment of a common ancestor is homologous,
+        through it, to every copy in ``v``, and the segments of each common ancestor don't
+        overlap. Neither is true in mode ``"all"``, in which some pairs of copies have a
+        more recent common ancestor.)
     :param rng: A numpy random number generator, e.g. made by
         ``numpy.random.default_rng()``
+    :raises ValueError: If ``homology`` isn't of this form
     :rtype: HomologousPositions
     """
     # Group the homology by segment of a common ancestor, in the order they first appear,
     # with the ends of the segments in u and v that correspond to the ends of the
     # ancestral segment, in order (so they may be reversed relative to it)
     groups = {}
+    num_records = collections.Counter()
     for h in homology:
         mrca_ends, u_ends, v_ends = h.mrca_segment[:2], h.u[:2], h.v[:2]
         if mrca_ends[0] > mrca_ends[1]:
             mrca_ends, u_ends, v_ends = mrca_ends[::-1], u_ends[::-1], v_ends[::-1]
-        u_copies, v_copies = groups.setdefault((h.mrca, *mrca_ends, h.mrca_segment.chromosome), ([], []))
+        key = (h.mrca, *mrca_ends, h.mrca_segment.chromosome)
+        u_copies, v_copies = groups.setdefault(key, ([], []))
         if (*u_ends, h.u.chromosome) not in u_copies:
             u_copies.append((*u_ends, h.u.chromosome))
         if (*v_ends, h.v.chromosome) not in v_copies:
             v_copies.append((*v_ends, h.v.chromosome))
+        num_records[key] += 1
+    # Check that each ancestral segment pairs every copy in u with every copy in v, and
+    # that the segments of each common ancestor don't overlap
+    previous_end = {}
+    for mrca, left, right, chromosome in sorted(groups, key=lambda k: (k[0], k[3], k[1])):
+        u_copies, v_copies = groups[(mrca, left, right, chromosome)]
+        if num_records[(mrca, left, right, chromosome)] != len(u_copies) * len(v_copies):
+            raise ValueError("The homology must be found with mode 'first_mrca'")
+        if left < previous_end.get((mrca, chromosome), left):
+            raise ValueError("The homology must be found with mode 'first_mrca'")
+        previous_end[(mrca, chromosome)] = right
     total_length = sum(right - left for _, left, right, _ in groups)
     loc = rng.integers(total_length)
     for (_, left, right, _), (u_copies, v_copies) in groups.items():

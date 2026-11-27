@@ -74,8 +74,8 @@ the homologous interval of `v`, and the map between them. A block can span sever
 (different ancestors at different positions), as long as the map is the same.
 
 A block has a length, an orientation (whether the map is reversed), and a pair of chromosomes. The
-MRCA regions found by {meth}`~giglib.Tables.find_homology` are already grouped by map, so
-blocks can be found by merging adjacent regions with the same map. As a block can span several
+records found by {meth}`~giglib.Tables.find_homology` each have a single map, so blocks can be
+found by merging records that are adjacent in `u` and have the same map. As a block can span several
 MRCAs, it has no single MRCA or time to the MRCA (TMRCA): it keeps the MRCA of each of its
 sub-intervals (as a list of intervals of `u`, each with its MRCA node and time), so that a rule
 that depends on the TMRCA can use its value at a particular position.
