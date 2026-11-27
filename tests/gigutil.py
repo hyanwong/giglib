@@ -28,3 +28,52 @@ def make_nodes_table(arr, tables):
     for row in arr:
         tables.nodes.add_row(time=row[0], flags=row[1], individual=gigl.NULL)
     return tables.nodes
+
+
+def homologous_positions(homology):
+    """
+    The homology as a set of ``(position in u, position in v, mrca, position in the
+    mrca)``, one for each homologous position of u (positions as ``(position,
+    chromosome)``). Comparing these, rather than the records, means that tests don't
+    depend on how the homology is cut into records. A homologous position that is
+    reported more than once (e.g. by overlapping records) fails an assertion, as it
+    would otherwise be hidden by the set. ``homology`` can be a list of
+    :class:`giglib.Homology` records, or of plain ``(u, v, mrca, mrca_segment)`` tuples
+    of the same form (with each segment as ``(left, right, chromosome)``).
+    """
+    result = set()
+    for u, v, mrca, mrca_segment in homology:
+        to_v = gigl.PositionMap.from_intervals(u[:2], v[:2])
+        to_mrca = gigl.PositionMap.from_intervals(u[:2], mrca_segment[:2])
+        for x in range(u[0], u[1]):
+            position = ((x, u[2]), (to_v.position(x), v[2]), mrca, (to_mrca.position(x), mrca_segment[2]))
+            assert position not in result, f"Homologous position reported twice: {position}"
+            result.add(position)
+    return result
+
+
+def valid_tables_without_flags():
+    """
+    Tables that are valid as a GIG, but were added without validation, so no iedge flags
+    are set
+    """
+    tables = gigl.Tables()
+    tables.nodes.add_row(2)  # 0
+    tables.nodes.add_row(1)  # 1
+    tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # 2
+    tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # 3
+    tables.iedges.add_row(1, 0, child_right=10, edge=0)
+    tables.iedges.add_row(2, 1, child_right=4, edge=1)
+    tables.iedges.add_row(2, 0, child_left=4, child_right=10, parent_left=10, parent_right=4)
+    tables.iedges.add_row(3, 1, child_right=10, child_chromosome=1, parent_chromosome=0)
+    tables.iedges.unset_bitflag(gigl.ValidFlags.IEDGES_ALL)
+    return tables
+
+
+def same_homology(found, expected):
+    """
+    Whether ``found`` and ``expected`` describe the same homology, i.e. the same
+    homologous positions, each with the same MRCA and position in it (see
+    :func:`homologous_positions`), however it is cut into records
+    """
+    return homologous_positions(found) == homologous_positions(expected)
