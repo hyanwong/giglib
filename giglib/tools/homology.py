@@ -229,11 +229,10 @@ def random_homologous_positions(homology, rng):
         if mrca_ends[0] > mrca_ends[1]:
             mrca_ends, u_ends, v_ends = mrca_ends[::-1], u_ends[::-1], v_ends[::-1]
         key = (h.mrca, *mrca_ends, h.mrca_segment.chromosome)
-        u_copies, v_copies = groups.setdefault(key, ([], []))
-        if (*u_ends, h.u.chromosome) not in u_copies:
-            u_copies.append((*u_ends, h.u.chromosome))
-        if (*v_ends, h.v.chromosome) not in v_copies:
-            v_copies.append((*v_ends, h.v.chromosome))
+        # The copies in u and in v, as dicts used as sets that keep their order
+        u_copies, v_copies = groups.setdefault(key, ({}, {}))
+        u_copies[(*u_ends, h.u.chromosome)] = None
+        v_copies[(*v_ends, h.v.chromosome)] = None
         num_records[key] += 1
     # Check that each ancestral segment pairs every copy in u with every copy in v, and
     # that the segments of each common ancestor don't overlap
@@ -249,6 +248,7 @@ def random_homologous_positions(homology, rng):
     loc = rng.integers(total_length)
     for (_, left, right, _), (u_copies, v_copies) in groups.items():
         if loc < right - left:
+            u_copies, v_copies = list(u_copies), list(v_copies)
             u_copy = u_copies[0] if len(u_copies) == 1 else u_copies[rng.integers(len(u_copies))]
             v_copy = v_copies[0] if len(v_copies) == 1 else v_copies[rng.integers(len(v_copies))]
             to_u = PositionMap.from_intervals((left, right), u_copy[:2])

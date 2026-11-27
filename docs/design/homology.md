@@ -411,3 +411,12 @@ change are better maintained by the tables themselves).
   Rejection sampling ({issue}`102`) could instead pick a position in one parent, find its
   homologous positions in the other, and check only the chain around it. The homology table
   ({issue}`140`) would make each search cheaper.
+- **Flat or grouped homology records:** {meth}`~giglib.Tables.find_homology` returns one record
+  for each pair of homologous segments. If a segment of a common ancestor has `n` copies in each
+  genome that share it as their MRCA (e.g. a tandem array that expanded independently in both
+  lineages), that is `n²` records, rather than the `2n` segments of a grouped form (the ancestral
+  segment with its copies in each genome), which the tracing builds internally anyway. This
+  seems unlikely to matter at the numbers of copies in current simulations (tens), but should be
+  measured (e.g. in the evaluation cases of {issue}`221`). If needed, a grouped output could be
+  added alongside the flat one, as each record keeps its `mrca_segment`. (In mode `"all"`,
+  grouping would save less, as pairs of copies can have different MRCAs.)
