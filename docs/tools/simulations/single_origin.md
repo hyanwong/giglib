@@ -64,7 +64,7 @@ the population is about `√(N Vm)`.
 ```{code-cell}
 from giglib.tools.simulation.single_origin import sim_single_origin
 
-N, generations = 20, 400
+N, generations = 100, 1000
 duplication_rate, deletion_rate, mean_length = 0.05, 0.02, 10
 gig = sim_single_origin(
     N,
@@ -78,8 +78,10 @@ print(len(gig.nodes), "genomes, joined by", len(gig.iedges), "iedges")
 ```
 
 Here are the lengths of the genomes in each generation, and their standard deviation, compared
-with the prediction. With only 20 genomes, the lengths drift a lot: the population sometimes
-collapses to short genomes, when a lineage with a short genome happens to take over.
+with the prediction. The lengths drift a lot. A short genome tends to stay short (as a deletion
+removes much of it), so a lineage whose genome became short early on can persist as a clade of
+short genomes beside the long ones, and sometimes takes over. The prediction ignores this, so is
+too low while there are both short and long genomes.
 
 ```{code-cell}
 :tags: [hide-input]
@@ -129,13 +131,23 @@ break it into. Duplications made after the two lineages split give lines off the
 *same* TMRCA as the diagonal (both copies are equally close to the single copy in the other
 genome), and those made before it give older, lighter lines.
 
+Each generation adds `N` genomes, most of which aren't needed to describe the ancestry of the
+last generation. So before finding homology between genomes of the last generation, we
+{meth}`~giglib.Graph.simplify` the graph, which keeps the homology between them unchanged (see
+{ref}`sec_design_simplification`), but makes finding it much faster:
+
+```{code-cell}
+simplified = gig.simplify()  # the samples (the last generation) are nodes 0 to N - 1
+print(len(simplified.nodes), "genomes, joined by", len(simplified.iedges), "iedges")
+```
+
 Here are the closest homologues of two pairs of genomes in the last generation, and of the most
-recent genome with a duplication against its parent:
+recent genome with a duplication against its parent (in the full graph, as its parent is not
+kept by simplification):
 
 ```{code-cell}
 from giglib.tools import homology
 
-samples = gig.sample_nodes().ids
 # The most recent genome with a duplication, i.e. that is longer than its parent: nodes are
 # numbered in the order they were made, so the most recent have the highest IDs
 for child in reversed(range(1, len(gig.nodes))):
@@ -144,8 +156,9 @@ for child in reversed(range(1, len(gig.nodes))):
         break
 
 fig, axes = plt.subplots(1, 3, figsize=(16, 5))
-for ax, (u, v) in zip(axes, [(samples[0], samples[1]), (samples[2], samples[3]), (child, parent)]):
-    homology.plot(gig.tables, u, v, mode="closest_homologues", ax=ax)
+for ax, (u, v) in zip(axes[:2], [(0, 1), (2, 3)]):
+    homology.plot(simplified.tables, u, v, mode="closest_homologues", ax=ax)
+homology.plot(gig.tables, child, parent, mode="closest_homologues", ax=axes[2])
 axes[2].set_title("a genome against its parent")
 plt.show()
 ```
@@ -160,12 +173,12 @@ homology between copies made earlier, nested like the clades of a tree:
 :tags: [hide-input]
 
 fig, axes = plt.subplots(1, 2, figsize=(11, 5))
-for ax, (u, v) in zip(axes, [(samples[0], samples[1]), (samples[2], samples[3])]):
+for ax, (u, v) in zip(axes, [(0, 1), (2, 3)]):
     # The time of the MRCA of each pair of positions, from all the homology
-    tmrca = np.full((gig.sequence_length(v), gig.sequence_length(u)), np.nan)
-    for h in gig.find_homology(u, v, mode="all"):
+    tmrca = np.full((simplified.sequence_length(v), simplified.sequence_length(u)), np.nan)
+    for h in simplified.find_homology(u, v, mode="all"):
         for x in range(h.u.left, h.u.right):
-            tmrca[h.map.position(x), x] = gig.nodes[h.mrca].time
+            tmrca[h.map.position(x), x] = simplified.nodes[h.mrca].time
     image = ax.imshow(tmrca, origin="lower", cmap="viridis")
     fig.colorbar(image, ax=ax, label="TMRCA", shrink=0.8)
     ax.set_xlabel(f"position in genome {u}")
@@ -211,7 +224,10 @@ yet.
   fraction of a second, and a second or two.
 - **Simplification.** Each generation adds `N` nodes, most of which are not needed to describe
   the ancestry of the samples. {meth}`~giglib.Tables.simplify` removes them (see
-  {ref}`sec_design_simplification`), without changing the homology between the samples.
+  {ref}`sec_design_simplification`), without changing the homology between the samples. Here,
+  it takes a fraction of a second to reduce about 100,000 genomes to a few hundred, after which
+  finding all the homology between two genomes takes a second or two, rather than about a
+  minute.
 
 ```{eval-rst}
 .. automodule:: giglib.tools.simulation.single_origin
