@@ -115,8 +115,9 @@ a time to its most recent common ancestor (TMRCA). What matters is each position
 homologues (those with the most recent common ancestor, usually allelic), rather than its
 *remote* homology through older ancestors, e.g. with other copies of a region (see
 {ref}`finding homology <sec_usage_homology>`). So most of the plots here use
-{meth}`~giglib.Tables.find_homology` with `mode="closest_homologues"`, whose output, unlike all
-the homology (`mode="all"`), doesn't grow with the square of genome length.
+{meth}`~giglib.Tables.find_homology` with `mode="closest_homologues"`, whose output is usually
+much smaller than all the homology (`mode="all"`), which covers every pair of positions. (It can
+still cover many pairs, if many copies are equally close: see below.)
 
 As soon as a genome replicates, its two children share every position at the split, so the dot
 plot of any two genomes has a strong leading diagonal (see
