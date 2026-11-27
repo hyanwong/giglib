@@ -27,11 +27,11 @@ arbitrarily complex patterns of genetic inheritance.
 
 Because a GIG records where each piece of DNA came from, even when it has been moved, copied or
 inverted, it can be used to find **homology**: the regions of two genomes that descend from the
-same region of a common ancestor. In a tree sequence, homologous positions are simply those at the
+same region of a common ancestor. In a standard ARG, homologous positions are simply those at the
 same coordinate, but in a GIG, finding them means tracing ancestry back through the graph. This is
-one of the main things a GIG adds to an ARG, e.g. to decide where crossovers can happen between
-genomes that differ in structure, and is why _giglib_ provides ways to find and plot homology (see
-{ref}`below <sec_concepts_homology>`).
+one of the main things a GIG adds, and it can be used e.g. to decide where crossovers can happen between
+genomes that differ in structure. This is why _giglib_ provides built-in ways to find and plot homology
+(see {ref}`below <sec_concepts_homology>`).
 
 The Genetic Inheritance Graph Library (giglib) is a proof-of-concept implementation of the idea
 behind GIGs, and is inspired by the standard [tskit](https://tskit.dev) ARG library.
