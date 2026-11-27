@@ -126,11 +126,9 @@ equivalent.
 
 ### What you won't find (yet)
 
-- **No single tree at position x in all genomes.** A GIG does contain local trees, but genomes
-  don't share a coordinate system, so there is no single tree at position x in all genomes, and
-  the tree for a position can include a sample genome several times (after a duplication) or not
-  at all (after a deletion), breaking the one-sample-one-tip assumption behind ARGs. So there is no `ts.trees()` equivalent: algorithms
-  instead work directly on the graph, by tracing intervals up through the iedges.
+- **No `ts.trees()` equivalent.** The concept of a local tree in a GIG is complicated (see
+  [#35](https://github.com/hyanwong/giglib/issues/35)), so algorithms instead work directly on the
+  graph, by tracing intervals up through the iedges.
 - **No sites table.** In tskit a site is a position in the shared coordinate system, so a global
   sites table doesn't make sense for a GIG. Instead, each mutation stores its position in the
   coordinates of the node it lies above, and ancestral states are mutations above roots. There is

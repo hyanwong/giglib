@@ -214,12 +214,8 @@ compatibility with _tskit_. In particular:
   edges for a given child are adjacent, child intervals for those edges cannot overlap. Edges for a
   given child are ordered by left coordinate, which helps algorithmic efficiency. The internal
   `gig.iedges_for_parent(u)` method returns iedges for a parent in the order expected by tskit.
-- **No `.trees()` iterator** A GIG does contain local trees, but as genomes don't share a
-  coordinate system, there is no single tree at position x in all genomes, and the tree for a
-  position can include a sample genome several times (after a duplication) or not at all (after a
-  deletion). So
-  an equivalent of _tskit_'s `.trees()` would need some theoretical work first (e.g. the tree for a
-  single position of one genome, {issue}`35`).
+- **No `.trees()` iterator** The concept of a local tree in a GIG is complicated (see
+  {issue}`35`).
 - **Algorithms on tables** Unlike _tskit_, some fundamental algorithms such as `find_homology` and
   `sample_resolve` (a basic type of `simplify`) can be run directly on a set of tables.
   For this to work, the tables need to conform to certain validity criteria, recorded as separate
