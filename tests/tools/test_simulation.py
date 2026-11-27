@@ -2,7 +2,6 @@ import numpy as np
 import pytest
 import tskit
 
-import giglib as gigl
 from giglib.tools.simulation.no_recombination import DTWF_no_recombination_sim
 from giglib.tools.simulation.one_break_inversions import DTWF_one_break_no_rec_inversions_slow_sim
 
@@ -95,32 +94,6 @@ class tskit_DTWF_simulator:
         return self.tables.tree_sequence()
 
 
-class DTWF_one_break_no_rec_inversions_test(DTWF_one_break_no_rec_inversions_slow_sim):
-    """
-    A GIG simulator used for testing: this version should result in the same breakpoints
-    as in the tskit_DTWF_simulator.
-    """
-
-    def find_comparable_points(self, gig, parent_nodes, chroms):
-        """ """
-        mrcas = gig.find_mrca_regions(*parent_nodes, u_chromosomes=[chroms[0]], v_chromosomes=[chroms[1]])
-        # Create a new mrca dict with arbitrary keys but where each value is a single
-        # interval with the appropriate matching coords in u and v. Items in the dict
-        # are sorted by the left coordinate of the mrca. Keys can be arbitrary because
-        # we don't use the identity of the MRCA node to determine breakpoint dynamics.
-        tmp = []
-        for mrca_regions in mrcas.values():
-            for region, equivalents in mrca_regions.items():
-                tmp.append((region, equivalents))
-        mrcas = gigl.tables.MRCAdict({k: {v[0]: v[1]} for k, v in enumerate(sorted(tmp, key=lambda x: x[0][0]))})
-        comparable_pts = mrcas.random_match_pos(self.rng)
-        # Don't bother with inversions: testing doesn't use them
-        return (
-            np.array([comparable_pts.u.position, comparable_pts.v.position], dtype=np.int64),
-            (comparable_pts.u.chromosome, comparable_pts.v.chromosome),
-        )
-
-
 # MAIN TESTS BELOW
 
 
@@ -199,9 +172,11 @@ class TestDTWF_one_break_no_rec_inversions_slow:
 
     @pytest.mark.parametrize("seed", [123, 321])
     def test_vs_tskit_implementation(self, seed):
-        # The tskit_DTWF_simulator should produce identical results to the GIG simulator
+        # The tskit_DTWF_simulator should produce identical results to the GIG simulator:
+        # without duplications, the homology between two parents is sorted by position, so
+        # the breakpoints are chosen in the same way
         gens = self.default_gens
-        self.simulator = DTWF_one_break_no_rec_inversions_test()
+        self.simulator = DTWF_one_break_no_rec_inversions_slow_sim()
         ts_simulator = tskit_DTWF_simulator(sequence_length=self.seq_lens[0])
         gig = self.simulator.run(7, self.seq_lens, gens=gens, random_seed=seed)
         ts = ts_simulator.run(7, gens=gens, random_seed=seed)
@@ -381,13 +356,13 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         simulator.run(num_diploids=(2, 2, 2), seq_lens=[100, 50, 200], random_seed=1)
         gig = simulator.run_more(num_diploids=10, gens=gens, random_seed=1)
         gig = gig.sample_resolve()
-        # No recombinations between chromosomes in this simulation: check there are no
-        # MRCA regions shared between chromosomes
+        # No recombinations between chromosomes in this simulation: check there is no
+        # homology between chromosomes
         s1 = gig.tables.sample_nodes()[0]
         s2 = gig.tables.sample_nodes()[1]
         for chromA in gig.chromosomes(s1):
             for chromB in gig.chromosomes(s2):
                 if chromA != chromB:
-                    assert len(gig.find_mrca_regions(s1, s2, u_chromosomes=[chromA], v_chromosomes=[chromB])) == 0
+                    assert len(gig.find_homology(s1, s2, u_chromosome=chromA, v_chromosome=chromB)) == 0
                 else:
-                    assert len(gig.find_mrca_regions(s1, s2, u_chromosomes=[chromA], v_chromosomes=[chromB])) > 0
+                    assert len(gig.find_homology(s1, s2, u_chromosome=chromA, v_chromosome=chromB)) > 0

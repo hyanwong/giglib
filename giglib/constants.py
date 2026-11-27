@@ -144,7 +144,7 @@ class ValidFlags(IntFlag):
     IEDGES_ORDER_INDEPENDENT = IEDGES_ALL & ~IEDGES_SORTED
 
     #: The requirements of algorithms that trace intervals up through the iedges on a
-    #: set of tables, such as :meth:`~giglib.Tables.find_mrca_regions` and
+    #: set of tables, such as :meth:`~giglib.Tables.find_homology` and
     #: :meth:`~giglib.Tables.sample_resolve`: parents older than children, valid
     #: intervals, and the iedges for each child adjacent and ordered by chromosome (so
     #: that the iedges above a node can be found).

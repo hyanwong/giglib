@@ -73,8 +73,8 @@ print(gig.allele_at(child, 60), gig.allele_at(child, 139))
 The child's genome is now 150 bases long, while its parent's is 100. giglib can still trace
 ancestry through the rearrangement, so the parent's `A` appears twice in the child: at position
 60, and at position 139, where the inverted copy is read from the other strand, making it a `T`.
-Similarly, `gig.find_mrca_regions(u, v)` finds which regions of two genomes share a common
-ancestor, and where those regions sit in each genome. That is enough to build forward
+Similarly, `gig.find_homology(u, v)` finds which regions of two genomes are homologous (descend
+from the same region of a common ancestor), and where those regions sit in each genome. That is enough to build forward
 simulations with structural variants and recombination: see the
 [Usage](https://hyanwong.github.io/giglib/usage.html#simulations) page.
 
@@ -93,7 +93,7 @@ simulations with structural variants and recombination: see the
   such as "parents are older than children" or "iedges for each child are sorted". They are
   checked with `tables.validate()`, which only checks the rows added since it was last called, so
   is cheap to call often. Each table algorithm checks for just the guarantees it needs, and refuses to
-  run without them. So algorithms like `tables.find_mrca_regions()` can run on growing tables
+  run without them. So algorithms like `tables.find_homology()` can run on growing tables
   during a simulation, without the cost of repeatedly freezing them into a `Graph`. Freezing with
   `tables.graph()` requires all the guarantees, and adds indexes for fast lookup. See
   [Validation](https://hyanwong.github.io/giglib/validation.html).

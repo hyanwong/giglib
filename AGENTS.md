@@ -10,7 +10,7 @@ concept, aimed at forward simulation of structural variants. Start with `README.
 
 | Path | Contents |
 |---|---|
-| `giglib/tables.py` | The tables (`Tables`, `IEdgeTable`, `NodeTable`, `MutationTable`, ...), validation, and table algorithms (`sort`, `sample_resolve`, `decapitate`, `find_mrca_regions`, ...) |
+| `giglib/tables.py` | The tables (`Tables`, `IEdgeTable`, `NodeTable`, `MutationTable`, ...), validation, and table algorithms (`sort`, `sample_resolve`, `decapitate`, `find_homology`, ...) |
 | `giglib/graph.py` | `Graph`: a validated, frozen view of a set of tables, with indexes and allele decoding |
 | `giglib/constants.py` | `ValidFlags` (the validity requirements) and other constants |
 | `giglib/tools/` | Tools that build on the core, e.g. converting tree sequences with indels (`giglib.tools.indels`) and simple forward simulators (`giglib.tools.simulation`) |

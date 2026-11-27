@@ -1,24 +1,18 @@
 """
-Find homology between two genomes in a GIG, and join it into chains, as described in
+Tools for the homology between two genomes in a GIG, as described in
 :ref:`sec_design_homology`. Homology is defined by shared ancestry in the graph, without
 any reference: two positions are homologous if they trace back to the same position in a
-common ancestor.
+common ancestor. The homology itself is found by :meth:`giglib.Tables.find_homology`
+(see :ref:`sec_usage_homology`); this module adds:
 
-It builds on :meth:`giglib.Tables.find_mrca_regions`, which finds the regions of two
-genomes that share a common ancestor, and stops tracing each region at its most recent one
-(as needed to place a crossover). This module adds:
-
-- :func:`homology_blocks`: the homology from :meth:`~giglib.Tables.find_mrca_regions`, as
-  blocks, each a maximal interval with a single map from one genome to the other
-  (merging adjacent regions with different common ancestors but the same map);
+- :func:`homology_blocks`: the homology, as blocks, each a maximal interval with a single
+  map from one genome to the other (merging adjacent homology with different common
+  ancestors but the same map);
 - :func:`chains`: joining blocks into chains that are colinear, separated by small gaps
   (e.g. at microsatellites whose lengths differ), as a heuristic for allelic homology;
-- :func:`find_homology`: *all* the homology between two genomes, with the most recent
-  common ancestor of each pair of positions. Unlike
-  :meth:`~giglib.Tables.find_mrca_regions`, this doesn't stop at the first common
-  ancestor, so it also finds older homology, e.g. between copies of a region that was
-  duplicated in a common ancestor of the two genomes;
-- :func:`plot`: a dot plot of all the homology between two genomes, coloured by the time to
+- :func:`random_homologous_positions`: a random pair of homologous positions, e.g. for
+  placing a crossover;
+- :func:`plot`: a dot plot of the homology between two genomes, coloured by the time to
   the most recent common ancestor.
 
 This module is experimental: see :ref:`sec_tools`. It provides *mechanism* (finding
@@ -28,7 +22,7 @@ to the simulators that use it. Discussion: :issue:`202`.
 
 import collections
 
-from giglib import PositionMap, ValidFlags
+from giglib import Position, PositionMap
 
 
 class Block(collections.namedtuple("Block", "u_left, u_right, u_chromosome, v_left, v_right, v_chromosome")):
@@ -63,13 +57,13 @@ def homology_blocks(tables, u, v, *, u_chromosome=0, v_chromosome=0):
     """
     Return the homology blocks between a chromosome of genome ``u`` and a chromosome of
     genome ``v``, sorted by their position in ``u``. Homology is found with
-    :meth:`~giglib.Tables.find_mrca_regions`, and adjacent regions of ``u`` whose
-    homology in ``v`` has the same map (e.g. through different common ancestors) are
-    merged into a single block. A region of ``u`` can be in several blocks, if it is
+    :meth:`~giglib.Tables.find_homology` (in its default mode), and adjacent regions of
+    ``u`` whose homology in ``v`` has the same map (e.g. through different common
+    ancestors) are merged into a single block. A region of ``u`` can be in several blocks, if it is
     homologous to several regions of ``v`` (e.g. copies of a duplicated region).
 
     :param giglib.Tables tables: The tables (which need the flags required by
-        :meth:`~giglib.Tables.find_mrca_regions`)
+        :meth:`~giglib.Tables.find_homology`)
     :param int u: The first genome (node ID)
     :param int v: The second genome (node ID)
     :param int u_chromosome: The chromosome of ``u`` (default 0)
@@ -77,21 +71,8 @@ def homology_blocks(tables, u, v, *, u_chromosome=0, v_chromosome=0):
     :return: A list of :class:`Block` objects
     :rtype: list(Block)
     """
-    mrcas = tables.find_mrca_regions(u, v, u_chromosomes=[u_chromosome], v_chromosomes=[v_chromosome])
-    pieces = set()
-    for mrca_intervals in mrcas.values():
-        for u_segments, v_segments in mrca_intervals.values():
-            for u_left, u_right, u_chr in u_segments:
-                for v_left, v_right, v_chr in v_segments:
-                    if u_chr != u_chromosome or v_chr != v_chromosome:
-                        continue
-                    # The ends of the MRCA interval map to (u_left, u_right) in u, and to
-                    # (v_left, v_right) in v: so u_left corresponds to v_left. Put u in
-                    # increasing order (for this pair only: u's ends are reused for others)
-                    if u_left > u_right:
-                        pieces.add((u_right, u_left, v_right, v_left))
-                    else:
-                        pieces.add((u_left, u_right, v_left, v_right))
+    homology = tables.find_homology(u, v, u_chromosome=u_chromosome, v_chromosome=v_chromosome)
+    pieces = {(h.u.left, h.u.right, h.v.left, h.v.right) for h in homology}
     blocks = []
     for u_left, u_right, v_left, v_right in sorted(pieces):
         block = Block(u_left, u_right, u_chromosome, v_left, v_right, v_chromosome)
@@ -205,134 +186,80 @@ def chain_length(chain):
     return sum(block.length for block in chain)
 
 
-class Homology(
-    collections.namedtuple("Homology", "u_left, u_right, u_chromosome, v_left, v_right, v_chromosome, mrca, tmrca")
-):
+HomologousPositions = collections.namedtuple("HomologousPositions", "u, v, opposite_orientations")
+HomologousPositions.__doc__ = """
+A pair of homologous positions, as returned by :func:`random_homologous_positions`: ``u``
+and ``v`` are :class:`~giglib.Position` tuples, and ``opposite_orientations`` is whether
+one is reversed relative to the other (a property of the pair, not of either position).
+"""
+
+
+def random_homologous_positions(homology, rng):
     """
-    A segment of homology between genomes ``u`` and ``v``: the interval
-    ``[u_left, u_right)`` of a chromosome of ``u`` is homologous to the interval of a
-    chromosome of ``v`` with ends ``(v_left, v_right)`` (with ``v_left > v_right`` if it is
-    reversed), through their most recent common ancestor ``mrca``, at time ``tmrca``.
-    """
-
-    __slots__ = ()
-
-
-def find_homology(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=None):
-    """
-    Find all the homology between a chromosome of genome ``u`` and a chromosome of genome
-    ``v``: every pair of positions, one in each, that trace back to the same position in a
-    common ancestor, with the most recent such ancestor (the MRCA) of each pair.
-
-    Unlike :meth:`~giglib.Tables.find_mrca_regions`, which stops tracing a position of
-    ``u`` (or ``v``) once it has found a common ancestor, this carries on, so that it also
-    finds older homology: e.g. between different copies of a region that was duplicated
-    in a common ancestor of ``u`` and ``v`` (whose copies also each have more recent,
-    allelic homology). So it can do much more work, which ``time_cutoff`` limits.
+    Choose a pair of homologous positions at random, e.g. to place a crossover. A
+    position of the common ancestors is chosen uniformly from the segments of homology
+    (each segment of a common ancestor counting once, however many copies of it there are
+    in ``u`` and ``v``), and then, if it has several copies in ``u`` or in ``v`` (e.g. through
+    a duplication), one of each at random. How to choose the position is a policy of the
+    simulator, so other simulators may choose differently.
 
     .. note::
-        This is written simply, using only the public API, and is not optimised. It may be
-        more generally useful (e.g. for homology within a single genome, :issue:`135`, or
-        for simplification), in which case it could be moved into the core of giglib,
-        sharing its internals with :meth:`~giglib.Tables.find_mrca_regions` (see
-        :issue:`207`).
+        Adjacent segments are not merged, so if this is used to locate a breakpoint, the
+        choice of whether to place the breakpoint to the left or right of the returned
+        positions is left to the user.
 
-    :param giglib.Tables tables: The tables, whose iedges must satisfy the requirements for
-        tracing through them (:data:`~giglib.ValidFlags.IEDGES_FOR_TRACING`, e.g. that every
-        parent is older than its child). These are checked with
-        :meth:`~giglib.Tables.validate`, which is cheap if they have already been checked.
-    :param int u: The first genome (node ID)
-    :param int v: The second genome (node ID)
-    :param int u_chromosome: The chromosome of ``u`` (default 0)
-    :param int v_chromosome: The chromosome of ``v`` (default 0)
-    :param float time_cutoff: If given, only find homology whose MRCA is at most this old
-    :return: A list of :class:`Homology` segments, sorted by their position in ``u``
-    :rtype: list(Homology)
+    :param list(giglib.Homology) homology: The homology, as returned by
+        :meth:`~giglib.Tables.find_homology` in its default mode, ``"first_mrca"``. (In
+        that mode, every copy in ``u`` of a segment of a common ancestor is homologous,
+        through it, to every copy in ``v``, and the segments of each common ancestor don't
+        overlap. Neither is true in mode ``"all"``, in which some pairs of copies have a
+        more recent common ancestor.)
+    :param rng: A numpy random number generator, e.g. made by
+        ``numpy.random.default_rng()``
+    :raises ValueError: If ``homology`` isn't of this form
+    :rtype: HomologousPositions
     """
-    import heapq
-
-    import portion as P
-
-    if u == v:
-        raise ValueError("u and v must be different genomes")
-    # Tracing needs every parent to be older than its child (otherwise e.g. a node that is
-    # its own parent would be visited forever), and iedges that can be found for each child
-    tables.validate(ValidFlags.IEDGES_FOR_TRACING)
-    if time_cutoff is None:
-        time_cutoff = float("inf")
-    node_time = tables.nodes.time
-    # The material of u (side 0) and v (side 1) traced up to each node: for each node, a
-    # dict mapping (side, chromosome of the node, map back to the original genome) to the
-    # intervals of the node's genome (a portion interval set)
-    material = {}
-    heap = []
-
-    def add(node, side, chromosome, to_original, intervals):
-        if node not in material:
-            material[node] = {}
-            heapq.heappush(heap, (node_time[node], node))
-        key = (side, chromosome, to_original)
-        material[node][key] = material[node].get(key, P.empty()) | intervals
-
-    identity = PositionMap(1, 0)
-    for side, (genome, chromosome) in enumerate([(u, u_chromosome), (v, v_chromosome)]):
-        add(genome, side, chromosome, identity, P.closedopen(0, P.inf))
-
-    # The pairs of positions already reported: for each map from u to v (and the pair of
-    # chromosomes), the positions of u. As nodes are visited from the most recent, a pair
-    # is reported at its MRCA, and not again when it meets again in older ancestors.
-    reported = {}
-    result = []
-    while heap:
-        time, node = heapq.heappop(heap)
-        if time > time_cutoff:
-            break
-        here = material.pop(node)
-        for (side_u, chr_u, to_u), u_intervals in here.items():
-            if side_u != 0:
-                continue
-            for (side_v, chr_v, to_v), v_intervals in here.items():
-                if side_v != 1 or chr_v != chr_u:
-                    continue
-                for interval in u_intervals & v_intervals:
-                    # The ends of the shared interval, in u and in v
-                    u_ends = to_u.interval(interval.lower, interval.upper)
-                    v_ends = to_v.interval(interval.lower, interval.upper)
-                    if u_ends[0] > u_ends[1]:
-                        u_ends, v_ends = u_ends[::-1], v_ends[::-1]
-                    u_to_v = PositionMap.from_intervals(u_ends, v_ends)
-                    key = (u_to_v, u_chromosome, v_chromosome)
-                    new = P.closedopen(*u_ends) - reported.get(key, P.empty())
-                    reported[key] = reported.get(key, P.empty()) | new
-                    for piece in new:
-                        if piece.empty:
-                            continue
-                        result.append(
-                            Homology(
-                                piece.lower,
-                                piece.upper,
-                                u_chromosome,
-                                *u_to_v.interval(piece.lower, piece.upper),
-                                v_chromosome,
-                                node,
-                                time,
-                            )
-                        )
-        # Trace the material up to the parents
-        for (side, chromosome, to_original), intervals in here.items():
-            for ie_id in tables.iedges.ids_for_child(node, chromosome=chromosome):
-                ie = tables.iedges[ie_id]
-                overlap = intervals & P.closedopen(ie.child_left, ie.child_right)
-                if overlap.empty or node_time[ie.parent] > time_cutoff:
-                    continue
-                to_parent = PositionMap.from_iedge(ie)
-                parent_intervals = P.empty()
-                for interval in overlap:
-                    ends = to_parent.interval(interval.lower, interval.upper)
-                    parent_intervals |= P.closedopen(min(ends), max(ends))
-                add(ie.parent, side, ie.parent_chromosome, to_parent.inverse().then(to_original), parent_intervals)
-    result.sort()
-    return result
+    # Group the homology by segment of a common ancestor, in the order they first appear,
+    # with the ends of the segments in u and v that correspond to the ends of the
+    # ancestral segment, in order (so they may be reversed relative to it)
+    groups = {}
+    num_records = collections.Counter()
+    for h in homology:
+        mrca_ends, u_ends, v_ends = h.mrca_segment[:2], h.u[:2], h.v[:2]
+        if mrca_ends[0] > mrca_ends[1]:
+            mrca_ends, u_ends, v_ends = mrca_ends[::-1], u_ends[::-1], v_ends[::-1]
+        key = (h.mrca, *mrca_ends, h.mrca_segment.chromosome)
+        # The copies in u and in v, as dicts used as sets that keep their order
+        u_copies, v_copies = groups.setdefault(key, ({}, {}))
+        u_copies[(*u_ends, h.u.chromosome)] = None
+        v_copies[(*v_ends, h.v.chromosome)] = None
+        num_records[key] += 1
+    # Check that each ancestral segment pairs every copy in u with every copy in v, and
+    # that the segments of each common ancestor don't overlap
+    previous_end = {}
+    for mrca, left, right, chromosome in sorted(groups, key=lambda k: (k[0], k[3], k[1])):
+        u_copies, v_copies = groups[(mrca, left, right, chromosome)]
+        if num_records[(mrca, left, right, chromosome)] != len(u_copies) * len(v_copies):
+            raise ValueError("The homology must be found with mode 'first_mrca'")
+        if left < previous_end.get((mrca, chromosome), left):
+            raise ValueError("The homology must be found with mode 'first_mrca'")
+        previous_end[(mrca, chromosome)] = right
+    total_length = sum(right - left for _, left, right, _ in groups)
+    loc = rng.integers(total_length)
+    for (_, left, right, _), (u_copies, v_copies) in groups.items():
+        if loc < right - left:
+            u_copies, v_copies = list(u_copies), list(v_copies)
+            u_copy = u_copies[0] if len(u_copies) == 1 else u_copies[rng.integers(len(u_copies))]
+            v_copy = v_copies[0] if len(v_copies) == 1 else v_copies[rng.integers(len(v_copies))]
+            to_u = PositionMap.from_intervals((left, right), u_copy[:2])
+            to_v = PositionMap.from_intervals((left, right), v_copy[:2])
+            position = left + int(loc)
+            return HomologousPositions(
+                Position(to_u.position(position), u_copy[2]),
+                Position(to_v.position(position), v_copy[2]),
+                to_u.is_reversing != to_v.is_reversing,
+            )
+        loc -= right - left
 
 
 def plot(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=None, ax=None, cmap="viridis", linewidth=3):
@@ -341,8 +268,8 @@ def plot(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=None, ax=N
     ``v`` as a dot plot: each homologous segment is a line from its start to its end, at
     its position in ``u`` (horizontally) and in ``v`` (vertically), coloured by its time to
     the most recent common ancestor (TMRCA). All the homology is shown (found with
-    :func:`find_homology`), including that older than a more recent common ancestor of
-    other positions. Allelic homology is a diagonal line, with a
+    :meth:`~giglib.Tables.find_homology`, with ``mode="all"``), including that older than
+    a more recent common ancestor of other positions. Allelic homology is a diagonal line, with a
     recent TMRCA; copies (e.g. of a TE, or of a copy-number variant) are lines off the
     diagonal, coloured by the age of the duplication; and reversed homology (e.g. an
     inversion) runs from top left to bottom right. With the default colour map, recent
@@ -352,7 +279,7 @@ def plot(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=None, ax=N
     This needs matplotlib, which is not a requirement of giglib itself.
 
     :param giglib.Tables tables: The tables (which need the flags required by
-        :meth:`~giglib.Tables.find_mrca_regions`)
+        :meth:`~giglib.Tables.find_homology`)
     :param int u: The first genome (node ID)
     :param int v: The second genome (node ID)
     :param int u_chromosome: The chromosome of ``u`` (default 0)
@@ -370,21 +297,22 @@ def plot(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=None, ax=N
     import numpy as np
     from matplotlib.collections import LineCollection
 
-    segments = find_homology(
-        tables, u, v, u_chromosome=u_chromosome, v_chromosome=v_chromosome, time_cutoff=time_cutoff
+    homology = tables.find_homology(
+        u, v, mode="all", u_chromosome=u_chromosome, v_chromosome=v_chromosome, time_cutoff=time_cutoff
     )
+    node_times = tables.nodes.time
     # Draw older homology first, so that more recent homology is drawn on top of it
-    segments.sort(key=lambda h: -h.tmrca)
-    lines = [[(h.u_left, h.v_left), (h.u_right, h.v_right)] for h in segments]
-    times = [h.tmrca for h in segments]
+    homology.sort(key=lambda h: -node_times[h.mrca])
+    lines = [[(h.u.left, h.v.left), (h.u.right, h.v.right)] for h in homology]
+    times = [node_times[h.mrca] for h in homology]
     if ax is None:
         _, ax = plt.subplots(figsize=(6, 6))
     collection = LineCollection(lines, array=np.array(times), cmap=cmap, linewidths=linewidth)
     ax.add_collection(collection)
     # The axes cover every plotted end (in v, both ends, as a segment may be reversed), and
     # the iedges above each genome (a root has none, so only the plotted ends count)
-    u_ends = [x for h in segments for x in (h.u_left, h.u_right)]
-    v_ends = [y for h in segments for y in (h.v_left, h.v_right)]
+    u_ends = [x for h in homology for x in (h.u.left, h.u.right)]
+    v_ends = [y for h in homology for y in (h.v.left, h.v.right)]
     ax.set_xlim(0, max([*u_ends, *_child_rights(tables, u, u_chromosome)], default=1))
     ax.set_ylim(0, max([*v_ends, *_child_rights(tables, v, v_chromosome)], default=1))
     ax.set_aspect("equal")

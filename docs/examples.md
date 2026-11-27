@@ -108,15 +108,14 @@ for ie in gig.iedges_for_child(child):
     print(f"Positions {ie.child_left}-{ie.child_right} of node {child.id} come from node {ie.parent}")
 ```
 
-{meth}`~giglib.Graph.find_mrca_regions` finds the most recent common ancestors of two genomes, and
-the regions that each one shares:
+{meth}`~giglib.Graph.find_homology` finds the homology between two genomes: the segments of each
+that trace back to the same segment of a common ancestor, and their most recent common ancestor
+(MRCA):
 
 ```{code-cell}
 u, v = gig.sample_nodes(time=0).ids[:2]
-mrcas = gig.find_mrca_regions(u, v)
-for mrca, regions in sorted(mrcas.items()):
-    intervals = ", ".join(f"{r.left}-{r.right}" for r in sorted(regions))
-    print(f"Node {mrca} (time {gig.nodes[mrca].time:g}) is the MRCA over {intervals}")
+for h in gig.find_homology(u, v):
+    print(f"Node {h.mrca} (time {gig.nodes[h.mrca].time:g}) is the MRCA over {h.u.left}-{h.u.right}")
 ```
 
 Again, this can be converted to a tree sequence, which now has several local trees:
@@ -129,5 +128,5 @@ print(ts.first().draw_text())
 
 Simulations that also include structural variants, such as inversions, need to place
 recombination breakpoints at equivalent positions in the two parents, which is what
-{meth}`~giglib.Tables.find_mrca_regions` is for. See {ref}`sec_usage_simulations` for examples
+{meth}`~giglib.Tables.find_homology` is for. See {ref}`sec_usage_simulations` for examples
 of such simulations.

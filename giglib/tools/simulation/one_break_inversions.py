@@ -6,6 +6,7 @@ inversions.
 import numpy as np
 
 import giglib as gigl
+from giglib.tools import homology
 
 from .dtwf import DTWF_simulator
 
@@ -26,7 +27,7 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
     """
 
     def initialise_population(self, time, size, seq_lens, node_flags=None) -> dict[int, tuple[int, int]]:
-        # Make a "fake" MRCA node so we can use the find_mrca_regions method
+        # Make a "fake" MRCA node so we can use the find_homology method
         # to locate comparable regions for recombination in the parent genomes
         self.tables.clear()
         self.pop = None
@@ -151,15 +152,11 @@ class DTWF_one_break_no_rec_inversions_slow_sim(DTWF_simulator):
         coordinates of the matching regions in the parent nodes.
         """
         u_chrom, v_chrom = parent_chroms
-        mrcas = tables.find_mrca_regions(
-            *parent_nodes,
-            u_chromosomes=[u_chrom],
-            v_chromosomes=[v_chrom],
-        )
+        shared = tables.find_homology(*parent_nodes, u_chromosome=u_chrom, v_chromosome=v_chrom)
         # Pick a single comparable location but ban recombination if one is
         # inverted and the other is not inverted
         tries = 0
-        while (pos := mrcas.random_match_pos(self.rng)).opposite_orientations:
+        while (pos := homology.random_homologous_positions(shared, self.rng)).opposite_orientations:
             tries += 1
             if tries > self.num_tries_for_breakpoint:
                 raise ValueError(

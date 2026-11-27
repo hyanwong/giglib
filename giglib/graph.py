@@ -836,14 +836,22 @@ class Graph:
         new_tables.sample_resolve()
         return new_tables.graph()
 
-    def find_mrca_regions(self, u, v, *, u_chromosomes=None, v_chromosomes=None, time_cutoff=None):
+    def find_homology(self, u, v, *, mode="first_mrca", u_chromosome=None, v_chromosome=None, time_cutoff=None):
         """
-        A wrapper around :meth:`Tables.find_mrca_regions`, which describes the
-        parameters. Unlike the tables method, ``u`` and ``v`` can be either node IDs or
-        :class:`~giglib.graph.Node` objects.
+        Find the homology between genomes ``u`` and ``v``: a wrapper around
+        :meth:`Tables.find_homology`, which describes the parameters. Unlike the tables
+        method, ``u`` and ``v`` can be either node IDs or :class:`~giglib.graph.Node`
+        objects.
+
+        :rtype: list(Homology)
         """
-        return self.tables.find_mrca_regions(
-            as_id(u), as_id(v), u_chromosomes=u_chromosomes, v_chromosomes=v_chromosomes, time_cutoff=time_cutoff
+        return self.tables.find_homology(
+            as_id(u),
+            as_id(v),
+            mode=mode,
+            u_chromosome=u_chromosome,
+            v_chromosome=v_chromosome,
+            time_cutoff=time_cutoff,
         )
 
 

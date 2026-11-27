@@ -13,9 +13,6 @@ import tskit
 from .constants import Const, ValidFlags
 from .util import (
     DEFAULT_ALLELE_COMPLEMENTS,
-    add_rectangle,
-    add_row_label,
-    add_triangle,
     complement_allele,
     is_unknown_time,
     truncate_rows,
@@ -70,6 +67,46 @@ class Position(_UnpackableAsKeywords, collections.namedtuple("Position", "positi
     """
 
     __slots__ = ()
+
+
+class Homology(collections.namedtuple("Homology", "u, v, mrca, mrca_segment")):
+    """
+    A pair of homologous segments, as returned by :meth:`Tables.find_homology`: the
+    :class:`Segment` ``u`` of one genome and the :class:`Segment` ``v`` of another trace
+    back to the same segment, ``mrca_segment``, of their most recent common ancestor, the
+    node ``mrca``. This is homology by descent, not sequence similarity (see
+    :ref:`sec_usage_homology`).
+
+    Positions in ``u`` increase from ``u.left`` to ``u.right``, and correspond, in order, to
+    positions running from ``v.left`` towards ``v.right``, and from ``mrca_segment.left``
+    towards ``mrca_segment.right``. So if ``v`` is reversed relative to ``u`` (e.g. through
+    an inversion), ``v.left > v.right``, as for the parent interval of an inverted iedge
+    (and likewise for ``mrca_segment``).
+    """
+
+    __slots__ = ()
+
+    @property
+    def map(self):
+        """
+        The :class:`PositionMap` from positions in ``u`` to the homologous positions in
+        ``v``
+        """
+        return PositionMap.from_intervals((self.u.left, self.u.right), (self.v.left, self.v.right))
+
+    @property
+    def length(self):
+        """
+        The number of homologous positions
+        """
+        return self.u.right - self.u.left
+
+    @property
+    def is_reversed(self):
+        """
+        Whether ``v`` is reversed relative to ``u``
+        """
+        return self.v.left > self.v.right
 
 
 class PositionMap(collections.namedtuple("PositionMap", "sign, offset")):
@@ -1383,197 +1420,6 @@ class MutationTable(BaseExtraTable):
         return max(int(self.position[end - 1]) for _, end in ranges.values()) + 1
 
 
-class MRCAdict(dict):
-    """
-    A dictionary to store the results of the MRCA finder. This is a dict of dicts
-    of the following form
-            {
-                MRCA_node_ID1 : {segment_x: (
-                    u = [segment_u1, segment_u2, ...],
-                    v = [segment_v1, ...]
-                )},
-                MRCA_node_ID2 : ...,
-                ...
-            }
-    In each inner dict, the key is a :class:`Segment` ``(X, Y, CHRZ)`` giving an interval
-    (with X < Y) in the MRCA node for chromosome Z (a plain tuple of the same form can also
-    be used), and the value is an ``MRCAintervals`` tuple which gives the corresponding
-    intervals and chromosome numbers in u and v. In the example above there
-    is a list of two corresponding intervals in u: (uA, uB, CHRuC) and (uC, uD, CHRuE)
-    representing a duplication of the MRCA interval into u.
-    If uA > uB then that interval in u is inverted relative to that in the MRCA node.
-
-    Subclassing the default Python ``dict`` means that we can add some useful functions
-    such as the ability to locate a random point in the MRCA and return the equivalent
-    points in ``u`` and ``v`` as well as visualization routines.
-    """
-
-    # Convenience tuples
-    MRCAintervals = collections.namedtuple("MRCAintervals", "u, v")  # store in the dict
-    # Store equivalent positions in u & v (as Position tuples), and whether one is
-    # inverted relative to the other (a property of the pair, not of either position)
-    MRCApos = collections.namedtuple("MRCApos", "u, v, opposite_orientations")
-
-    def random_match_pos(self, rng):
-        """
-        Choose a position uniformly at random from the mrca regions and return
-        an equivalent position in u and v.
-
-        .. note::
-            It is hard to know from the MRCA structure whether intervals are
-            adjacent, so if this is used to locate a breakpoint, the choice of
-            whether a breakpoint is positioned to the left or right of the returned
-            position is left to the user.
-
-        :param obj rng: A numpy random number generator with a method ``integers()``
-            that behaves like ``np.random.default_rng().integers``.
-        :returns: a named tuple of ``(u, v, opposite_orientations)``, where ``u`` and
-            ``v`` are :class:`Position` tuples giving the position and chromosome in
-            each node. Positions are chosen at random if there are multiple equivalent positions
-            for u, or multiple equivalent positions for v. If one of the sequences is
-            inverted relative to the other then ``.opposite_orientations`` is ``True``.
-        :rtype: MRCApos
-        """
-        # Keys are Segments, but unpack them as tuples, so plain (left, right, chromosome)
-        # tuples also work (and unpacking is faster than indexing a Segment)
-        tot_len = sum(right - left for v in self.values() for left, right, _ in v.keys())
-        # Pick a single breakpoint
-        loc = rng.integers(tot_len)  # breakpoint is before this base
-        for mrca_intervals in self.values():
-            for x in mrca_intervals.keys():
-                left, right, _ = x
-                if loc < right - left:
-                    u_matches, v_matches = mrca_intervals[x]
-                    assert len(u_matches) != 0
-                    assert len(v_matches) != 0
-                    u = u_matches[0] if len(u_matches) == 1 else rng.choice(u_matches)
-                    v = v_matches[0] if len(v_matches) == 1 else rng.choice(v_matches)
-                    # Map the chosen position in the MRCA into u and v. If an interval in
-                    # u or v is inverted relative to the MRCA (e.g. (5, 0)), the map
-                    # reverses the order of positions, so the first position of the MRCA
-                    # interval maps to the last position of the u or v interval (e.g. 4).
-                    # (Convert to Python ints, as rng.choice returns numpy values.)
-                    u0, u1, u_chr = (int(x) for x in u)
-                    v0, v1, v_chr = (int(x) for x in v)
-                    to_u = PositionMap.from_intervals((left, right), (u0, u1))
-                    to_v = PositionMap.from_intervals((left, right), (v0, v1))
-                    position = left + int(loc)
-                    return self.MRCApos(
-                        Position(to_u.position(position), u_chr),
-                        Position(to_v.position(position), v_chr),
-                        to_u.is_reversing != to_v.is_reversing,
-                    )
-                loc -= right - left
-
-    def _plot(
-        self,
-        highlight_position=None,
-        ax=None,
-        *,
-        fontsize=14,
-        u_pos=0.5,
-        v_pos=1.5,
-        y_offset=0.4,
-        x_offset=-1.5,
-    ):
-        """
-        Plot the MRCA dict structure, showing:
-        1. The MRCA node and corresponding MRCA intervals (rows 3 and up)
-        2. All of the U and V intervals corresponding to the MRCAs (rows 1 and 2)
-
-        If ``highlight_position`` is given, a specific position in one of the
-        MRCA intervals is determined, and matching positions in U and V are
-        highlighted. The position is determined by concatenating the MRCA intervals
-        end-to-end and then choosing the position from this concatenation. Note that
-        this may not reflect genomic position in the original MRCA node(s).
-
-        If ``ax`` is not specified, a new figure is created. To change the size of
-        a figure, create your own axis and pass it in e.g.
-        ``fig, ax = plt.subplots(figsize=(10, 5)); mrca_dict._plot(ax=ax)``
-
-        .. note::
-            This is currently for testing only, and is subject to major API changes. E.g.
-            there are a bunch of plotting parameters and ideally we want them
-            to be calculated automatically instead.
-        """
-        if ax is None:
-            import matplotlib.pyplot as plt  # optional: only needed for plotting
-
-            _, ax = plt.subplots(1)
-        x_max = 0
-        y_pos = 3
-        found_breakpoint = False
-        if highlight_position is None:
-            # ensure that x is never highlighted
-            highlight_position = np.inf
-        else:
-            tot_len = sum(X[1] - X[0] for v in self.values() for X in v.keys())
-            assert highlight_position < tot_len
-
-        for mrca_node, mrca_intervals in self.items():
-            for X in mrca_intervals.keys():
-                x_max = max(x_max, X[1])
-                if highlight_position < X[1] - X[0] and found_breakpoint is False:
-                    # TODO - use default colours rather than hard-coding
-                    triX = X[0] + highlight_position
-                    lab = f"MRCA: {mrca_node}"
-                    add_rectangle(ax, X, y_pos, "#a6cee3")
-                    add_triangle(ax, (triX, triX + 1), y_pos, "right", "#1f78b4")
-                    add_row_label(
-                        ax,
-                        x_offset,
-                        y_pos + y_offset,
-                        lab,
-                        fontsize,
-                        color="#1f78b4",
-                    )
-                    U_list, V_list = mrca_intervals[X]
-                    for U in U_list:
-                        add_rectangle(ax, U, u_pos, "#b2df8a")
-                        x_max = max(x_max, *U)
-                        if U[0] < U[1]:
-                            u_0 = U[0] + highlight_position
-                            add_triangle(ax, (u_0, u_0 + 1), u_pos, "right", "#33a02c")
-                        else:
-                            u_0 = U[0] - highlight_position - 1
-                            add_triangle(ax, (u_0, u_0 + 1), u_pos, "left", "#33a02c")
-                    for V in V_list:
-                        add_rectangle(ax, V, v_pos, "#fb9a99")
-                        x_max = max(x_max, *V)
-                        if V[0] < V[1]:
-                            v_0 = V[0] + highlight_position
-                            add_triangle(ax, (v_0, v_0 + 1), v_pos, "right", "#e31a1c")
-                        else:
-                            v_0 = V[0] - highlight_position - 1
-                            add_triangle(ax, (v_0, v_0 + 1), v_pos, "left", "#e31a1c")
-
-                    found_breakpoint = True
-                else:
-                    highlight_position -= X[1] - X[0]
-                    add_rectangle(ax, X, y_pos, "#b2b2b2")
-                    add_row_label(
-                        ax,
-                        x_offset,
-                        y_pos + y_offset,
-                        f"MRCA: {mrca_node}",
-                        fontsize,
-                        color="black",
-                    )
-                    for lists, pos in zip(mrca_intervals[X], (u_pos, v_pos)):
-                        for interval in lists:
-                            add_rectangle(ax, interval, pos, "#838383")
-                            x_max = max(x_max, *interval)
-            y_pos += 1
-
-        add_row_label(ax, x_offset, u_pos + y_offset, "U", fontsize, color="black")
-        add_row_label(ax, x_offset, v_pos + y_offset, "V", fontsize, color="black")
-        ax.set_ylim(0, y_pos)
-        ax.set_xlim(0, x_max)
-        ax.tick_params(axis="x", labelsize=fontsize - 2)
-        ax.set_xlabel("Position", fontsize=fontsize)
-        ax.yaxis.set_visible(False)
-
-
 TableClasses = collections.namedtuple("TableClasses", "nodes iedges individuals mutations")
 
 
@@ -2459,153 +2305,148 @@ class Tables:
 
         return mapping
 
-    def find_mrca_regions(self, u, v, *, u_chromosomes=None, v_chromosomes=None, time_cutoff=None):
+    def find_homology(self, u, v, *, mode="first_mrca", u_chromosome=None, v_chromosome=None, time_cutoff=None):
         """
-        Find all regions between nodes u and v (potentially restricted to a list
-        of chromosomes in u and v) that share a most recent
-        common ancestor in the GIG which is more recent than time_cutoff.
-        Returns a dict of dicts of the following form
+        Find the homology between genomes ``u`` and ``v``: pairs of segments, one in each,
+        that trace back to the same segment of a common ancestor, their most recent common
+        ancestor (MRCA). This is homology by descent, recorded in the graph, not sequence
+        similarity: homologous segments can have different sequences, and segments with the
+        same sequence need not be homologous. See :ref:`sec_usage_homology`.
 
-        .. code-block:: python
+        The ``mode`` says which homology to find. Each position of ``u`` (or ``v``) is traced
+        back through its ancestors, and meets the lineages of positions of the other genome
+        at their MRCAs, whether these are where the lineages split (allelic homology) or
+        where a region was duplicated (paralogous homology):
 
-            {
-                MRCA_node_ID1 : {(X, Y, CHR): (
-                    [(uA, uB, uCHRa), (uC, uD, uCHRb), ...],
-                    [(vA, vB, vCHR), ...]
-                )},
-                MRCA_node_ID2 : ...,
-                ...
-            }
+        * ``"first_mrca"`` (the default): each lineage stops at the first MRCA that it
+          reaches. This is the least work, and finds the homology that is usually wanted
+          for placing crossovers. But it can miss the closest homology of some positions:
+          e.g. if a region was duplicated in a common ancestor of ``u`` and ``v``, and
+          ``v`` later lost one copy, the copy that ``v`` lost has no homology in ``v``
+          through the duplication, as the lineage it would meet has already stopped.
+        * ``"closest_homologues"``: the closest homologues of each position, i.e. its
+          homologous positions in the other genome with the most recent MRCA (several, if
+          tied), for each position of ``u`` and of ``v``. Lineages are traced as for
+          ``"all"`` (so ``time_cutoff`` can be used to limit the work), but only the
+          closest homology of each position is reported, which is much less, as it
+          excludes the *remote* homology through older ancestors.
+        * ``"all"``: all the homology, through every common ancestor, each pair of
+          positions at its MRCA. This can be much more work, and in the extreme (if every
+          position descends from a single ancestral position) covers every pair of
+          positions, so ``time_cutoff`` can be used to limit it.
 
-        Where in each inner dict, the key (X, Y, CHR) gives an interval (with X < Y)
-        in the MRCA node, and the value is a 2-tuple giving the corresponding
-        intervals in u and v. In the example above there is a list of two
-        corresponding intervals in u: (uA, uB, cCHRa) and (uC, uD, cCHRb)
-        representing a duplication of the MRCA interval into u. If uA > uB then
-        that interval in u is inverted relative to that in the MRCA node.
+        This needs the iedges to have the flags in
+        :data:`~giglib.ValidFlags.IEDGES_FOR_TRACING`, but only for the rows that have been
+        validated, so it can be used on tables that are still growing (see
+        :ref:`sec_validation`).
 
-        Implementation-wise, this is similar to the sample_resolve algorithm, but
-
-        #. Instead of following the ancestry of *all* samples upwards, we
-           follow just two of them. This means we are unlikely to visit all
-           nodes in the graph, and so we create a dynamic stack (using the
-           sortedcontainers.SortedDict class, which is kept ordered by node time.
-        #. We do not edit/change the edge intervals as we go. Instead we simply
-           return the intervals shared between the two samples.
-        #. The intervals "know" whether they were originally associated with u or v.
-           If we find an ancestor with both u and v-associated intervals
-           this indicates a potential common ancestor, in which coalescence could
-           have occurred.
-        #. We do not add older regions to the stack if they have coalesced.
-        #. We have a time cutoff, so that we don't have to go all the way
-           back to the "origin of life"
-        #. We have to keep track of the offset of the current interval into the
-           original genome, to allow mapping back to the original coordinates
-
-        :param int u: The first node
-        :param int v: The second node
-        :param int u_chromosomes: Restrict the MRCAs search to this list of chromosomes
-            from node ``u``. If None (default), return MRCAs for all ``u``'s chromosomes
-        :param int v_chromosomes: Restrict MRCAs search to this list of chromosomes
-            from node ``v``. If None (default), return MRCAs for all ``v``'s chromosomes
+        :param int u: The first genome (node ID)
+        :param int v: The second genome (node ID)
+        :param str mode: Which homology to find: ``"first_mrca"``, ``"closest_homologues"``
+            or ``"all"`` (see above)
+        :param int u_chromosome: Only find homology on this chromosome of ``u``. If None
+            (default), use all of ``u``'s chromosomes
+        :param int v_chromosome: Only find homology on this chromosome of ``v``. If None
+            (default), use all of ``v``'s chromosomes
+        :param float time_cutoff: If given, only find homology whose MRCA is at most this
+            old
+        :return: The homologous segments, sorted by their position in ``u``
+        :rtype: list(Homology)
         """
-        if u_chromosomes is None:
-            u_chromosomes = list(self.iedges.chromosomes_as_child(u))
-        if v_chromosomes is None:
-            v_chromosomes = list(self.iedges.chromosomes_as_child(v))
+        modes = ("first_mrca", "closest_homologues", "all")
+        if mode not in modes:
+            raise ValueError(f"Unknown mode {mode!r}: must be one of {', '.join(modes)}")
         if not isinstance(u, (int, np.integer)) or not isinstance(v, (int, np.integer)):
             raise ValueError("u and v must be integers")
-
         if u == v:
             raise ValueError("u and v must be different nodes")
 
         # Only the iedges above u and v are read (using ids_for_child, which checks that
         # each node's iedges are validated), so the validated rows are enough
-        self._require_iedge_flags(ValidFlags.IEDGES_FOR_TRACING, "find_mrca_regions()", validated_rows=True)
+        self._require_iedge_flags(ValidFlags.IEDGES_FOR_TRACING, "find_homology()", validated_rows=True)
 
+        u_chromosomes = self.iedges.chromosomes_as_child(u) if u_chromosome is None else [u_chromosome]
+        v_chromosomes = self.iedges.chromosomes_as_child(v) if v_chromosome is None else [v_chromosome]
         if time_cutoff is None:
             time_cutoff = np.inf
-        # Use a dynamic stack as we hopefully will be visiting a minority of nodes
+        # Use a dynamic stack, ordered by node time, as we hopefully will be visiting a
+        # minority of nodes
         node_times = self.nodes.time
         stack = sortedcontainers.SortedDict(lambda k: -node_times[k])
 
-        # We need to track intervals separately if they have been transformed
-        # (inverted or coordinate-shifted). Within the stack, for each node we
-        # therefore store a *dictionary* of portion objects, keyed by
-        # (to_original, original chromosome), where to_original is the PositionMap
-        # from the coordinates of the node back to those of u (or v).
-        #
-        # We store *two* such dicts. The first tracks the ancestral regions of u, and
-        # the second the ancestral regions of v. If a node has something in both
-        # dicts, intervals for u and v co-occur (and could therefore coalesce),
-        # meaning the node is a potential MRCA.
+        # The material of u and v traced up to each node. Intervals need tracking
+        # separately if they have been transformed (inverted or coordinate-shifted), so
+        # for each node, the stack stores *two* dicts, the first for the material of u and
+        # the second for that of v. Each maps a chromosome of the node to a dict of
+        # portion intervals in the node's coordinates, keyed by (to_original, original
+        # chromosome), where to_original is the PositionMap from the coordinates of the
+        # node back to those of u (or v). If a node has material in both dicts, positions
+        # of u and v can meet there, making it their MRCA.
         identity = PositionMap(1, 0)
         stack[u] = ({c: {(identity, c): P.closedopen(0, np.inf)} for c in u_chromosomes}, {})
         stack[v] = ({}, {c: {(identity, c): P.closedopen(0, np.inf)} for c in v_chromosomes})
 
-        result = MRCAdict()
+        result = []
+        # What has been reported so far. As nodes are visited from the most recent, a pair
+        # of positions is first met at its MRCA. For mode "all": the positions of u already
+        # reported, for each map from u to v (and pair of chromosomes), so that a pair isn't
+        # reported again when it meets in older ancestors. For mode "closest_homologues":
+        # the positions of u and of v (for each chromosome) with homology at a more recent
+        # time ("found"), and at the time of the current node ("pending", added to "found"
+        # once all the nodes at that time have been visited, so that ties are kept).
+        reported = {"all": {}, "found": ({}, {}), "pending": ({}, {}), "time": -np.inf}
 
         def concat(x, y):
             # combine a pair of sets in x and a pair of sets in y
             return (x[0] | y[0], x[1] | y[1])
 
-        logging.debug(f"Checking mrca of {u} and {v}: {stack}")
         while len(stack) > 0:
-            child, (u_dict, v_dict) = stack.popitem()
-            if node_times[child] > time_cutoff:
+            node, (u_dict, v_dict) = stack.popitem()
+            if node_times[node] > time_cutoff:
                 break
-            if len(u_dict) > 0 and len(v_dict) > 0:
-                # check for overlap between all intervals in u_dict and v_dict
-                # which result in coalescence. The coalescent point can be
-                # recorded, and the overlap deleted from the intervals
-                #
-                # Intervals are not currently sorted, so we need to check
-                # all combinations. Note that we could have duplicate positions
-                # even in the same interval list, due to segmental duplications
-                # within a genome. We have to use the portion library here to
-                # cut the MRCA regions into non-overlapping pieces which have
-                # different patterns of descent into u and v
-                for chrom in u_dict.keys() & v_dict.keys():
-                    coalesced = P.IntervalDict()
-                    # u_key and v_key are (to_original, original chromosome) tuples
-                    for u_key, u_intervals in u_dict[chrom].items():
-                        for i, u_interval in enumerate(u_intervals):
-                            for v_key, v_intervals in v_dict[chrom].items():
-                                for j, v_interval in enumerate(v_intervals):
-                                    if mrca := u_interval & v_interval:
-                                        # we temporarily track the index of the intervals
-                                        # that are unique to that specific chromosome and
-                                        # (to_original, chr) tuple. This avoids
-                                        # double-counting intervals in the nested loop.
-                                        # We replace these details with the
-                                        # interval-plus-chromosome  on another pass
-                                        details = ({(u_key, i)}, {(v_key, j)})
-                                        coalesced = coalesced.combine(P.IntervalDict({mrca: details}), how=concat)
-                    if len(coalesced) > 0:
-                        # Work out the mapping of the mrca intervals into intervals in
-                        # u and v, given keys into the uv_intervals dicts.
-                        if child not in result:
-                            result[child] = {}
-                        for mrca_interval, uv_details in coalesced.items():
-                            key = Segment(mrca_interval.lower, mrca_interval.upper, chrom)
-                            if key not in result[child]:
-                                result[child][key] = MRCAdict.MRCAintervals([], [])
-                            for uv_list, details in zip(result[child][key], uv_details):
-                                # Odd that we don't use the values() of `details` here:?
-                                for (to_original, orig_chr), _ in details:
-                                    ends = to_original.interval(mrca_interval.lower, mrca_interval.upper)
-                                    uv_list.append(Segment(*ends, orig_chr))
-
-                        # Remove the coalesced segments from the interval lists
-                        for uv_dict in (u_dict, v_dict):
-                            for key in uv_dict[chrom].keys():
-                                uv_dict[chrom][key] -= coalesced.domain()
+            if node_times[node] > reported["time"]:
+                for found, pending in zip(reported["found"], reported["pending"]):
+                    for chromosome, intervals in pending.items():
+                        found[chromosome] = found.get(chromosome, P.empty()) | intervals
+                    pending.clear()
+                reported["time"] = node_times[node]
+            # The chromosomes of u (or v) are found from the iedges above it, but it can
+            # also have chromosomes without a parent (e.g. if it is a root). These only
+            # matter if the other genome descends from it, i.e. if the other genome's
+            # material reaches it, so add them (all of each one) when it is visited
+            for genome, chromosome, own, other in (
+                (u, u_chromosome, u_dict, v_dict),
+                (v, v_chromosome, v_dict, u_dict),
+            ):
+                if node == genome and chromosome is None:
+                    for c in other.keys() - own.keys():
+                        own[c] = {(identity, c): P.closedopen(0, np.inf)}
+            for chrom in u_dict.keys() & v_dict.keys():
+                # Cut the node's chromosome into pieces that each have the same material of
+                # u and of v (there can be several of each, e.g. copies of a duplicated
+                # region). Intervals are not sorted, so check all combinations.
+                pieces = P.IntervalDict()
+                for u_key, u_intervals in u_dict[chrom].items():
+                    for v_key, v_intervals in v_dict[chrom].items():
+                        if overlap := u_intervals & v_intervals:
+                            pieces = pieces.combine(P.IntervalDict({overlap: ({u_key}, {v_key})}), how=concat)
+                for piece_intervals, (u_keys, v_keys) in pieces.items():
+                    for piece in piece_intervals:
+                        mrca_segment = Segment(piece.lower, piece.upper, chrom)
+                        for u_key in u_keys:
+                            for v_key in v_keys:
+                                self._add_homology(result, reported, mode, node, mrca_segment, u_key, v_key)
+                if mode == "first_mrca" and len(pieces) > 0:
+                    # Each lineage stops at its first MRCA: remove what has met here
+                    for uv_dict in (u_dict, v_dict):
+                        for key in uv_dict[chrom].keys():
+                            uv_dict[chrom][key] -= pieces.domain()
 
             # Transmit the remaining intervals upwards
-            for ie_id in self.iedges.ids_for_child(child):
+            for ie_id in self.iedges.ids_for_child(node):
                 # See note in sample resolve algorithm re: efficiency and
-                # indexing by left coord. Note this is more complex in the
-                # mrca case because we have to treat intervals with different
+                # indexing by left coord. Note this is more complex here
+                # because we have to treat intervals with different
                 # offsets / orientations separately
                 ie = self.iedges[ie_id]
                 parent = ie.parent
@@ -2631,4 +2472,56 @@ class Tables:
                                     else:
                                         stack[parent][u_or_v][ie.parent_chromosome][key] = parent_ivl
 
+        result.sort(key=lambda h: (h.u.chromosome, h.u.left, h.u.right, h.v.chromosome, h.v.left, h.v.right, h.mrca))
         return result
+
+    @staticmethod
+    def _add_homology(result, reported, mode, mrca, mrca_segment, u_key, v_key):
+        """
+        Add the homology between u and v through a segment of their MRCA to the result
+        of :meth:`find_homology`, given the keys ``(to_original, original chromosome)`` of
+        the material of u and v, where ``to_original`` maps from the MRCA's coordinates to
+        those of u or v. In mode "all", only add the positions of u not already reported
+        with the same map to v (as they met at a more recent MRCA). In mode
+        "closest_homologues", only add pairs of positions for which this is the most
+        recent homology of the position in u, or of the position in v.
+        """
+        (to_u, u_chr), (to_v, v_chr) = u_key, v_key
+        u_to_mrca = to_u.inverse()
+        u_to_v = u_to_mrca.then(to_v)
+        u_ends = to_u.interval(mrca_segment.left, mrca_segment.right)
+        u_left, u_right = int(min(u_ends)), int(max(u_ends))
+        if mode == "all":
+            key = (u_to_v, u_chr, v_chr)
+            already = reported["all"].get(key, P.empty())
+            new = P.closedopen(u_left, u_right) - already
+            reported["all"][key] = already | new
+        elif mode == "closest_homologues":
+            (u_found, v_found), (u_pending, v_pending) = reported["found"], reported["pending"]
+            here = P.closedopen(u_left, u_right)
+            # The positions of u, and those (in u's coordinates) whose homologues in v,
+            # have no homology at a more recent time
+            new = here - u_found.get(u_chr, P.empty())
+            v_ends = u_to_v.interval(u_left, u_right)
+            v_to_u = u_to_v.inverse()
+            for v_interval in P.closedopen(min(v_ends), max(v_ends)) - v_found.get(v_chr, P.empty()):
+                if not v_interval.empty:
+                    ends = v_to_u.interval(v_interval.lower, v_interval.upper)
+                    new |= P.closedopen(min(ends), max(ends))
+            for interval in new:
+                if not interval.empty:
+                    u_pending[u_chr] = u_pending.get(u_chr, P.empty()) | interval
+                    ends = u_to_v.interval(interval.lower, interval.upper)
+                    v_pending[v_chr] = v_pending.get(v_chr, P.empty()) | P.closedopen(min(ends), max(ends))
+        else:
+            new = P.closedopen(u_left, u_right)
+        u_intervals = [(i.lower, i.upper) for i in new if not i.empty]
+        for left, right in u_intervals:
+            result.append(
+                Homology(
+                    Segment(int(left), int(right), u_chr),
+                    Segment(*(int(x) for x in u_to_v.interval(left, right)), v_chr),
+                    int(mrca),
+                    Segment(*(int(x) for x in u_to_mrca.interval(left, right)), mrca_segment.chromosome),
+                )
+            )

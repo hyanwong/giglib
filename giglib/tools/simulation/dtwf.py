@@ -103,7 +103,7 @@ class DTWF_simulator:
         Wright-Fisher model with varying population sizes over generations.
 
         If skip_validate is False (default), the iedges are validated at the start of
-        each generation, so that find_mrca_regions() can be used on the parents (it only
+        each generation, so that find_homology() can be used on the parents (it only
         needs the parents' iedges, added in earlier generations, to be validated).
         Setting this to True instead marks them as valid without checking, which saves
         a little simulation time, at the expense of not doing any validation (dangerous!)

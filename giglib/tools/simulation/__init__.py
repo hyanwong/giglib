@@ -5,6 +5,6 @@ simulators, such as the :class:`~giglib.tools.simulation.dtwf.DTWF_simulator` ba
 for forward-time simulators, is in modules of its own.
 
 This package is experimental: see :ref:`sec_tools`. The simulators show how a simulator can
-use the tables of a GIG as it runs, e.g. using :meth:`giglib.Tables.find_mrca_regions` to
+use the tables of a GIG as it runs, e.g. using :meth:`giglib.Tables.find_homology` to
 find homologous positions in two parental genomes. Their results are used in the tests.
 """
