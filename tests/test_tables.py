@@ -797,6 +797,25 @@ class TestValidate:
         tables.validate(ValidFlags.IEDGES_FOR_TRACING)
         getattr(tables, method)(*args)
 
+    @pytest.mark.parametrize(
+        ("ends", "message"),
+        [
+            # A reversed child interval (a reversed parent interval is an inversion)
+            (dict(child_left=10, child_right=0, parent_left=0, parent_right=10), "child_left >= child_right"),
+            (dict(child_left=-10, child_right=-5, parent_left=0, parent_right=5), "negative child_left"),
+        ],
+    )
+    def test_tracing_needs_valid_child_intervals(self, ends, message):
+        # Tracing would silently skip these intervals, so they fail its checks instead
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0)
+        tables.nodes.add_row(0)
+        for child in (1, 2):
+            tables.iedges.add_row(child, 0, **ends)
+        with pytest.raises(ValueError, match=message):
+            tables.validate(ValidFlags.IEDGES_FOR_TRACING)
+
     def test_frozen(self):
         gig = self.valid_tables().graph()
         gig.tables.validate()  # all flags set, so nothing to do
