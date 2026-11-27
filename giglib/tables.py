@@ -2650,21 +2650,26 @@ class Tables:
                 # u and of v (there can be several of each, e.g. copies of a duplicated
                 # region)
                 # If u and v are the same genome, each position meets itself, along the same
-                # route (the same key) on both sides: that trivial homology is left out
-                met = []
+                # route (the same key) on both sides: that trivial homology is left out. So
+                # what has met here is recorded for each key, on each side, as a key may only
+                # have met itself (e.g. if u and v are given different chromosomes)
+                u_met, v_met = collections.defaultdict(list), collections.defaultdict(list)
                 for left, right, u_keys, v_keys in interval_sets.pieces(u_dict[chrom], v_dict[chrom]):
-                    pairs = [(u_key, v_key) for u_key in u_keys for v_key in v_keys if u != v or u_key != v_key]
-                    if pairs:
-                        met.append((left, right))
-                    for u_key, v_key in pairs:
-                        mrca_segment = Segment(left, right, chrom)
-                        self._add_homology(result, reported, mode, node, mrca_segment, u_key, v_key)
-                if mode == "first_mrca" and len(met) > 0:
+                    for u_key in u_keys:
+                        for v_key in v_keys:
+                            if u == v and u_key == v_key:
+                                continue
+                            u_met[u_key].append((left, right))
+                            v_met[v_key].append((left, right))
+                            mrca_segment = Segment(left, right, chrom)
+                            self._add_homology(result, reported, mode, node, mrca_segment, u_key, v_key)
+                if mode == "first_mrca":
                     # Each lineage stops at its first MRCA: remove what has met here
-                    met = interval_sets.normalise(met)
-                    for uv_dict in (u_dict, v_dict):
-                        for key, intervals in uv_dict[chrom].items():
-                            uv_dict[chrom][key] = interval_sets.subtract(intervals, met)
+                    for uv_dict, met in ((u_dict, u_met), (v_dict, v_met)):
+                        for key, intervals in met.items():
+                            uv_dict[chrom][key] = interval_sets.subtract(
+                                uv_dict[chrom][key], interval_sets.normalise(intervals)
+                            )
 
             # Transmit the remaining intervals upwards
             for ie_id in self.iedges.ids_for_child(node):

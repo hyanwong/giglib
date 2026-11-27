@@ -1395,6 +1395,27 @@ class TestFindHomology:
             [((0, 10, 0), (10, 20, 0), 0, (0, 10, 0)), ((10, 20, 0), (0, 10, 0), 0, (0, 10, 0))],
         )
 
+    def test_same_genome_different_chromosomes(self):
+        # P's positions 0-10 and 10-20 are both copies of R's 0-10. G's chromosome 0
+        # inherits P's 0-20, and its chromosome 1 inherits P's 0-10. Comparing all of G
+        # with its chromosome 0: at P, chromosome 1 meets chromosome 0's 0-10, which stops
+        # there, but chromosome 0's 0-10 on the u side only meets itself, so carries on, and
+        # meets chromosome 0's 10-20 at R
+        tables = gigl.Tables()
+        tables.nodes.add_row(2)  # 0: R
+        tables.nodes.add_row(1)  # 1: P
+        tables.nodes.add_row(0)  # 2: G
+        tables.iedges.add_row(1, 0, child_left=0, child_right=10, parent_left=0, parent_right=10)
+        tables.iedges.add_row(1, 0, child_left=10, child_right=20, parent_left=0, parent_right=10)
+        tables.iedges.add_row(2, 1, child_left=0, child_right=20, parent_left=0, parent_right=20)
+        tables.iedges.add_row(2, 1, child_left=0, child_right=10, parent_left=0, parent_right=10, child_chromosome=1)
+        tables.sort()
+        tables.validate()
+        assert same_homology(
+            tables.find_homology(2, 2, u_chromosome=None, v_chromosome=0),
+            [((0, 10, 1), (0, 10, 0), 1, (0, 10, 0)), ((0, 10, 0), (10, 20, 0), 0, (0, 10, 0))],
+        )
+
     @pytest.mark.parametrize("mode", ["first_mrca", "closest_homologues", "all"])
     def test_same_genome_without_duplications(self, mode, double_inversion_gig):
         assert double_inversion_gig.tables.find_homology(0, 0, mode=mode) == []

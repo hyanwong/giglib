@@ -261,6 +261,29 @@ class TestPlot:
         lines = sorted((tuple(map(tuple, seg)), t) for seg, t in zip(collection.get_segments(), collection.get_array()))
         assert lines == [(((0, 0), (20, 20)), 1), (((20, 20), (25, 25)), 10)]
 
+    @staticmethod
+    def root_with_a_child():
+        # A root (node 0, time 1), known to have 10 positions only from its child's iedge
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0)
+        tables.iedges.add_row(1, 0, child_right=10)
+        tables.sort()
+        tables.validate()
+        return tables
+
+    def test_diagonal_of_a_root(self):
+        ax = homology.plot(self.root_with_a_child(), 0, 0)
+        (collection,) = ax.collections
+        assert [tuple(map(tuple, seg)) for seg in collection.get_segments()] == [((0, 0), (10, 10))]
+
+    def test_diagonal_older_than_time_cutoff(self):
+        # The diagonal is the homology of each position with itself, at the time of the
+        # genome, so it isn't shown if that is older than the cutoff
+        ax = homology.plot(self.root_with_a_child(), 0, 0, time_cutoff=0.5)
+        (collection,) = ax.collections
+        assert len(collection.get_segments()) == 0
+
 
 class TestReviewCases:
     def test_inverted_segment_with_two_copies(self):
