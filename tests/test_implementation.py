@@ -197,3 +197,35 @@ class TestIncrementalValidationChecks:
         checks = self.record_checks(copy, monkeypatch)
         copy.validate()
         assert checks == []  # nothing needs checking again
+
+
+class TestClosestHomologuesStopsEarly:
+    def test_stops_once_all_positions_have_homology(self, monkeypatch):
+        # u and v (nodes 0 and 1) are children of A (node 2), which has a chain of 50
+        # older ancestors above it. All the positions of u and v find their closest
+        # homology at A, so tracing should stop there, rather than continue up the chain
+        tables = gigl.Tables()
+        tables.nodes.add_row(0)
+        tables.nodes.add_row(0)
+        for time in range(1, 52):
+            tables.nodes.add_row(time)
+        for child in range(52):
+            parent = 2 if child < 2 else child + 1
+            tables.iedges.add_row(child, parent, child_right=10)
+        tables.sort()
+        tables.validate()
+
+        # Record the nodes whose iedges are looked up as tracing goes up through them
+        looked_up = []
+        ids_for_child = tables.iedges.ids_for_child
+
+        def recording_ids_for_child(node, *args, **kwargs):
+            looked_up.append(node)
+            return ids_for_child(node, *args, **kwargs)
+
+        monkeypatch.setattr(tables.iedges, "ids_for_child", recording_ids_for_child)
+        tables.find_homology(0, 1, mode="closest_homologues")
+        assert set(looked_up) <= {0, 1, 2}
+        looked_up.clear()
+        tables.find_homology(0, 1, mode="all")
+        assert len(set(looked_up)) > 50  # "all" carries on to the root
