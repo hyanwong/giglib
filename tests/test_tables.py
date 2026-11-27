@@ -7,6 +7,7 @@ import tskit
 
 import giglib as gigl
 from giglib.constants import Const, ValidFlags
+from giglib.tools.homology import random_homologous_positions
 from tests.gigutil import homologous_positions, same_homology, valid_tables_without_flags
 
 
@@ -1569,7 +1570,11 @@ class TestHomologyRecords:
         # In mode "first_mrca", every copy in u of a segment of a common ancestor is
         # homologous through it to every copy in v (as random_homologous_positions needs)
         for tables, u, v in self.examples():
-            positions = homologous_positions(tables.find_homology(u, v))
+            records = tables.find_homology(u, v)
+            # random_homologous_positions also needs the copies of a segment of a common
+            # ancestor to be reported with the same segment, which it checks
+            random_homologous_positions(records, np.random.default_rng(1))
+            positions = homologous_positions(records)
             # The copies in u and in v of each position of a common ancestor, and the
             # pairs of them that are reported
             copies_in_u = collections.defaultdict(set)

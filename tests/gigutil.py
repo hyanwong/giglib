@@ -35,7 +35,9 @@ def homologous_positions(homology):
     The homology as a set of ``(position in u, position in v, mrca, position in the
     mrca)``, one for each homologous position of u (positions as ``(position,
     chromosome)``). Comparing these, rather than the records, means that tests don't
-    depend on how the homology is cut into records. ``homology`` can be a list of
+    depend on how the homology is cut into records. A homologous position that is
+    reported more than once (e.g. by overlapping records) fails an assertion, as it
+    would otherwise be hidden by the set. ``homology`` can be a list of
     :class:`giglib.Homology` records, or of plain ``(u, v, mrca, mrca_segment)`` tuples
     of the same form (with each segment as ``(left, right, chromosome)``).
     """
@@ -44,7 +46,9 @@ def homologous_positions(homology):
         to_v = gigl.PositionMap.from_intervals(u[:2], v[:2])
         to_mrca = gigl.PositionMap.from_intervals(u[:2], mrca_segment[:2])
         for x in range(u[0], u[1]):
-            result.add(((x, u[2]), (to_v.position(x), v[2]), mrca, (to_mrca.position(x), mrca_segment[2])))
+            position = ((x, u[2]), (to_v.position(x), v[2]), mrca, (to_mrca.position(x), mrca_segment[2]))
+            assert position not in result, f"Homologous position reported twice: {position}"
+            result.add(position)
     return result
 
 
