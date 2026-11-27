@@ -2,7 +2,6 @@ import msprime
 import numpy as np
 import pytest
 import tskit
-from matplotlib import pyplot as plt
 
 import giglib as gigl
 from giglib.constants import Const, ValidFlags
@@ -723,12 +722,12 @@ class TestValidate:
         tables.iedges.add_row(3, 0, child_right=1)
         tables.validate()
         tables.change_times(1)  # still valid
-        tables.find_mrca_regions(2, 3)
+        tables.find_homology(2, 3)
         tables.nodes.clear()
         for t in (0, 1, 0, 0):
             tables.nodes.add_row(t)  # now the parent is no older than the children
         with pytest.raises(ValueError, match="not older than child"):
-            tables.find_mrca_regions(2, 3)
+            tables.find_homology(2, 3)
 
     @staticmethod
     def record_checks(tables, monkeypatch):
@@ -786,11 +785,11 @@ class TestValidate:
         tables.iedges.add_row(3, 1, child_left=0, child_right=5, child_chromosome=-1, parent_chromosome=-1)
         tables.validate(ValidFlags.IEDGES_INTEGERS)
 
-    @pytest.mark.parametrize("method", ["find_mrca_regions", "sample_resolve"])
+    @pytest.mark.parametrize("method", ["find_homology", "sample_resolve"])
     def test_tracing_requires_all_its_flags(self, method):
         tables = self.valid_tables()
         tables.validate(ValidFlags.IEDGES_PARENT_OLDER_THAN_CHILD)  # but not e.g. adjacency
-        args = (2, 3) if method == "find_mrca_regions" else ()
+        args = (2, 3) if method == "find_homology" else ()
         with pytest.raises(ValueError, match="FOR_CHILD_ADJACENT"):
             getattr(tables, method)(*args)
         tables.validate(ValidFlags.IEDGES_FOR_TRACING)
@@ -1051,12 +1050,12 @@ class TestFlagsKeptByTableAlgorithms:
             assert tables.iedges.flags == ValidFlags.GIG
             tables.validate(recheck=True)  # the flags are correct
 
-    def test_find_mrca_regions_after_sample_resolve(self):
+    def test_find_homology_after_sample_resolve(self):
         # e.g. in a simulation that simplifies regularly, without validating again
         tables = self.ts_tables()
         tables.sample_resolve()
         u, v = tables.sample_nodes()[:2]
-        assert len(tables.find_mrca_regions(u, v)) > 0
+        assert len(tables.find_homology(u, v)) > 0
 
     @pytest.mark.parametrize("name", ["sample_resolve", "decapitate"])
     def test_flags_not_added(self, name):
@@ -1090,9 +1089,9 @@ class TestFlagsKeptByTableAlgorithms:
         # Without the ordering flags, tracing needs the tables to be sorted first
         u, v = tables.sample_nodes()[:2]
         with pytest.raises(ValueError, match="FOR_CHILD_ADJACENT"):
-            tables.find_mrca_regions(u, v)
+            tables.find_homology(u, v)
         tables.sort()
-        tables.find_mrca_regions(u, v)
+        tables.find_homology(u, v)
 
 
 class TestNodeTable:
@@ -1198,42 +1197,34 @@ class TestNodeAttributes:
         assert iedges == edges
 
 
-class TestFindMrcas:
-    def test_find_mrca_single_tree(self):
+def homology_tuples(homology):
+    """
+    The homology as plain tuples (u, v, mrca, mrca_segment), for comparison
+    """
+    return {(tuple(h.u), tuple(h.v), h.mrca, tuple(h.mrca_segment)) for h in homology}
+
+
+class TestFindHomology:
+    def test_single_tree(self):
         span = 123
         comb_ts = tskit.Tree.generate_comb(5, span=span).tree_sequence
         # make a gig with many unary nodes above node 0
         comb_ts = comb_ts.simplify([0, 4], keep_unary=True)
         gig = gigl.Graph.from_tree_sequence(comb_ts)
-        full_span = (0, span)
-        shared_regions = gig.tables.find_mrca_regions(0, 1)
-        assert len(shared_regions) == 1
-        assert comb_ts.first().root in shared_regions
-        mrca_intervals = shared_regions[comb_ts.first().root]
-        assert len(mrca_intervals) == 1
-        mrca, uv_interval_lists = mrca_intervals.popitem()
-        assert mrca[:2] == full_span
-        assert len(uv_interval_lists) == 2
-        for interval_list in uv_interval_lists:
-            assert len(interval_list) == 1
-            assert full_span == interval_list[0][:2]
+        whole = (0, span, 0)
+        assert homology_tuples(gig.tables.find_homology(0, 1)) == {(whole, whole, comb_ts.first().root, whole)}
 
-    def test_find_mrca_2_trees(self, degree2_2_tip_ts):
-        num_trees = 2
-        assert degree2_2_tip_ts.num_trees == num_trees
+    def test_2_trees(self, degree2_2_tip_ts):
+        assert degree2_2_tip_ts.num_trees == 2
         gig = gigl.Graph.from_tree_sequence(degree2_2_tip_ts)
-        shared_regions = gig.tables.find_mrca_regions(0, 1)
-        internal_nodes = [node.id for node in degree2_2_tip_ts.nodes() if node.time > 0]
-        assert len(shared_regions) == num_trees
-        for mrca_id in internal_nodes:
-            assert mrca_id in shared_regions
-            val = shared_regions[mrca_id]
-            assert len(val) == 1
-            interval, (u, v) = val.popitem()
-            assert len(u) == 1
-            assert len(v) == 1
-            assert interval in u
-            assert interval in v
+        homology = gig.tables.find_homology(0, 1)
+        expected = set()
+        for tree in degree2_2_tip_ts.trees():
+            interval = (int(tree.interval.left), int(tree.interval.right), 0)
+            expected.add((interval, interval, tree.root, interval))
+        assert homology_tuples(homology) == expected
+        # sorted by position in u
+        assert [h.u for h in homology] == sorted(h.u for h in homology)
 
     def test_time_cutoff(self, degree2_2_tip_ts):
         # set a cutoff so that the mrca in one tree is never visited
@@ -1244,60 +1235,37 @@ class TestFindMrcas:
         tree1 = degree2_2_tip_ts.last()
         assert T[tree0.root] != T[tree1.root]
         gig = gigl.Graph.from_tree_sequence(degree2_2_tip_ts)
-        assert gig.sequence_length(0, chromosome=0) == degree2_2_tip_ts.sequence_length
-        assert gig.sequence_length(1, chromosome=0) == degree2_2_tip_ts.sequence_length
         cutoff = (T[[tree0.root, tree1.root]]).mean()
-        shared_regions = gig.tables.find_mrca_regions(0, 1, time_cutoff=cutoff)
-        assert len(shared_regions) == 1
+        homology = gig.tables.find_homology(0, 1, time_cutoff=cutoff)
         used_tree = tree0 if T[tree0.root] < T[tree1.root] else tree1
-        unused_tree = tree1 if T[tree0.root] < T[tree1.root] else tree0
-        assert used_tree.root in shared_regions
-        assert unused_tree.root not in shared_regions
+        assert [h.mrca for h in homology] == [used_tree.root]
 
     def test_simple_non_sv(self, simple_ts):
-        chrom = 0
         assert simple_ts.num_trees > 1
         assert simple_ts.num_samples >= 2
         max_trees = 0
         gig = gigl.Graph.from_tree_sequence(simple_ts)
         for u in range(len(gig.tables.sample_nodes())):
             for v in range(u + 2, len(gig.tables.sample_nodes())):
-                mrcas = gig.tables.find_mrca_regions(u, v)
+                homology = homology_tuples(gig.tables.find_homology(u, v))
                 equiv_ts = simple_ts.simplify([u, v], filter_nodes=False)
                 max_trees = max(max_trees, equiv_ts.num_trees)
                 for tree in equiv_ts.trees():
-                    interval = (
-                        int(tree.interval.left),
-                        int(tree.interval.right),
-                        chrom,
-                    )
-                    mrca = tree.get_mrca(u, v)
-                    assert interval in mrcas[mrca]
-                    u_equivalent, v_equivalent = mrcas[mrca][interval]
-                    assert len(u_equivalent) == 1  # No duplications
-                    assert len(v_equivalent) == 1  # No duplications
-                    assert interval in u_equivalent
-                    assert interval in v_equivalent
+                    interval = (int(tree.interval.left), int(tree.interval.right), 0)
+                    # No duplications, so each region has one homologue, at the same position
+                    assert (interval, interval, tree.get_mrca(u, v), interval) in homology
         assert max_trees > 2  # at least some cases with 3 or more mrcas
 
     def test_double_inversion(self, double_inversion_gig):
-        chrom = 0
         assert len(double_inversion_gig.sample_nodes()) == 2
         iedges = list(double_inversion_gig.iedges_for_child(0))
         assert len(iedges) == 1
         assert iedges[0].is_inversion()
-        mrcas = double_inversion_gig.tables.find_mrca_regions(0, 1)
-        assert len(mrcas) == 1
-        assert 3 in mrcas
-        mrca = mrcas[3]
-        assert (0, 100, chrom) in mrca
-        u, v = mrca[(0, 100, chrom)]
-        assert u == [(0, 100, chrom)]
-        assert v == [(0, 100, chrom)]
+        whole = (0, 100, 0)
+        assert homology_tuples(double_inversion_gig.tables.find_homology(0, 1)) == {(whole, whole, 3, whole)}
 
     @pytest.mark.parametrize("sample_resolve", [True, False])
     def test_extended_inversion(self, extended_inversion_gig, sample_resolve):
-        chrom = 0
         gig = extended_inversion_gig
         if sample_resolve:
             gig = gig.sample_resolve()
@@ -1306,159 +1274,57 @@ class TestFindMrcas:
         assert gig.max_pos(0) == 155
         assert gig.min_pos_as_child(1) == 0
         assert gig.max_pos(1) == 100
-        mrcas = gig.tables.find_mrca_regions(0, 1)
-        assert len(mrcas) == 1
-        assert 3 in mrcas
-        mrca = mrcas[3]
-        assert (15, 100, chrom) in mrca  # the inverson only leaves 15..100 shared
-        u, v = mrca[(15, 100, chrom)]
-        assert len(v) == 1
-        assert (15, 100, chrom) in v
-        assert len(u) == 1
-        assert (
-            155,
-            70,
-            chrom,
-        ) in u  # inverted region is span 85 from 155 leftward in sample
+        # The inversion only leaves 15..100 of the MRCA shared, which is 155 leftwards
+        # (to 70) in u: so u's segment 70..155 runs backwards in v and in the MRCA
+        (h,) = gig.tables.find_homology(0, 1)
+        assert h == gigl.Homology((70, 155, 0), (100, 15, 0), 3, (100, 15, 0))
+        assert h.is_reversed
+        assert h.length == 85
 
     def test_inverted_duplicate(self, inverted_duplicate_gig):
-        chrom = 0
         assert len(inverted_duplicate_gig.sample_nodes()) == 2
-        mrcas = inverted_duplicate_gig.tables.find_mrca_regions(0, 1)
-        assert len(mrcas) == 1
-        assert 3 in mrcas
-        mrca = mrcas[3]
-        assert (10, 15, chrom) in mrca  # the duplicated+inverted section
-        u, v = mrca[(10, 15, chrom)]
-        assert set(u) == {(0, 5, chrom), (15, 10, chrom)}
-        assert v == [(0, 5, chrom)]
-
-        assert (15, 20, chrom) in mrca  # only the inverted section
-        u, v = mrca[(15, 20, chrom)]
-        assert u == [(10, 5, chrom)]
-        assert v == [(5, 10, chrom)]
+        assert homology_tuples(inverted_duplicate_gig.tables.find_homology(0, 1)) == {
+            # The duplicated and inverted section of the MRCA (10..15) has two copies in u
+            ((0, 5, 0), (0, 5, 0), 3, (10, 15, 0)),
+            ((10, 15, 0), (5, 0, 0), 3, (15, 10, 0)),
+            # Only the inverted section
+            ((5, 10, 0), (10, 5, 0), 3, (20, 15, 0)),
+        }
 
     def test_inverted_duplicate_with_missing(self, inverted_duplicate_with_missing_gig):
-        chrom = 0
         assert len(inverted_duplicate_with_missing_gig.sample_nodes()) == 2
-        mrcas = inverted_duplicate_with_missing_gig.tables.find_mrca_regions(0, 1)
-        assert len(mrcas) == 1
-        assert 3 in mrcas
-        mrca = mrcas[3]
-        assert (10, 15, chrom) in mrca  # the duplicated+inverted section
-        u, v = mrca[(10, 15, chrom)]
-        assert set(u) == {(0, 5, chrom), (35, 30, chrom)}
-        assert v == [(0, 5, chrom)]
-
-        assert (15, 20, chrom) in mrca  # only the inverted section
-        u, v = mrca[(15, 20, chrom)]
-        assert u == [(30, 25, chrom)]
-        assert v == [(5, 10, chrom)]
+        assert homology_tuples(inverted_duplicate_with_missing_gig.tables.find_homology(0, 1)) == {
+            ((0, 5, 0), (0, 5, 0), 3, (10, 15, 0)),
+            ((30, 35, 0), (5, 0, 0), 3, (15, 10, 0)),
+            ((25, 30, 0), (10, 5, 0), 3, (20, 15, 0)),
+        }
 
     def test_no_recomb_sv_dup_del(self, all_sv_types_no_re_gig):
-        chrom = 0
-        assert len(all_sv_types_no_re_gig.sample_nodes()) >= 2
-        sample_u = 8
-        sample_v = 10
-        mrcas = all_sv_types_no_re_gig.tables.find_mrca_regions(sample_u, sample_v)
-        assert len(mrcas) == 1
-        assert 1 in mrcas
-
-        # (0, 50) should be unchanged
-        assert (0, 50, chrom) in mrcas[1]
-        u, v = mrcas[1][(0, 50, chrom)]
-        assert len(u) == len(v) == 1
-        assert (0, 50, chrom) in u
-        assert (0, 50, chrom) in v
-
-        # (150, 50) should be duplicated
-        assert (150, 200, chrom) in mrcas[1]
-        u, v = mrcas[1][(150, 200, chrom)]
-        assert len(u) == 1
-        assert (50, 100, chrom) in u  # deletion
-        assert len(v) == 2  # duplication
-        assert (150, 200, chrom) in v  # duplication
-        assert (250, 300, chrom) in v  # duplication
-
-        # (50, 150) should be deleted, with no MRCA
-        assert (50, 150) not in mrcas[1]
-        assert len(mrcas[1]) == 2
+        assert homology_tuples(all_sv_types_no_re_gig.tables.find_homology(8, 10)) == {
+            # (0, 50) is unchanged
+            ((0, 50, 0), (0, 50, 0), 1, (0, 50, 0)),
+            # (50, 150) of the MRCA is deleted in u, and (150, 200) duplicated in v
+            ((50, 100, 0), (150, 200, 0), 1, (150, 200, 0)),
+            ((50, 100, 0), (250, 300, 0), 1, (150, 200, 0)),
+        }
 
     def test_no_recomb_sv_dup_inv(self, all_sv_types_no_re_gig):
-        chrom = 0
-        assert len(all_sv_types_no_re_gig.sample_nodes()) >= 2
-        sample_u = 10
-        sample_v = 12
-        mrcas = all_sv_types_no_re_gig.tables.find_mrca_regions(sample_u, sample_v)
-        assert len(mrcas) == 1
-        assert 0 in mrcas
-        mrca = mrcas[0]
-        # "normal" region
-        assert (0, 20, chrom) in mrca
-        assert mrca[(0, 20, chrom)] == ([(0, 20, chrom)], [(0, 20, chrom)])
-
-        # start of inverted region
-        assert (20, 100, chrom) in mrca
-        assert mrca[(20, 100, chrom)] == ([(20, 100, chrom)], [(120, 40, chrom)])
-
-        # duplicated inverted region
-        assert (100, 120, chrom) in mrca
-        assert set(mrca[(100, 120, chrom)][0]) == {(100, 120, chrom), (200, 220, chrom)}
-        assert mrca[(100, 120, chrom)][1] == [(40, 20, chrom)]
-
-        # duplicated non-inverted region
-        assert (120, 200, chrom) in mrca
-        assert set(mrca[(120, 200, chrom)][0]) == {(120, 200, chrom), (220, 300, chrom)}
-        assert mrca[(120, 200, chrom)][1] == [(120, 200, chrom)]
-
-    def test_random_match_pos(self, simple_ts):
-        rng = np.random.default_rng(1)
-        ts = simple_ts.keep_intervals([(0, 2)]).trim()
-        gig = gigl.Graph.from_tree_sequence(ts)
-        assert gig.tables.sample_nodes()[0] == 0
-        assert gig.tables.sample_nodes()[1] == 1
-        mrcas = gig.tables.find_mrca_regions(0, 1)
-        all_breaks = set()
-        for _ in range(20):
-            # in 20 replicates we should definitely have both 0 and 1
-            breaks = mrcas.random_match_pos(rng)
-            assert isinstance(breaks.u, gigl.Position)
-            assert isinstance(breaks.v, gigl.Position)
-            assert not breaks.opposite_orientations
-            assert breaks.u == breaks.v
-            all_breaks.add(breaks.u)
-        assert all_breaks == {(0, 0), (1, 0)}
-
-
-class TestMRCAdict:
-    def test_plot(self):
-        MRCAintervals = gigl.tables.MRCAdict.MRCAintervals
-        mrcas = gigl.tables.MRCAdict()
-        mrcas[0] = {
-            (0, 10): MRCAintervals([(0, 10)], [(0, 10)]),
-            (20, 30): MRCAintervals([(20, 30)], [(20, 30)]),
+        assert homology_tuples(all_sv_types_no_re_gig.tables.find_homology(10, 12)) == {
+            # "normal" region
+            ((0, 20, 0), (0, 20, 0), 0, (0, 20, 0)),
+            # start of inverted region
+            ((20, 100, 0), (120, 40, 0), 0, (20, 100, 0)),
+            # duplicated inverted region
+            ((100, 120, 0), (40, 20, 0), 0, (100, 120, 0)),
+            ((200, 220, 0), (40, 20, 0), 0, (100, 120, 0)),
+            # duplicated non-inverted region
+            ((120, 200, 0), (120, 200, 0), 0, (120, 200, 0)),
+            ((220, 300, 0), (120, 200, 0), 0, (120, 200, 0)),
         }
-        mrcas[1] = {(10, 20): MRCAintervals([(10, 20)], [(10, 20)])}
-        mrcas._plot(highlight_position=5)
 
-    def test_gig_plot_with_size(self, all_sv_types_no_re_gig):
-        mrcas = all_sv_types_no_re_gig.tables.find_mrca_regions(11, 9)
-        fig, ax = plt.subplots(1, figsize=(15, 5))
-        mrcas._plot(highlight_position=110, ax=ax)
-        # plt.savefig("test_gig_plot.png")  # uncomment to save a plot for inspection
-
-    def test_random_match_pos_plain_tuple_keys(self):
-        # The keys are documented as (left, right, chromosome) tuples, so plain tuples work
-        mrcas = gigl.tables.MRCAdict({2: {(0, 10, 0): gigl.tables.MRCAdict.MRCAintervals([(0, 10, 0)], [(20, 30, 1)])}})
-        match = mrcas.random_match_pos(np.random.default_rng(1))
-        assert match.u.chromosome == 0
-        assert match.v.chromosome == 1
-        assert match.v.position - match.u.position == 20
-        assert not match.opposite_orientations
-
-    def test_random_match_pos_chromosomes(self):
-        # u (node 0) and v (node 1) inherit from node 2: u on chromosome 1, and v
-        # on chromosome 0, inverted
+    def test_chromosomes(self):
+        # u (node 0) and v (node 1) inherit from node 2: u on chromosome 1, and v on
+        # chromosome 0, inverted
         tables = gigl.Tables()
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
         tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
@@ -1468,14 +1334,90 @@ class TestMRCAdict:
             1, 2, child_left=0, child_right=10, parent_left=10, parent_right=0, child_chromosome=0, parent_chromosome=1
         )
         tables.sort()
-        mrcas = tables.graph().find_mrca_regions(0, 1, u_chromosomes=[1], v_chromosomes=[0])
-        rng = np.random.default_rng(1)
-        for _ in range(10):
-            match = mrcas.random_match_pos(rng)
-            assert match.u.chromosome == 1
-            assert match.v.chromosome == 0
-            assert match.opposite_orientations
-            assert match.u.position + match.v.position == 9
+        tables.validate()
+        expected = [gigl.Homology((0, 10, 1), (10, 0, 0), 2, (0, 10, 1))]
+        assert tables.find_homology(0, 1) == expected  # all chromosomes
+        assert tables.find_homology(0, 1, u_chromosome=1, v_chromosome=0) == expected
+        assert tables.find_homology(0, 1, u_chromosome=0) == []
+        assert tables.find_homology(0, 1, v_chromosome=1) == []
+
+    def test_graph_accepts_nodes(self, double_inversion_gig):
+        gig = double_inversion_gig
+        assert gig.find_homology(gig.nodes[0], gig.nodes[1]) == gig.tables.find_homology(0, 1)
+
+    def test_bad_mode(self, double_inversion_gig):
+        with pytest.raises(ValueError, match="Unknown mode"):
+            double_inversion_gig.tables.find_homology(0, 1, mode="closest")
+
+    def test_same_genome(self, double_inversion_gig):
+        with pytest.raises(ValueError, match="different nodes"):
+            double_inversion_gig.tables.find_homology(0, 0)
+
+
+class TestFindHomologyModes:
+    """
+    The difference between "first_mrca" and "all": a region B was duplicated in an
+    ancestor A (from R), and u inherits both copies, but v only the first
+    """
+
+    @pytest.fixture()
+    def tables(self):
+        tables = gigl.Tables()
+        tables.nodes.add_row(10)  # R
+        tables.nodes.add_row(5)  # A
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # u
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # v
+        tables.iedges.add_row(1, 0, child_left=0, child_right=10, parent_left=0, parent_right=10)
+        tables.iedges.add_row(1, 0, child_left=10, child_right=20, parent_left=0, parent_right=10)
+        tables.iedges.add_row(2, 1, child_right=20)
+        tables.iedges.add_row(3, 1, child_right=10)
+        tables.sort()
+        tables.validate()
+        return tables
+
+    def test_first_mrca(self, tables):
+        # Once u's first copy and v's copy meet at A, v's lineage stops, so u's second
+        # copy finds no homology
+        assert tables.find_homology(2, 3) == [gigl.Homology((0, 10, 0), (0, 10, 0), 1, (0, 10, 0))]
+
+    def test_all(self, tables):
+        # u's second copy is homologous to v's copy through R (the closest homology of
+        # u's second copy, as v has nothing closer)
+        assert tables.find_homology(2, 3, mode="all") == [
+            gigl.Homology((0, 10, 0), (0, 10, 0), 1, (0, 10, 0)),
+            gigl.Homology((10, 20, 0), (0, 10, 0), 0, (0, 10, 0)),
+        ]
+
+    def test_all_reports_each_pair_once(self, tables):
+        # u's first copy and v's copy also meet at R, but are reported at their MRCA, A
+        homology = tables.find_homology(2, 3, mode="all")
+        assert sum(h.length for h in homology) == 20
+
+    @pytest.mark.parametrize("seed", [1, 2, 3])
+    def test_same_without_duplications(self, seed):
+        # Without duplications, each position has at most one homologue
+        ts = msprime.sim_ancestry(3, sequence_length=60, recombination_rate=0.03, random_seed=seed)
+        tables = gigl.Tables.from_tree_sequence(ts)
+        assert tables.find_homology(0, 3) == tables.find_homology(0, 3, mode="all")
+
+
+class TestHomology:
+    def test_forward(self):
+        h = gigl.Homology(gigl.Segment(10, 20, 0), gigl.Segment(30, 40, 1), 5, gigl.Segment(0, 10, 0))
+        assert h.length == 10
+        assert not h.is_reversed
+        assert h.map == gigl.PositionMap(1, 20)
+        assert h.map.position(15) == 35
+
+    def test_reversed(self):
+        h = gigl.Homology(gigl.Segment(10, 20, 0), gigl.Segment(40, 30, 0), 5, gigl.Segment(0, 10, 0))
+        assert h.length == 10
+        assert h.is_reversed
+        assert h.map.position(10) == 39
+
+    def test_unpack_segment_as_keywords(self, double_inversion_gig):
+        (h,) = double_inversion_gig.find_homology(0, 1)
+        assert double_inversion_gig.haplotype(0, **h.u) == double_inversion_gig.haplotype(0)
 
 
 class TestSegment:
@@ -2126,16 +2068,15 @@ class TestValidatedRows:
         assert tables.iedges.num_validated == 4
         assert tables.iedges.flags == ValidFlags.IEDGES_INTERVALS
 
-    def test_find_mrca_regions(self):
+    def test_find_homology(self):
         tables = self.tables_with_new_rows()
-        mrcas = tables.find_mrca_regions(1, 2)
-        assert list(mrcas.keys()) == [0]
-        assert mrcas[0] == {gigl.Segment(0, 10, 0): ([gigl.Segment(0, 10, 0)], [gigl.Segment(0, 10, 0)])}
+        whole = gigl.Segment(0, 10, 0)
+        assert tables.find_homology(1, 2) == [gigl.Homology(whole, whole, 0, whole)]
 
     def test_refuses_nodes_with_unvalidated_rows(self):
         tables = self.tables_with_new_rows()
         with pytest.raises(ValueError, match="node 3 include rows that have not been validated"):
-            tables.find_mrca_regions(3, 2)
+            tables.find_homology(3, 2)
         with pytest.raises(ValueError, match="have not been validated"):
             tables.iedges.ids_for_child(3)
 
@@ -2149,12 +2090,12 @@ class TestValidatedRows:
     def test_stale_node_flags_rechecked_for_validated_rows_only(self):
         tables = self.tables_with_new_rows()
         tables.change_times(1)  # the node-time flags must be rechecked
-        assert list(tables.find_mrca_regions(1, 2).keys()) == [0]
+        assert [h.mrca for h in tables.find_homology(1, 2)] == [0]
         tables.nodes.clear()
         for t in (0, 1, 1, 0):
             tables.nodes.add_row(t)  # now the root is younger than its children
         with pytest.raises(ValueError, match="not older than child"):
-            tables.find_mrca_regions(1, 2)
+            tables.find_homology(1, 2)
 
 
 class TestValidationEdgeCases:
@@ -2184,7 +2125,7 @@ class TestValidationEdgeCases:
         tables.sample_resolve(sort=False)
         tables.sort()
         assert tables.iedges.has_all_bitflags(ValidFlags.IEDGES_FOR_TRACING)
-        tables.find_mrca_regions(2, 3)
+        tables.find_homology(2, 3)
 
     def test_validate_frozen_empty_tables(self):
         tables = gigl.Tables()

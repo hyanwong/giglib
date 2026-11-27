@@ -33,7 +33,7 @@ The storage has been rewritten several times, mainly for speed in forward simula
    converting row objects.
 2. **Validation on entry** (February 2024). Tables gained validity flags, checked as rows are
    added, and an index of the iedges for each child. This allowed algorithms such as
-   `find_mrca_regions` to run directly on tables, rather than on a `Graph`, so simulations
+   `find_homology` to run directly on tables, rather than on a `Graph`, so simulations
    don't need to repeatedly freeze their tables. Tables can also be frozen, to make a `Graph`
    immutable. Iedges were also reordered to be grouped by child, in order of decreasing child
    time ({issue}`70`).

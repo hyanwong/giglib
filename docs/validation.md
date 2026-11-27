@@ -29,7 +29,7 @@ a forward simulation is adding rows to them, without the cost of repeatedly free
 {class}`~giglib.Graph`. The main reason is the need to **locate homologous positions during a
 forward simulation**. With no shared coordinate system, choosing a recombination breakpoint means
 finding equivalent positions in the two parental genomes, by tracing them up the graph (e.g. with
-{meth}`~giglib.Tables.find_mrca_regions`) every time a child is created. In a tree sequence this
+{meth}`~giglib.Tables.find_homology`) every time a child is created. In a tree sequence this
 problem doesn't arise, as every genome uses the same coordinates. Simulations also need to
 simplify their tables regularly, without turning them into a `Graph` (just as _tskit_'s
 {meth}`tskit:tskit.TableCollection.simplify` works on tables, not tree sequences). But
@@ -42,7 +42,7 @@ So _giglib_ tracks validity as a set of **separate guarantees**, each recorded b
 that rely on it are to keep giving correct answers.
 
 - **Each algorithm checks for just the guarantees it needs,** and refuses to run without them.
-  For example, {meth}`~giglib.Tables.find_mrca_regions` needs what is required to trace intervals
+  For example, {meth}`~giglib.Tables.find_homology` needs what is required to trace intervals
   up through the iedges ({data}`~giglib.ValidFlags.IEDGES_FOR_TRACING`: parents older than their
   children, valid intervals, and the iedges for each child adjacent and ordered by chromosome),
   but not e.g. the full canonical sort order.
@@ -96,7 +96,7 @@ Some examples of what methods require:
 | Method | Requires |
 |---|---|
 | `tables.iedges.ids_for_child()` | `IEDGES_FOR_CHILD_ADJACENT`, `IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC` |
-| `tables.find_mrca_regions()` | `IEDGES_FOR_TRACING` |
+| `tables.find_homology()` | `IEDGES_FOR_TRACING` |
 | `tables.sample_resolve()` | `IEDGES_FOR_TRACING` |
 | `tables.iedges.squash()` | `IEDGES_WITHIN_CHILD_SORTED` |
 | `tables.graph()` | `GIG` (everything) |
@@ -158,7 +158,7 @@ tables.iedges.add_row(child, parent, child_right=100)
 other_child = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
 tables.iedges.add_row(other_child, parent, child_right=300)  # flags removed
 try:
-    tables.find_mrca_regions(child, other_child)
+    tables.find_homology(child, other_child)
 except ValueError as e:
     print("Error:", e)
 ```
@@ -167,8 +167,8 @@ Validating just what the algorithm needs is enough:
 
 ```{code-cell}
 tables.validate(ValidFlags.IEDGES_FOR_TRACING)
-mrcas = tables.find_mrca_regions(child, other_child)
-print("MRCA nodes:", list(mrcas.keys()))
+homology = tables.find_homology(child, other_child)
+print("MRCA nodes:", [h.mrca for h in homology])
 ```
 
 (sec_validation_incremental)=
@@ -207,7 +207,7 @@ nodes, or which node an existing ID refers to, and the node table has no order o
 the node table *can* be changed in other ways, e.g. by being cleared and refilled, or by
 {meth}`~giglib.Tables.change_times`. So the node table records whenever its existing rows
 change, and the requirements that depend on node times are then checked again for all the iedges.
-Algorithms that rely on these flags (e.g. {meth}`~giglib.Tables.find_mrca_regions`) check them
+Algorithms that rely on these flags (e.g. {meth}`~giglib.Tables.find_homology`) check them
 again in the same way.
 
 The cost of {meth}`~giglib.Tables.validate` is therefore usually proportional to the number of
@@ -231,7 +231,7 @@ the iedges of particular nodes can use them:
 - {meth}`~giglib.tables.IEdgeTable.ids_for_child`, {meth}`~giglib.tables.IEdgeTable.max_pos_as_child`
   and {meth}`~giglib.tables.IEdgeTable.min_pos_as_child` run if all the iedges of the node are
   validated rows.
-- {meth}`~giglib.Tables.find_mrca_regions` runs if the iedges of every node that it traces through
+- {meth}`~giglib.Tables.find_homology` runs if the iedges of every node that it traces through
   are validated rows. Its error names the first node whose iedges are not.
 
 Methods that use the whole table (e.g. {meth}`~giglib.Tables.sample_resolve`, or creating a
@@ -254,9 +254,9 @@ tables.validate()
 kid = tables.nodes.add_row(0)
 tables.iedges.add_row(kid, mum, child_right=50)  # not yet validated
 print(tables.iedges.num_validated, "of", len(tables.iedges), "rows validated")
-print("MRCA of mum and dad:", list(tables.find_mrca_regions(mum, dad).keys()))
+print("MRCA of mum and dad:", [h.mrca for h in tables.find_homology(mum, dad)])
 try:
-    tables.find_mrca_regions(kid, dad)
+    tables.find_homology(kid, dad)
 except ValueError as e:
     print("Error:", e)
 ```
@@ -283,7 +283,7 @@ converted from a tree sequence).
 
 In a forward simulation, adding rows and running algorithms alternate. For each child,
 homologous positions in its parents are located (e.g. with
-{meth}`~giglib.Tables.find_mrca_regions`) to choose recombination breakpoints, and then the
+{meth}`~giglib.Tables.find_homology`) to choose recombination breakpoints, and then the
 child's iedges are added.
 
 Locating homologous positions only reads *older* material: the ancestry of the parents, whose
@@ -314,7 +314,7 @@ they keep any of these flags that the input had ({issue}`181`). Those that depen
 are rechecked first if the node table has changed since they were checked.
 
 So, given valid tables, they give valid tables, and algorithms such as
-{meth}`~giglib.Tables.find_mrca_regions` can be run straight after simplifying, without
+{meth}`~giglib.Tables.find_homology` can be run straight after simplifying, without
 validating again. This relies on the sorting that both methods do by default: with
 `sample_resolve(sort=False)`, the ordering flags are not set, so call {meth}`~giglib.Tables.sort`
 before running algorithms that need them.

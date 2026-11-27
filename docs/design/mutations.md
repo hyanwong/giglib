@@ -303,7 +303,7 @@ The complement map only affects how alleles are *reported*. It is used when deco
 (by `allele_at`, and later by haplotype extraction and the equivalent of `variants()`), and for
 the one-off check that generates the warning above. It has no effect on how ancestry or mutations
 are encoded or processed. Storing, sorting and validating the tables, simplification,
-`find_mrca_regions`, and calculating mutation parents are all purely structural, and never
+`find_homology`, and calculating mutation parents are all purely structural, and never
 examine allele states. So this machinery adds no cost to the encoding of ancestry.
 
 Even when decoding, tracking orientation is essentially free: tracing a position through an

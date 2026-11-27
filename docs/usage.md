@@ -50,12 +50,10 @@ the iedges above and below a genome, and `IEdge.transform_position()` (or a
 {class}`~giglib.PositionMap`) maps a position between the child's and the parent's coordinates.
 
 **Homology.** A key task when comparing two chromosomes is to find which of their regions are
-homologous, e.g. to place crossovers. `find_mrca_regions(u, v)` finds the regions that `u` and
-`v` inherit from their most recent common ancestors, and `random_match_pos()` picks a random
-homologous pair of positions from them. In a GIG, sequences can be homologous at different
-levels (reflecting the fact that e.g. genes within a gene family are homologous to some
-degree). To find more distant homology than that defined by the most recent common ancestor,
-see {ref}`sec_tools_homology`.
+homologous, e.g. to place crossovers. `find_homology(u, v)` finds the segments of `u` and `v`
+that descend from the same segment of a common ancestor. In a GIG, sequences can be homologous
+at different levels (reflecting the fact that e.g. genes within a gene family are homologous to
+some degree), and its `mode` says which to find: see {ref}`sec_usage_homology` below.
 
 **Trimming.** `sample_resolve()` removes material that doesn't reach the samples, and
 `decapitate()` removes everything older than a given time. (A full equivalent of _tskit_'s
@@ -64,6 +62,73 @@ see {ref}`sec_tools_homology`.
 **Tools.** The experimental {ref}`giglib.tools <sec_tools>` package has extras built on these:
 converting tree sequences with indels, finding and plotting homology, and some simple
 examples to show how to build targeted simulators.
+
+(sec_usage_homology)=
+
+## Homology
+
+Two positions, in genomes `u` and `v`, are **homologous** if they descend from the same position
+in a common ancestor. This is homology *by descent*, recorded in the graph, not sequence
+similarity: homologous positions can have different bases (if one has mutated), and positions
+with the same base need not be homologous. It is a generalisation of *identity by descent*
+(IBD), in which the shared segments can be at different positions in the two genomes, or
+reversed.
+
+Each position of a genome has a single parent position, so following a position back through
+its ancestors gives a single lineage. Two lineages meet at the most recent common ancestor
+(MRCA) of the two positions, either where a position was passed to two different children
+(**allelic** homology, as for alleles of the same gene in two people), or where a region was
+duplicated, so that a single child inherited the position twice (**paralogous** homology, as
+between the members of a gene family).
+
+When a genome replicates, its two copies share every position, so two genomes descended from a
+common ancestor usually have one long stretch of allelic homology, broken up by any later
+duplications, deletions and other rearrangements. But a position can also have *remote*
+homology through older ancestors, e.g. with copies of a region that was duplicated long ago. If
+every position ultimately descends from a single ancestral position, every pair of positions is
+homologous at some level, and what matters is the time of their MRCA (TMRCA).
+
+{meth}`~giglib.Tables.find_homology` (or {meth}`~giglib.Graph.find_homology`) finds the
+homology between two genomes, as a list of {class}`~giglib.Homology` records. Each gives a
+segment of `u`, the homologous segment of `v`, their MRCA, and the segment of the MRCA they
+descend from. Its `mode` says which homology to find:
+
+- `"first_mrca"` (the default) stops tracing each lineage at the first MRCA that it reaches.
+  This is the least work, and finds the homology usually wanted for placing a crossover. But it
+  can miss some homology of a region that has more copies in one genome than the other.
+- `"all"` finds all the homology, through every common ancestor. This can be much more work,
+  which the `time_cutoff` parameter can limit.
+
+For example, here a region was duplicated in an ancestor `A` of genomes `u` and `v`, and `u`
+inherits both copies, but `v` only the first:
+
+```{code-cell}
+import giglib as gigl
+
+tables = gigl.Tables()
+R = tables.nodes.add_row(10)
+A = tables.nodes.add_row(5)
+u = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+v = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+tables.iedges.add_row(A, R, child_left=0, child_right=10, parent_left=0, parent_right=10)
+tables.iedges.add_row(A, R, child_left=10, child_right=20, parent_left=0, parent_right=10)
+tables.iedges.add_row(u, A, child_right=20)  # both copies
+tables.iedges.add_row(v, A, child_right=10)  # only the first copy
+tables.sort()
+tables.validate()
+
+for mode in ["first_mrca", "all"]:
+    print(f"{mode}:")
+    for h in tables.find_homology(u, v, mode=mode):
+        print(f"  u {h.u.left}-{h.u.right} ~ v {h.v.left}-{h.v.right}, MRCA {h.mrca} at time {tables.nodes.time[h.mrca]:g}")
+```
+
+Both modes find the allelic homology between the first copies, through `A`. Only `"all"` finds
+that `u`'s second copy is homologous to `v`'s only copy, through the older ancestor `R`: with
+`"first_mrca"`, the lineage of `v`'s copy stops at `A`, where it meets the lineage of `u`'s first
+copy, so it isn't there for the second copy to meet. The experimental
+{ref}`homology tools <sec_tools_homology>` build on this, e.g. to join homology into chains,
+and to plot it. The {ref}`sec_design_homology` design note discusses homology in more detail.
 
 (sec_usage_consistency)=
 
@@ -147,7 +212,7 @@ compatibility with _tskit_. In particular:
 - **No `.trees()` iterator** See above: the meaning of a "local tree" is unclear in a GIG, so
   implementing the equivalent of the fundamental _tskit_ `.trees()` method is likely to require
   substantial theoretical work.
-- **Algorithms on tables** Unlike _tskit_, some fundamental algorithms such as `find_mrca_regions` and
+- **Algorithms on tables** Unlike _tskit_, some fundamental algorithms such as `find_homology` and
   `sample_resolve` (a basic type of `simplify`) can be run directly on a set of tables.
   For this to work, the tables need to conform to certain validity criteria, recorded as separate
   validity flags, which can be checked as rows are added, or in bulk with `tables.validate()`.
@@ -282,7 +347,7 @@ For the full design, and the reasons behind it, see {ref}`sec_design_mutations`.
 Some simple forward-time simulators are provided in the experimental
 {ref}`giglib.tools.simulation <sec_tools_simulation>` module. They are based on a relatively simple extension
 of the boilerplate forward-simulation code in the _tskit_ [forward-time simulation tutorial](https://tskit.dev/tutorials/forward_sims.html). The important
-difference is that the {meth}`~giglib.Tables.find_mrca_regions` method is used to locate breakpoints
+difference is that the {meth}`~giglib.Tables.find_homology` method is used to locate breakpoints
 for recombination. Currently only forward simulation code is provided. Nevertheless, it is conceptually
 general enough to form the basis of a pangenome simulator (this would however require
 substantial effort in fixing reasonable parameters before realistic-looking pangenomes

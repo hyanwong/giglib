@@ -129,36 +129,3 @@ def set_print_options(*, max_lines=40):
     from . import _print_options  # pylint: disable=import-outside-toplevel
 
     _print_options["max_lines"] = max_lines
-
-
-def add_rectangle(ax, X, y, color, height=0.8):
-    """
-    Plotting utility function for adding rectangles to MRCA plots (needs matplotlib)
-    """
-    import matplotlib.patches as patches  # optional: only needed for plotting
-
-    width = X[1] - X[0]
-    rect = patches.Rectangle((X[0], y), width, height, facecolor=color)
-    ax.add_patch(rect)
-
-
-def add_triangle(ax, X, y, direction, color, height=0.8):
-    """
-    Plotting utility function for adding triangles to MRCA plots (needs matplotlib)
-    """
-    import matplotlib.patches as patches  # optional: only needed for plotting
-
-    if direction == "right":
-        vertices = [(X[0], y), (X[0], y + height), (X[1], y + height / 2)]
-    else:
-        vertices = [(X[0], y + height / 2), (X[1], y), (X[1], y + height)]
-
-    triangle = patches.Polygon(vertices, closed=True, facecolor=color)
-    ax.add_patch(triangle)
-
-
-def add_row_label(ax, x_offset, y_pos, text, fontsize, color):
-    """
-    Plotting utility function for adding row labels to MRCA plots
-    """
-    ax.text(x_offset, y_pos, text, va="center", ha="right", fontsize=fontsize, color=color)

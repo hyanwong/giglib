@@ -321,7 +321,7 @@ conversation about the giglib API, mutations, and storage (November 2026), and i
   iedge (a shift, reversed for an inversion). All the code that maps positions or intervals
   through iedges uses it. Maps along a chain of iedges combine into one with
   {meth}`~giglib.PositionMap.then`, which is what composing iedges needs.
-- {meth}`~giglib.Tables.find_mrca_regions`: traces two genomes up to their MRCAs, which is the
+- {meth}`~giglib.Tables.find_homology`: traces two genomes up to their MRCAs, which is the
   operation the homology table aims to speed up.
 - `Graph._known_alleles()`: traces positions up through iedges, combining their position maps
   as it goes, as composing iedges will.

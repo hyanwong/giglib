@@ -3,6 +3,7 @@ Tests for giglib.tools.homology: homology blocks between two genomes, and chains
 """
 
 import msprime
+import numpy as np
 import pytest
 
 import giglib as gigl
@@ -129,53 +130,91 @@ def cnv_tables():
     return tables
 
 
-class TestFindHomology:
+class TestFindAllHomology:
+    """
+    The homology found by find_homology with mode="all", as used for the plots
+    """
+
     def test_copies_in_a_common_ancestor(self):
         # As well as the recent homology, the copies made in the common ancestor are
-        # homologous to each other through the old ancestor (which find_mrca_regions misses)
+        # homologous to each other through the old ancestor (which mode "first_mrca" misses)
+        tables = cnv_tables()
         found = [
-            (h.u_left, h.u_right, h.v_left, h.v_right, h.mrca, h.tmrca)
-            for h in homology.find_homology(cnv_tables(), 2, 3)
+            (h.u.left, h.u.right, h.v.left, h.v.right, h.mrca, tables.nodes.time[h.mrca])
+            for h in tables.find_homology(2, 3, mode="all")
         ]
+        # (Segments are cut where the copies of the common ancestor's segments change)
         assert found == [
-            (0, 50, 0, 50, 1, 1),
+            (0, 40, 0, 40, 1, 1),
             (30, 40, 40, 50, 0, 10),
             (40, 50, 30, 40, 0, 10),
+            (40, 50, 40, 50, 1, 1),
             (50, 60, 30, 40, 0, 10),
-            (50, 100, 40, 90, 1, 1),
+            (50, 60, 40, 50, 1, 1),
+            (60, 100, 50, 90, 1, 1),
         ]
 
     def test_time_cutoff(self):
-        found = homology.find_homology(cnv_tables(), 2, 3, time_cutoff=5)
-        assert {h.tmrca for h in found} == {1}
-
-    @pytest.mark.parametrize("seed", [1, 2, 3])
-    def test_matches_find_mrca_regions_without_duplications(self, seed):
-        # Without duplications, each position has one homologous position, through its MRCA
-        ts = msprime.sim_ancestry(3, sequence_length=60, recombination_rate=0.03, random_seed=seed)
-        tables = gigl.Tables.from_tree_sequence(ts)
-        u, v = 0, 3
-        expected = {}
-        for mrca, intervals in tables.find_mrca_regions(u, v).items():
-            for u_segments, v_segments in intervals.values():
-                for (ul, ur, _), (vl, _, _) in zip(u_segments, v_segments):
-                    for x in range(ul, ur):
-                        expected[x] = (x - ul + vl, tables.nodes.time[mrca])
-        found = {}
-        for h in homology.find_homology(tables, u, v):
-            for x in range(h.u_left, h.u_right):
-                found[x] = (x - h.u_left + h.v_left, h.tmrca)
-        assert found == expected
-        assert len(found) == 60
-
-    def test_same_genome(self):
-        with pytest.raises(ValueError, match="different genomes"):
-            homology.find_homology(cnv_tables(), 2, 2)
+        tables = cnv_tables()
+        found = tables.find_homology(2, 3, mode="all", time_cutoff=5)
+        assert {h.mrca for h in found} == {1}
 
     def test_plot_shows_old_homology(self):
         ax = homology.plot(cnv_tables(), 2, 3)
         (collection,) = ax.collections
-        assert sorted(collection.get_array()) == [1, 1, 10, 10, 10]
+        assert sorted(collection.get_array()) == [1, 1, 1, 1, 10, 10, 10]
+
+
+class TestRandomHomologousPositions:
+    def test_both_positions_chosen(self):
+        # Two positions, each homologous to the same position in v
+        ts = msprime.sim_ancestry(2, sequence_length=2, random_seed=1)
+        tables = gigl.Tables.from_tree_sequence(ts)
+        shared = tables.find_homology(0, 1)
+        rng = np.random.default_rng(1)
+        chosen = set()
+        for _ in range(20):
+            pos = homology.random_homologous_positions(shared, rng)
+            assert isinstance(pos.u, gigl.Position)
+            assert isinstance(pos.v, gigl.Position)
+            assert not pos.opposite_orientations
+            assert pos.u == pos.v
+            chosen.add(pos.u)
+        assert chosen == {(0, 0), (1, 0)}
+
+    def test_chromosomes_and_orientation(self):
+        # u (node 0) and v (node 1) inherit from node 2: u on chromosome 1, and v on
+        # chromosome 0, inverted
+        tables = gigl.Tables()
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+        tables.nodes.add_row(1)
+        tables.iedges.add_row(0, 2, child_right=10, child_chromosome=1, parent_chromosome=1)
+        tables.iedges.add_row(
+            1, 2, child_left=0, child_right=10, parent_left=10, parent_right=0, child_chromosome=0, parent_chromosome=1
+        )
+        tables.sort()
+        tables.validate()
+        shared = tables.find_homology(0, 1)
+        rng = np.random.default_rng(1)
+        for _ in range(10):
+            pos = homology.random_homologous_positions(shared, rng)
+            assert pos.u.chromosome == 1
+            assert pos.v.chromosome == 0
+            assert pos.opposite_orientations
+            assert pos.u.position + pos.v.position == 9
+
+    def test_copies(self):
+        # Positions 40-50 of the common ancestor (node 1) have two copies in genome 2
+        # (40-50 and 50-60), and one in genome 3 (40-50): either copy can be chosen
+        shared = cnv_tables().find_homology(2, 3)
+        rng = np.random.default_rng(1)
+        offsets = set()
+        for _ in range(200):
+            pos = homology.random_homologous_positions(shared, rng)
+            if 40 <= pos.v.position < 50:
+                offsets.add(pos.u.position - pos.v.position)
+        assert offsets == {0, 10}
 
 
 class TestPlot:
@@ -230,8 +269,8 @@ class TestReviewCases:
         tables.iedges.set_bitflag(
             gigl.ValidFlags.IEDGES_FOR_CHILD_ADJACENT | gigl.ValidFlags.IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC
         )
-        with pytest.raises(ValueError, match="not older than child"):
-            homology.find_homology(tables, 0, 1)
+        with pytest.raises(ValueError, match="validity flags"):
+            tables.find_homology(0, 1)
 
     def test_axes_cover_a_root(self):
         # A root (0) has no iedges above it, but the axes cover its homology with a child

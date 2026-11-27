@@ -17,7 +17,7 @@ kernelspec:
 
 `DTWF_one_break_no_rec_inversions_slow_sim` is a forward-time simulator (see
 {ref}`sec_tools_simulation`) with recombination. Each meiosis has one crossover, placed by
-using {meth}`~giglib.Tables.find_mrca_regions` to find positions in the two parent genomes
+using {meth}`~giglib.Tables.find_homology` to find positions in the two parent genomes
 that are homologous. If those positions are in opposite orientations (i.e. in an inversion
 relative to each other), the simulator picks another position, so it never recombines across
 an inversion.

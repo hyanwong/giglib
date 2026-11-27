@@ -15,6 +15,7 @@ from .constants import (
 )
 from .graph import Graph  # noqa: F401
 from .tables import (
+    Homology,  # noqa: F401
     Position,  # noqa: F401
     PositionMap,  # noqa: F401
     Segment,  # noqa: F401

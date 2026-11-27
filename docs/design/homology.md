@@ -55,7 +55,7 @@ Each iedge maps an interval of a child's genome onto an interval of its parent's
 the iedges gives its position in each ancestor. Two positions, in genomes `u` and `v`, are
 homologous if they reach the same position in some common ancestor. The position at which this
 first happens is in their most recent common ancestor (MRCA) at that position.
-{meth}`~giglib.Tables.find_mrca_regions` finds all the regions of `u` and `v` that are homologous
+{meth}`~giglib.Tables.find_homology` finds all the regions of `u` and `v` that are homologous
 in this way, and where they are in each genome.
 
 This is homology by descent, which is reference-free. It is not the same as similarity of sequence,
@@ -74,7 +74,7 @@ the homologous interval of `v`, and the map between them. A block can span sever
 (different ancestors at different positions), as long as the map is the same.
 
 A block has a length, an orientation (whether the map is reversed), and a pair of chromosomes. The
-MRCA regions found by {meth}`~giglib.Tables.find_mrca_regions` are already grouped by map, so
+MRCA regions found by {meth}`~giglib.Tables.find_homology` are already grouped by map, so
 blocks can be found by merging adjacent regions with the same map. As a block can span several
 MRCAs, it has no single MRCA or time to the MRCA (TMRCA): it keeps the MRCA of each of its
 sub-intervals (as a list of intervals of `u`, each with its MRCA node and time), so that a rule
@@ -368,7 +368,7 @@ provided by _giglib_, as long as it stays reference-free:
 
 - **The homology between two genomes:** a list of blocks, each with its intervals in `u` and `v`,
   its chromosomes, its {class}`~giglib.PositionMap`, and the MRCA (node and time) of each of its
-  sub-intervals. This is largely {meth}`~giglib.Tables.find_mrca_regions`, with adjacent regions
+  sub-intervals. This is largely {meth}`~giglib.Tables.find_homology`, with adjacent regions
   that share a map merged (keeping their MRCAs).
 - **The homologous positions of a single position:** given a position in `u`, its homologous
   positions in `v` (with their orientations), found by tracing up from both genomes until they
