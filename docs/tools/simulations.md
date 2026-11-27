@@ -12,7 +12,7 @@ structural variants (see {ref}`sec_usage_simulations`). Each simulator has a pag
   and crossovers placed using chains of homology.
 - {ref}`sec_tools_simulation_microsatellites_backward`: backward in time, laying
   microsatellites on a genealogy simulated with msprime.
-- {ref}`sec_tools_simulation_single_origin` (planned): forward in time, growing genomes from a
+- {ref}`sec_tools_simulation_single_origin`: forward in time, growing genomes from a
   single base pair by tandem duplication.
 
 The rules a simulator uses (e.g. where crossovers can happen, between which copies of a

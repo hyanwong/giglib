@@ -262,14 +262,19 @@ def random_homologous_positions(homology, rng):
         loc -= right - left
 
 
-def plot(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=None, ax=None, cmap="viridis", linewidth=3):
+def plot(
+    tables, u, v, *, mode="all", u_chromosome=0, v_chromosome=0, time_cutoff=None, ax=None, cmap="viridis", linewidth=3
+):
     """
     Plot the homology between a chromosome of genome ``u`` and a chromosome of genome
     ``v`` as a dot plot: each homologous segment is a line from its start to its end, at
     its position in ``u`` (horizontally) and in ``v`` (vertically), coloured by its time to
-    the most recent common ancestor (TMRCA). All the homology is shown (found with
-    :meth:`~giglib.Tables.find_homology`, with ``mode="all"``), including that older than
-    a more recent common ancestor of other positions. Allelic homology is a diagonal line, with a
+    the most recent common ancestor (TMRCA). By default, all the homology is shown (found
+    with :meth:`~giglib.Tables.find_homology`, with ``mode="all"``), including that older
+    than a more recent common ancestor of other positions. If everything is ultimately
+    homologous (e.g. descends from a single ancestral position), that can be too much, and
+    ``mode="closest_homologues"`` shows only the closest homology of each position.
+    Allelic homology is a diagonal line, with a
     recent TMRCA; copies (e.g. of a TE, or of a copy-number variant) are lines off the
     diagonal, coloured by the age of the duplication; and reversed homology (e.g. an
     inversion) runs from top left to bottom right. With the default colour map, recent
@@ -282,6 +287,8 @@ def plot(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=None, ax=N
         :meth:`~giglib.Tables.find_homology`)
     :param int u: The first genome (node ID)
     :param int v: The second genome (node ID)
+    :param str mode: Which homology to show: the ``mode`` of
+        :meth:`~giglib.Tables.find_homology` (default ``"all"``)
     :param int u_chromosome: The chromosome of ``u`` (default 0)
     :param int v_chromosome: The chromosome of ``v`` (default 0)
     :param float time_cutoff: If given, only show homology with a TMRCA at most this old
@@ -298,7 +305,7 @@ def plot(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=None, ax=N
     from matplotlib.collections import LineCollection
 
     homology = tables.find_homology(
-        u, v, mode="all", u_chromosome=u_chromosome, v_chromosome=v_chromosome, time_cutoff=time_cutoff
+        u, v, mode=mode, u_chromosome=u_chromosome, v_chromosome=v_chromosome, time_cutoff=time_cutoff
     )
     node_times = tables.nodes.time
     # Draw older homology first, so that more recent homology is drawn on top of it

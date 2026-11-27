@@ -7,6 +7,7 @@ from giglib.tools.simulation.microsatellites_backward import sim_microsatellites
 from giglib.tools.simulation.microsatellites_forward import DTWF_microsatellite_sim
 from giglib.tools.simulation.no_recombination import DTWF_no_recombination_sim
 from giglib.tools.simulation.one_break_inversions import DTWF_one_break_no_rec_inversions_slow_sim
+from giglib.tools.simulation.single_origin import sim_single_origin
 
 INVERTED_CHILD_FLAG = 1 << 17
 
@@ -531,3 +532,55 @@ class TestMicrosatellitesBackward:
             sim_microsatellites_backward(
                 2, 1000, loci, max_units=5, population_size=100, recombination_rate=0, mutation_rate=0
             )
+
+
+class TestSingleOrigin:
+    def test_population_grows_then_stays_the_same_size(self):
+        gig = sim_single_origin(10, 8, duplication_rate=0.1, deletion_rate=0.1, random_seed=1)
+        times, counts = np.unique(gig.tables.nodes.time, return_counts=True)
+        # From the most recent generation (time 0) back to the single genome (time 8)
+        assert list(times) == list(range(9))
+        assert list(counts) == [10, 10, 10, 10, 10, 8, 4, 2, 1]
+        assert len(gig.sample_nodes()) == 10
+
+    def test_no_duplications_or_deletions(self):
+        gig = sim_single_origin(5, 10, duplication_rate=0, deletion_rate=0, random_seed=1)
+        assert {gig.sequence_length(u) for u in gig.sample_nodes().ids} == {1}
+
+    def test_duplications_only(self):
+        # Each duplication adds at least one position, so after 10 generations a genome
+        # has at least 11
+        gig = sim_single_origin(5, 10, duplication_rate=1, deletion_rate=0, random_seed=1)
+        assert min(gig.sequence_length(u) for u in gig.sample_nodes().ids) >= 11
+
+    def test_deletions_keep_a_position(self):
+        gig = sim_single_origin(5, 50, duplication_rate=0.5, deletion_rate=0.5, random_seed=1)
+        assert min(gig.sequence_length(u) for u in gig.sample_nodes().ids) >= 1
+
+    def test_every_position_descends_from_the_single_base(self):
+        gig = sim_single_origin(5, 30, duplication_rate=0.5, deletion_rate=0.2, mean_length=3, random_seed=1)
+        root = 0
+        assert gig.nodes[root].time == 30
+        for u in gig.sample_nodes().ids:
+            # Every position of u is homologous to the root's single position, through the root
+            homology = gig.find_homology(root, u)
+            assert all(h.u == (0, 1, 0) and h.mrca == root for h in homology)
+            assert sum(h.length for h in homology) == gig.sequence_length(u)
+
+    def test_reproducible(self):
+        params = {"duplication_rate": 0.2, "deletion_rate": 0.1, "random_seed": 3}
+        assert sim_single_origin(5, 20, **params).tables == sim_single_origin(5, 20, **params).tables
+
+    def test_rates_too_high(self):
+        with pytest.raises(ValueError, match="add up to more than 1"):
+            sim_single_origin(5, 20, duplication_rate=0.6, deletion_rate=0.6)
+
+    @pytest.mark.parametrize(("duplication_rate", "deletion_rate"), [(1.2, -0.3), (0.5, float("nan"))])
+    def test_rates_not_probabilities(self, duplication_rate, deletion_rate):
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            sim_single_origin(5, 20, duplication_rate=duplication_rate, deletion_rate=deletion_rate)
+
+    @pytest.mark.parametrize(("population_size", "generations"), [(0, 10), (5, 0)])
+    def test_too_small(self, population_size, generations):
+        with pytest.raises(ValueError, match="at least 1"):
+            sim_single_origin(population_size, generations, duplication_rate=0.1, deletion_rate=0.1)
