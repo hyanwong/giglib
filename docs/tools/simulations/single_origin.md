@@ -135,10 +135,12 @@ recent genome with a duplication against its parent:
 from giglib.tools import homology
 
 samples = gig.sample_nodes().ids
-# The most recent genome with a duplication (which gives it 3 iedges): nodes are numbered in
-# the order they were made, so the most recent have the highest IDs
-child = next(n for n in reversed(range(len(gig.nodes))) if len(gig.iedges_for_child(n)) == 3)
-parent = gig.iedges_for_child(child)[0].parent
+# The most recent genome with a duplication, i.e. that is longer than its parent: nodes are
+# numbered in the order they were made, so the most recent have the highest IDs
+for child in reversed(range(1, len(gig.nodes))):
+    parent = gig.iedges_for_child(child)[0].parent
+    if gig.sequence_length(child) > gig.sequence_length(parent):
+        break
 
 fig, axes = plt.subplots(1, 3, figsize=(16, 5))
 for ax, (u, v) in zip(axes, [(samples[0], samples[1]), (samples[2], samples[3]), (child, parent)]):

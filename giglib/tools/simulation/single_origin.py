@@ -41,6 +41,10 @@ def sim_single_origin(
     :return: A GIG
     :rtype: giglib.Graph
     """
+    if population_size < 1 or generations < 1:
+        raise ValueError("The population size and number of generations must be at least 1")
+    if not (0 <= duplication_rate <= 1 and 0 <= deletion_rate <= 1):
+        raise ValueError("The rates of duplication and deletion must be between 0 and 1")
     if duplication_rate + deletion_rate > 1:
         raise ValueError("The rates of duplication and deletion can't add up to more than 1")
     rng = np.random.default_rng(random_seed)

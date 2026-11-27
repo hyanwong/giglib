@@ -574,3 +574,13 @@ class TestSingleOrigin:
     def test_rates_too_high(self):
         with pytest.raises(ValueError, match="add up to more than 1"):
             sim_single_origin(5, 20, duplication_rate=0.6, deletion_rate=0.6)
+
+    @pytest.mark.parametrize(("duplication_rate", "deletion_rate"), [(1.2, -0.3), (0.5, float("nan"))])
+    def test_rates_not_probabilities(self, duplication_rate, deletion_rate):
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            sim_single_origin(5, 20, duplication_rate=duplication_rate, deletion_rate=deletion_rate)
+
+    @pytest.mark.parametrize(("population_size", "generations"), [(0, 10), (5, 0)])
+    def test_too_small(self, population_size, generations):
+        with pytest.raises(ValueError, match="at least 1"):
+            sim_single_origin(population_size, generations, duplication_rate=0.1, deletion_rate=0.1)
