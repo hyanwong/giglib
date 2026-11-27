@@ -1,5 +1,5 @@
-portion
 networkx
+sortedcontainers
 matplotlib
 tskit
 jupyter-book<2

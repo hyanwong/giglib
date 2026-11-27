@@ -13,7 +13,7 @@ import tomllib
 ROOT = pathlib.Path(__file__).parent.parent
 
 # Modules that tests and optional features use, but giglib itself must not need
-OPTIONAL = ["matplotlib", "pandas", "networkx", "msprime"]
+OPTIONAL = ["matplotlib", "pandas", "networkx", "msprime", "portion"]
 
 
 @pytest.mark.parametrize("optional", OPTIONAL)

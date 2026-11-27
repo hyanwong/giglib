@@ -1,3 +1,4 @@
+# portion: only used by the tests, to check giglib.intervals
 portion
 pytest
 pytest-cov
@@ -5,6 +6,7 @@ pytest-xdist
 tskit
 msprime
 numpy
+sortedcontainers
 networkx
 pandas
 matplotlib
