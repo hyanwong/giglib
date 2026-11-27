@@ -203,9 +203,11 @@ yet.
   have grown. It also means many records of homology (one for each pair of copies), which is a
   reason to consider a grouped form of the records (see the open questions of the
   {ref}`homology design note <sec_design_homology>`).
-- **Finding the closest homologues needed a stopping rule.** Tracing every lineage to the single
-  base at the start took minutes; stopping once every position has found homology ({pr}`230`)
-  takes seconds.
+- **Finding homology needed to be faster.** At first, finding the closest homologues of two
+  genomes here took minutes, as every lineage was traced back to the single base at the start,
+  and so did finding all the homology. Stopping once every position has found homology
+  ({pr}`230`), and giglib's own operations on intervals ({pr}`234`), brought these down to a
+  fraction of a second, and a second or two.
 - **No simplification yet.** Each generation adds `N` nodes, which are never removed, as a full
   equivalent of _tskit_'s `simplify()` doesn't exist yet (see {ref}`sec_design_simplification`).
 
