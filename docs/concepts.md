@@ -57,8 +57,10 @@ that belong to the same graph edge can be given the same `edge` ID.)
 ```
 
 Separating child from parent coordinates means that some of _tskit_'s machinery, such as the edge
-indexes used to iterate over local trees, doesn't apply (a GIG has no local trees), so _giglib_ has
-its own indexes (see {ref}`sec_design_storage`).
+indexes used to iterate over local trees, doesn't apply, so _giglib_ has its own indexes (see
+{ref}`sec_design_storage`). A GIG does contain local trees, but as genomes don't share a coordinate
+system, there is no single tree at position x in all genomes, and the tree for a position can
+include a sample genome several times (after a duplication) or not at all (after a deletion).
 
 ## Structural variation
 
