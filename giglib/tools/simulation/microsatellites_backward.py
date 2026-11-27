@@ -87,11 +87,12 @@ def sim_microsatellites_backward(
     motifs = dict(loci)
     span = {position: len(motif) * max_units for position, motif in loci}
     shift_after = np.cumsum([0] + [span[p] - 1 for p in positions])  # the shift after the first i loci
+    sorted_positions = np.array(positions)  # (made once, rather than by every searchsorted call)
 
     def new_position(x):
         # x can be a position or an array of them: searchsorted gives the number of
-        # loci before each (positions is sorted)
-        return x + shift_after[np.searchsorted(positions, x)]
+        # loci before each
+        return x + shift_after[np.searchsorted(sorted_positions, x)]
 
     def allele(position, num_units):
         repeats = motifs[position] * int(num_units)
