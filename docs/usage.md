@@ -53,7 +53,7 @@ the iedges above and below a genome, and `IEdge.transform_position()` (or a
 homologous, e.g. to place crossovers. `find_homology(u, v)` finds the segments of `u` and `v`
 that descend from the same segment of a common ancestor. In a GIG, sequences can be homologous
 at different levels (reflecting the fact that e.g. genes within a gene family are homologous to
-some degree), and its `mode` says which to find: see {ref}`sec_usage_homology` below.
+some degree), and its `mode` says which to find: see {ref}`finding homology <sec_usage_homology>` below.
 
 **Trimming.** `sample_resolve()` removes material that doesn't reach the samples, and
 `decapitate()` removes everything older than a given time. (A full equivalent of _tskit_'s
@@ -88,7 +88,7 @@ homology through older ancestors, e.g. with copies of a region that was duplicat
 every position ultimately descends from a single ancestral position, every pair of positions is
 homologous at some level, and what matters is the time of their MRCA (TMRCA).
 
-{meth}`~giglib.Tables.find_homology` (or {meth}`~giglib.Graph.find_homology`) finds the
+{meth}`Tables.find_homology() <giglib.Tables.find_homology>` (or {meth}`Graph.find_homology() <giglib.Graph.find_homology>`) finds the
 homology between two genomes, as a list of {class}`~giglib.Homology` records. Each gives a
 segment of `u`, the homologous segment of `v`, their MRCA, and the segment of the MRCA they
 descend from. Its `mode` says which homology to find:
@@ -133,7 +133,7 @@ copy, so it isn't there for `u`'s second copy to meet. The other modes find that
 copy is homologous to `v`'s only copy, through the older ancestor `R`: this is the closest
 homology of `u`'s second copy, as `v` has nothing closer. The experimental
 {ref}`homology tools <sec_tools_homology>` build on this, e.g. to join homology into chains,
-and to plot it. The {ref}`sec_design_homology` design note discusses homology in more detail.
+and to plot it. The {ref}`homology design note <sec_design_homology>` discusses homology in more detail.
 
 (sec_usage_consistency)=
 

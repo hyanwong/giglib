@@ -2,7 +2,7 @@
 
 # Recombination
 
-**Status: Proposed.** How simulators can use homology ({ref}`sec_design_homology`) to restrict
+**Status: Proposed.** How simulators can use homology (see the {ref}`homology design note <sec_design_homology>`) to restrict
 recombination in plausible ways. The rules here are simulator approximations, to be tested
 ({issue}`202`), and are *policy* for each simulator to choose, built on the *mechanism* that
 _giglib_ provides. Related: {issue}`121` (transposable element simulations), {issue}`83` (stopping
@@ -21,7 +21,7 @@ _giglib_ provides. Related: {issue}`121` (transposable element simulations), {is
   colinear homology a good proxy for allelic homology, without a reference (though not a perfect
   one: e.g. long segmental duplications are long and colinear too).
 - **Long, colinear homology is found by chaining** homology blocks across small gaps (see
-  {ref}`sec_design_homology`), so rules for crossovers can be based on chains.
+  {ref}`the homology design note <sec_design_homology>`), so rules for crossovers can be based on chains.
 - **Policy belongs to simulators, mechanism can be in giglib.** The *rules* for recombination
   (where crossovers may happen, thresholds and rates) are choices for each simulator, not part of
   _giglib_'s model.
