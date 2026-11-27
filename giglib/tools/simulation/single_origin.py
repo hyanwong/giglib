@@ -23,8 +23,10 @@ def sim_single_origin(
     deletion with probability ``deletion_rate``. A duplication copies a stretch of the
     parent's genome, and puts the copy straight after it. A deletion removes a stretch, but
     never the whole genome (so a genome of length 1 can't have one). The length of the
-    stretch is drawn from a geometric distribution with mean ``mean_length``, but is no
-    longer than the parent's genome (or one less, for a deletion).
+    stretch is drawn from a geometric distribution with mean ``mean_length``, and redrawn
+    if longer than the parent's genome (or one less, for a deletion). Capping it instead
+    would make a deletion of most of a short genome common, and leave many genomes with a
+    single position.
 
     There is no recombination, and no selection. No mutations are added, so the genomes
     have no sequence, but their homology is recorded by the iedges.
@@ -68,6 +70,18 @@ def sim_single_origin(
     return tables.graph()
 
 
+def _stretch_length(rng, mean_length, max_length):
+    """
+    The length of a duplicated or deleted stretch: geometric with mean ``mean_length``,
+    conditioned on being at most ``max_length`` (by redrawing). As a length of 1 has
+    probability ``1 / mean_length``, this takes at most ``mean_length`` draws on average.
+    """
+    while True:
+        length = rng.geometric(1 / mean_length)
+        if length <= max_length:
+            return int(length)
+
+
 def _add_child(tables, rng, child, parent, n, duplication_rate, deletion_rate, mean_length):
     """
     Add the iedges from a parent of length ``n`` to its child, and return the length of
@@ -76,13 +90,13 @@ def _add_child(tables, rng, child, parent, n, duplication_rate, deletion_rate, m
     event = rng.random()
     if event < duplication_rate:
         # Repeat positions [s, s + L) of the parent: the copy follows the original
-        L = min(rng.geometric(1 / mean_length), n)
+        L = _stretch_length(rng, mean_length, n)
         s = rng.integers(0, n - L + 1)
         pieces = [(0, s + L, 0), (s + L, s + 2 * L, s), (s + 2 * L, n + L, s + L)]
         new_length = n + L
     elif event < duplication_rate + deletion_rate and n > 1:
         # Remove positions [s, s + L) of the parent
-        L = min(rng.geometric(1 / mean_length), n - 1)
+        L = _stretch_length(rng, mean_length, n - 1)
         s = rng.integers(0, n - L + 1)
         pieces = [(0, s, 0), (s, n - L, s + L)]
         new_length = n - L
