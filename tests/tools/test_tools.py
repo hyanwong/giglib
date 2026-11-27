@@ -2,6 +2,7 @@
 Tests for the experimental giglib.tools subpackage
 """
 
+import fnmatch
 import pathlib
 import subprocess
 import sys
@@ -23,8 +24,13 @@ def test_importable():
 
 
 def test_packaged():
-    # The packages are listed explicitly, so a subpackage is left out of wheels unless listed
+    # setuptools finds the packages to put in wheels by matching these patterns, so every
+    # package (each directory of giglib with an __init__.py) must match one
     root = pathlib.Path(__file__).parent.parent.parent
     with open(root / "pyproject.toml", "rb") as f:
         config = tomllib.load(f)
-    assert "giglib.tools" in config["tool"]["setuptools"]["packages"]
+    patterns = config["tool"]["setuptools"]["packages"]["find"]["include"]
+    packages = [".".join(path.parent.relative_to(root).parts) for path in (root / "giglib").rglob("__init__.py")]
+    assert "giglib.tools.simulation" in packages
+    for package in packages:
+        assert any(fnmatch.fnmatch(package, pattern) for pattern in patterns), package
