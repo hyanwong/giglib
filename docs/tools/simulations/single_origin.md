@@ -209,8 +209,9 @@ yet.
   and so did finding all the homology. Stopping once every position has found homology
   ({pr}`230`), and giglib's own operations on intervals ({pr}`234`), brought these down to a
   fraction of a second, and a second or two.
-- **No simplification yet.** Each generation adds `N` nodes, which are never removed, as a full
-  equivalent of _tskit_'s `simplify()` doesn't exist yet (see {ref}`sec_design_simplification`).
+- **Simplification.** Each generation adds `N` nodes, most of which are not needed to describe
+  the ancestry of the samples. {meth}`~giglib.Tables.simplify` removes them (see
+  {ref}`sec_design_simplification`), without changing the homology between the samples.
 
 ```{eval-rst}
 .. automodule:: giglib.tools.simulation.single_origin

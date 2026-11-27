@@ -2,9 +2,8 @@
 
 # Simplification
 
-**Status: Proposed.** Nothing here is implemented yet, apart from
-{meth}`~giglib.Tables.sample_resolve`, which does not remove nodes. What simplification keeps
-(the branch points of the position tree, below) is proposed for agreement before implementing it.
+**Status: Partly implemented.** {meth}`~giglib.Tables.simplify` keeps the branch points of the
+position tree, region by region, with the algorithm below. The homology table is not implemented.
 Several other choices are left open, to be decided by performance measurements on forward
 simulations (see {ref}`sec_design_simplification_evaluation`).
 Related: {issue}`140` (a "homology table" for locating recombination breakpoints),

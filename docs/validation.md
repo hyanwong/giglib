@@ -98,6 +98,7 @@ Some examples of what methods require:
 | `tables.iedges.ids_for_child()` | `IEDGES_FOR_CHILD_ADJACENT`, `IEDGES_FOR_CHILD_PRIMARY_ORDER_CHR_ASC` |
 | `tables.find_homology()` | `IEDGES_FOR_TRACING` |
 | `tables.sample_resolve()` | `IEDGES_FOR_TRACING` |
+| `tables.simplify()` | `IEDGES_FOR_TRACING` |
 | `tables.iedges.squash()` | `IEDGES_WITHIN_CHILD_SORTED` |
 | `tables.graph()` | `GIG` (everything) |
 
@@ -301,6 +302,7 @@ need, and the flags they leave on their output:
 | Method | Requires | Leaves |
 |---|---|---|
 | {meth}`~giglib.Tables.sample_resolve` | `IEDGES_FOR_TRACING` | the input's order-independent flags, plus the ordering flags (from sorting) |
+| {meth}`~giglib.Tables.simplify` | `IEDGES_FOR_TRACING` | all the flags (it builds new tables, and validates them) |
 | {meth}`~giglib.Tables.decapitate` | none, unless there are mutations to keep (with the default `discard_old_mutations=False`), when the tables must form a valid GIG | the input's order-independent flags, plus the ordering flags |
 | {meth}`~giglib.Tables.remove_non_ancestral_nodes` | `IEDGES_PARENT_OLDER_THAN_CHILD` (so that node IDs are valid) | all the flags |
 | {meth}`~giglib.Tables.sort` | (none) | adds the ordering flags |

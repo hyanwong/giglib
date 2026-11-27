@@ -112,7 +112,7 @@ simulations with structural variants and recombination: see the
 | `ts.sites()`, `ts.mutations()` | `gig.mutations` (no sites table: see below) |
 | `site.ancestral_state` | A mutation above a root |
 | `ts.alignments()` | `gig.haplotype(u)` (for one node) |
-| `ts.simplify()` | `gig.sample_resolve()` (a basic version, so far) |
+| `ts.simplify()` | `gig.simplify()` |
 
 Where tskit and internal consistency conflict, giglib chooses consistency. A few rules keep the
 API predictable:
@@ -135,8 +135,6 @@ equivalent.
   no `ts.variants()` equivalent or reference sequence yet: alleles are decoded one node at a time,
   with `gig.haplotype(u)` or `gig.allele_at(u, position)` (see
   [Mutations](https://hyanwong.github.io/giglib/usage.html#mutations)).
-- **Simplification that removes nodes.** `gig.sample_resolve()` removes the parts of iedges that
-  don't lead to samples, but keeps every node, so it isn't yet a full `simplify()`.
 
 For the full story, see [Concepts](https://hyanwong.github.io/giglib/concepts.html) (how
 rearrangements are encoded) and [Usage](https://hyanwong.github.io/giglib/usage.html) (all the
