@@ -55,8 +55,10 @@ Each iedge maps an interval of a child's genome onto an interval of its parent's
 the iedges gives its position in each ancestor. Two positions, in genomes `u` and `v`, are
 homologous if they reach the same position in some common ancestor. The position at which this
 first happens is in their most recent common ancestor (MRCA) at that position.
-{meth}`~giglib.Tables.find_homology` finds all the regions of `u` and `v` that are homologous
-in this way, and where they are in each genome.
+{meth}`~giglib.Tables.find_homology` finds the regions of `u` and `v` that are homologous in
+this way, and where they are in each genome: with `mode="all"`, all of them; by default
+(`mode="first_mrca"`), it stops tracing each lineage at its first MRCA, so it can miss older
+homology of duplicated regions (see {ref}`sec_usage_homology`).
 
 This is homology by descent, which is reference-free. It is not the same as similarity of sequence,
 which is what the cell's recombination machinery detects. But old homology has had more time to
