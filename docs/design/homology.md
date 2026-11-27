@@ -19,7 +19,7 @@ kernelspec:
 finding it. How simulators can use it to restrict recombination is in the companion note,
 {ref}`sec_design_recombination`. Chains are a *heuristic*: a testable starting point, not a
 definition of which homology is allelic ({issue}`202`). Related: {issue}`111` (levels of homology),
-{issue}`140` (the homology table), {issue}`210` (maps to the roots), {issue}`102` (homology of a
+{ref}`sec_design_homology_table` ({issue}`140`, {issue}`210`), {issue}`102` (homology of a
 single position), {ref}`sec_design_simplification` (duplication nodes). Testing: {issue}`202`
 (simulations with microsatellites and a centromere) and {issue}`221` (genomes from a single base
 pair).
@@ -251,29 +251,11 @@ pairings of copies for allelic crossovers, and at what rate to allow unequal one
 
 ## The homology table, as a cache
 
-The *homology table* of {issue}`140` maps each genome directly to an ancestor, by composing the
-iedges along the way. This **merges changes across generations**: e.g. a microsatellite that
-expanded, contracted and expanded again over many generations becomes a single net shift, or none
-at all if it returned to its ancestral length (and the pieces either side then merge). So the
-number of pieces in a genome's map depends on how many places it differs from the ancestor, not on
-how many generations it went through, and it saves tracing through every intermediate ancestor.
-
-But it **can't merge differences between individuals**. The map from `u` to `v` is `u`'s map to the
-ancestor, followed by the inverse of `v`'s. It has a piece boundary wherever the two genomes differ
-in length, e.g. where they carry different numbers of repeats at a microsatellite, because that is
-a real difference between them. So the homology table makes the blocks between `u` and `v` cheap to
-find, and as few as possible, while chaining is still what decides which homology is allelic. The
-homology table is an optional cache for speed, not part of the definition of homology.
-
-(sec_design_homology_root_maps)=
-
-**Maps to the roots are enough for blocks.** Homology blocks don't depend on *which* ancestor gives
-the homology, only on *where* positions map to. As each position traces up to exactly one root
-position, the blocks between `u` and `v` are where their maps to the roots reach the same root
-position. These maps are what the most aggressive simplification (removing every node between the
-genomes and their roots) would give, and in a forward simulation they can be kept up to date at
-each birth, by composing the parents' maps through the child's iedges. But they find homology of
-every age, so queries that report the TMRCA need the coalescence nodes as well ({issue}`210`).
+Finding homology traces genomes up through the graph. The homology table
+({ref}`sec_design_homology_table`) would be a cache that maps genomes directly to a few kept
+ancestors, so that blocks of homology, and homologous positions (e.g. to place crossovers), are
+found without tracing. It is optional: it must not change the answers, only how quickly they are
+found, and it doesn't give MRCAs or their times.
 
 ## What giglib would provide
 
@@ -294,10 +276,10 @@ provided by _giglib_, as long as it stays reference-free:
   than finding all the homology between two genomes.
 - **Chaining:** joining blocks into chains, given a maximum gap `g` (a parameter, not a policy), and
   the chain containing a given block. These are generic operations on homology, so belong with it.
-- **Caches and indexes that make these fast:** e.g. the homology table ({issue}`140`), which maps
-  genomes directly to an ancestor, and indexes of the iedges above and below each node (some of
-  which already exist). These would be optional, and must not change the answers, only how quickly
-  they are found.
+- **Caches and indexes that make these fast:** e.g. the homology table
+  ({ref}`sec_design_homology_table`), which maps genomes directly to a few ancestors, and indexes
+  of the iedges above and below each node (some of which already exist). These would be optional,
+  and must not change the answers, only how quickly they are found.
 
 At first, these could be developed in `giglib.tools` (e.g. alongside the simulators of
 `giglib.tools.simulation`), and moved into the core once they have settled, and once it is clear

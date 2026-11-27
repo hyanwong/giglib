@@ -322,7 +322,7 @@ validating again. This relies on the sorting that both methods do by default: wi
 before running algorithms that need them.
 
 Locating homologous positions efficiently is also the purpose of the proposed "homology table"
-({issue}`140`; see {ref}`sec_design_simplification`), which would need the same guarantees.
+({issue}`140`; see {ref}`sec_design_homology_table`), which would need the same guarantees.
 
 (sec_validation_other)=
 

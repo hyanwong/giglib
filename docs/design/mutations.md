@@ -193,9 +193,11 @@ depends on the number of breakpoints, not on the sequence length. The state at a
 found by tracing rootwards until reaching either a mutation, or a node with a mapping into a
 reference sequence.
 
-The same mapping table is the structure proposed in {issue}`140` for choosing recombination
-breakpoints, and it gives a reference frame for genotypes (see
-{ref}`sec_design_mutations_future`), so it should be designed once, for all three purposes.
+The same mapping table gives a reference frame for genotypes (see
+{ref}`sec_design_mutations_future`). Its rows have the same form as those of the homology table
+({ref}`sec_design_homology_table`), a cache for choosing recombination breakpoints, so the two can
+share code. But this table is data, which users see and save, while the homology table is derived
+from the iedges, and is internal.
 
 The first implementation will only support ancestral states given by mutations above roots.
 Nothing in the mutations table should prevent reference sequences being added later.
