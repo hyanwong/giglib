@@ -159,6 +159,15 @@ class TestFindAllHomology:
         found = tables.find_homology(2, 3, mode="all", time_cutoff=5)
         assert {h.mrca for h in found} == {1}
 
+    def test_plot_genome_against_itself(self):
+        # Genome 2 has three copies of B (made in nodes 1 and 2), whose homology is
+        # symmetric about the diagonal (each position's homology with itself, at time 0)
+        ax = homology.plot(cnv_tables(), 2, 2)
+        (collection,) = ax.collections
+        segments = [tuple(map(tuple, s)) for s in collection.get_segments()]
+        assert ((0, 0), (100, 100)) in segments
+        assert {((y0, x0), (y1, x1)) for (x0, y0), (x1, y1) in segments} == set(segments)
+
     def test_plot_shows_old_homology(self):
         ax = homology.plot(cnv_tables(), 2, 3)
         (collection,) = ax.collections

@@ -274,7 +274,10 @@ def plot(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=None, ax=N
     diagonal, coloured by the age of the duplication; and reversed homology (e.g. an
     inversion) runs from top left to bottom right. With the default colour map, recent
     homology is dark blue and older homology lighter, up to yellow; places with no
-    homology are left white, as if their TMRCA were infinite. See :ref:`sec_design_homology`.
+    homology are left white, as if their TMRCA were infinite. If ``u`` and ``v`` are the same
+    genome, the plot shows its paralogous homology (e.g. between the copies of a duplicated
+    region), symmetric about the diagonal, which is each position's homology with itself.
+    See :ref:`sec_design_homology`.
 
     This needs matplotlib, which is not a requirement of giglib itself.
 
@@ -305,6 +308,12 @@ def plot(tables, u, v, *, u_chromosome=0, v_chromosome=0, time_cutoff=None, ax=N
     homology.sort(key=lambda h: -node_times[h.mrca])
     lines = [[(h.u.left, h.v.left), (h.u.right, h.v.right)] for h in homology]
     times = [node_times[h.mrca] for h in homology]
+    if u == v and u_chromosome == v_chromosome:
+        # A genome against itself: each position is trivially homologous to itself (with
+        # the genome as the MRCA), which find_homology leaves out, so add the diagonal
+        length = max(_child_rights(tables, u, u_chromosome), default=0)
+        lines.append([(0, 0), (length, length)])
+        times.append(node_times[u])
     if ax is None:
         _, ax = plt.subplots(figsize=(6, 6))
     collection = LineCollection(lines, array=np.array(times), cmap=cmap, linewidths=linewidth)

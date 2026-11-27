@@ -2314,6 +2314,10 @@ class Tables:
         similarity: homologous segments can have different sequences, and segments with the
         same sequence need not be homologous. See :ref:`sec_usage_homology`.
 
+        If ``u`` and ``v`` are the same genome, this finds the homology between different
+        positions of it (paralogous homology, e.g. between the copies of a duplicated
+        region): each position's trivial homology with itself is left out.
+
         The ``mode`` says which homology to find. Each position of ``u`` (or ``v``) is traced
         back through its ancestors, and meets the lineages of positions of the other genome
         at their MRCAs, whether these are where the lineages split (allelic homology) or
@@ -2360,8 +2364,6 @@ class Tables:
             raise ValueError(f"Unknown mode {mode!r}: must be one of {', '.join(modes)}")
         if not isinstance(u, (int, np.integer)) or not isinstance(v, (int, np.integer)):
             raise ValueError("u and v must be integers")
-        if u == v:
-            raise ValueError("u and v must be different nodes")
 
         # Only the iedges above u and v are read (using ids_for_child, which checks that
         # each node's iedges are validated), so the validated rows are enough
@@ -2388,7 +2390,9 @@ class Tables:
         # tidied into sets of intervals once, when the node is visited.
         identity = PositionMap(1, 0)
         stack[u] = ({c: {(identity, c): [(0, math.inf)]} for c in u_chromosomes}, {})
-        stack[v] = ({}, {c: {(identity, c): [(0, math.inf)]} for c in v_chromosomes})
+        if v not in stack:
+            stack[v] = ({}, {})
+        stack[v][1].update({c: {(identity, c): [(0, math.inf)]} for c in v_chromosomes})
 
         result = []
         # What has been reported so far. As nodes are visited from the most recent, a pair
@@ -2437,15 +2441,19 @@ class Tables:
                 # Cut the node's chromosome into pieces that each have the same material of
                 # u and of v (there can be several of each, e.g. copies of a duplicated
                 # region)
-                pieces = interval_sets.pieces(u_dict[chrom], v_dict[chrom])
-                for left, right, u_keys, v_keys in pieces:
-                    mrca_segment = Segment(left, right, chrom)
-                    for u_key in u_keys:
-                        for v_key in v_keys:
-                            self._add_homology(result, reported, mode, node, mrca_segment, u_key, v_key)
-                if mode == "first_mrca" and len(pieces) > 0:
+                # If u and v are the same genome, each position meets itself, along the same
+                # route (the same key) on both sides: that trivial homology is left out
+                met = []
+                for left, right, u_keys, v_keys in interval_sets.pieces(u_dict[chrom], v_dict[chrom]):
+                    pairs = [(u_key, v_key) for u_key in u_keys for v_key in v_keys if u != v or u_key != v_key]
+                    if pairs:
+                        met.append((left, right))
+                    for u_key, v_key in pairs:
+                        mrca_segment = Segment(left, right, chrom)
+                        self._add_homology(result, reported, mode, node, mrca_segment, u_key, v_key)
+                if mode == "first_mrca" and len(met) > 0:
                     # Each lineage stops at its first MRCA: remove what has met here
-                    met = interval_sets.normalise([(left, right) for left, right, _, _ in pieces])
+                    met = interval_sets.normalise(met)
                     for uv_dict in (u_dict, v_dict):
                         for key, intervals in uv_dict[chrom].items():
                             uv_dict[chrom][key] = interval_sets.subtract(intervals, met)
