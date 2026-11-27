@@ -228,7 +228,6 @@ class TestWithRearrangements:
         node_map = simplified.simplify(samples)
         check_homology_unchanged(tables, simplified, node_map, samples, mode)
 
-    @pytest.mark.skip(reason="needs find_homology of a genome with itself (#236)")
     @pytest.mark.parametrize("seed", range(10))
     @pytest.mark.parametrize("recombination", [0, 0.3])
     @pytest.mark.parametrize("mode", ["first_mrca", "closest_homologues", "all"])
