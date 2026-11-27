@@ -74,3 +74,4 @@ Measurements that justified changes, with the PR in which they were made (times 
 |---|---|
 | Mapping positions with `PositionMap` makes decoding haplotypes about 10% slower (a small object per iedge traced), accepted for correctness | #189 |
 | Adding an iedge takes about 1.5 µs without validation. Validating incrementally costs about 0.5 µs per iedge if done once at the end, but each call to `validate()` has a fixed cost of about 50 µs, so validating after every row costs about 60 µs per iedge. Simulations therefore validate once per generation, using the validated rows | #190 |
+| `find_homology(mode="closest_homologues")` traced every lineage to the roots. In a graph where every position descends from a single base (20 genomes, 400 generations, genomes of length 46 and 84), that took 90 s, against 0.1 s for `"first_mrca"`. Stopping once every position still being traced has found homology gives the same results in 2.5 s | #230 |

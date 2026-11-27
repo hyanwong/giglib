@@ -2327,9 +2327,10 @@ class Tables:
         * ``"closest_homologues"``: the closest homologues of each position, i.e. its
           homologous positions in the other genome with the most recent MRCA (several, if
           tied), for each position of ``u`` and of ``v``. Lineages are traced as for
-          ``"all"`` (so ``time_cutoff`` can be used to limit the work), but only the
-          closest homology of each position is reported, which is much less, as it
-          excludes the *remote* homology through older ancestors.
+          ``"all"``, but only the closest homology of each position is reported, which is
+          much less, as it excludes the *remote* homology through older ancestors. Tracing
+          stops once every position still being traced has found homology (and
+          ``time_cutoff`` can also limit the work).
         * ``"all"``: all the homology, through every common ancestor, each pair of
           positions at its MRCA. This can be much more work, and in the extreme (if every
           position descends from a single ancestral position) covers every pair of
@@ -2410,6 +2411,14 @@ class Tables:
                         found[chromosome] = found.get(chromosome, P.empty()) | intervals
                     pending.clear()
                 reported["time"] = node_times[node]
+                # In mode "closest_homologues", a pair is only reported if this is the
+                # most recent MRCA of one of its positions. So once every position still
+                # being traced (in u and in v) has found homology, nothing older can be
+                # reported, and tracing can stop.
+                if mode == "closest_homologues":
+                    traced = [(u_dict, v_dict), *stack.values()]
+                    if not any(self._has_unfound(dicts, reported["found"]) for dicts in traced):
+                        break
             # The chromosomes of u (or v) are found from the iedges above it, but it can
             # also have chromosomes without a parent (e.g. if it is a root). These only
             # matter if the other genome descends from it, i.e. if the other genome's
@@ -2474,6 +2483,26 @@ class Tables:
 
         result.sort(key=lambda h: (h.u.chromosome, h.u.left, h.u.right, h.v.chromosome, h.v.left, h.v.right, h.mrca))
         return result
+
+    @staticmethod
+    def _has_unfound(dicts, found):
+        """
+        Whether the material of u and of v at a node (``dicts``, as in the stack of
+        :meth:`find_homology`) includes a position of u or v that is not in ``found`` (the
+        positions of u and of v with homology found so far, for each chromosome)
+        """
+        for material, found_here in zip(dicts, found):
+            for interval_dict in material.values():
+                for (to_original, original_chromosome), intervals in interval_dict.items():
+                    for interval in intervals:
+                        if interval.empty:
+                            continue
+                        ends = to_original.interval(interval.lower, interval.upper)
+                        original = P.closedopen(min(ends), max(ends))
+                        if not original - found_here.get(original_chromosome, P.empty()):
+                            continue
+                        return True
+        return False
 
     @staticmethod
     def _add_homology(result, reported, mode, mrca, mrca_segment, u_key, v_key):
