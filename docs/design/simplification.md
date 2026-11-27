@@ -3,11 +3,10 @@
 # Simplification
 
 **Status: Partly implemented.** {meth}`~giglib.Tables.simplify` keeps the branch points of the
-position tree, region by region, with the algorithm below. The homology table is not implemented.
-Several other choices are left open, to be decided by performance measurements on forward
+position tree, region by region, with the algorithm below. Several other choices are left open, to be decided by performance measurements on forward
 simulations (see {ref}`sec_design_simplification_evaluation`).
-Related: {issue}`140` (a "homology table" for locating recombination breakpoints),
-{ref}`sec_design_mutations` (which requires simplification to keep duplication nodes),
+Related: {ref}`sec_design_homology_table` (a cache for locating homologous positions, built by
+the same core), {ref}`sec_design_mutations` (which requires simplification to keep duplication nodes),
 {ref}`sec_design_storage` (cached indexes), {issue}`158` (reference lengths).
 
 This note also records **where the discussion has reached** (see
@@ -24,8 +23,8 @@ This note also records **where the discussion has reached** (see
   give another one, so the iedges through a removed node can be replaced by iedges that skip
   it.
 - **One core, several uses.** The same operation, with different rules for which nodes to keep,
-  gives both simplification, and the more aggressive "homology table" proposed in
-  {issue}`140`. The homology table is a cache used for finding equivalent positions in different
+  gives both simplification, and the more aggressive homology table
+  ({ref}`sec_design_homology_table`), a cache for finding equivalent positions in different
   genomes (e.g. to place recombination breakpoints).
 - **Simplification keeps the branch points of the position tree.** Each position of a genome has
   a single parent position, so the ancestry of the samples' positions is a tree. Simplification
@@ -106,12 +105,10 @@ nodes that a simulator has flagged as duplications.
 | | Keeps | Removes |
 |---|---|---|
 | **Simplification** | samples, and the branch points of the position tree (where lineages split, and where they are copied) | everything else, e.g. unary nodes |
-| **Homology table** ({issue}`140`) | samples, the branch points where lineages are copied, and something at the top (see below) | unary nodes *and* ordinary coalescence nodes |
+| **Homology table** ({ref}`sec_design_homology_table`) | samples, the branch points where lineages are copied, and duplication nodes | unary nodes *and* ordinary coalescence nodes |
 
-So the homology table is a more aggressive simplification, kept alongside the real iedges. It
-skips the intermediate ancestors that make tracing between two genomes slow, while keeping the
-nodes where copies were made, needed to know which copy of a duplicated region is which. This suggests
-writing a single core routine that composes iedges, taking a rule for which nodes (or regions of
+So the homology table is a more aggressive simplification, kept alongside the real iedges. This
+suggests a single core routine that composes iedges, taking a rule for which nodes (or regions of
 nodes) to keep, and building both on top of it.
 
 ## Coalescence and duplication
@@ -166,7 +163,8 @@ distinction as in gene-tree / species-tree reconciliation.
 
 So both simplification and the homology table keep the branch points where copies merge (see
 {ref}`sec_design_simplification_branch_points`). Keeping the duplication nodes themselves, which
-record when the duplications happened, is an option.
+record when the duplications happened, is an option for simplification, but the homology table
+needs them, to tell the copies apart (see {ref}`sec_design_homology_table`).
 
 ### Finding duplication nodes
 
@@ -231,43 +229,6 @@ younger than `u`, and after composing iedges, `d`'s parent in that region is `u`
 older kept ancestor). A region with several copies is a coalescence or a duplication, so its node
 is kept, and its mutations stay above it.
 
-The homology table does not affect mutations, which stay above their nodes in the real graph.
-The time of a mutation is only constrained by the real iedges (it must be between the times of its
-node and of that node's parent), not by the homology table's iedges, which skip intermediate
-ancestors, and so would allow a much wider range of times.
-
-## The homology table
-
-Proposed in {issue}`140`. For finding homology blocks between two genomes, maps all the way to the
-roots are enough (see {ref}`the homology note <sec_design_homology_root_maps>`, and {issue}`210`). It would be used by a "homologous location" method, e.g.
-`gig.homologous_location(source_node, source_position, target_node)`, returning the equivalent
-position (and orientation) in the target genome. It could also speed up other methods that trace
-positions up the graph, such as {meth}`~giglib.Graph.ancestral_allele_at` (which only needs to
-reach the root of a position), and {meth}`~giglib.Graph.allele_at` (although that also needs the
-mutations on the skipped nodes). Open questions:
-
-- **Several equivalent positions.** A position can have more than one equivalent in the same
-  target genome. For example, after a tandem duplication of a parent's positions 10 to 20 to make
-  a child's positions 10 to 20 and 20 to 30, position 15 of the parent is equivalent to both 15
-  and 25 in the child. Or a position may have none (e.g. after a deletion). So the method must
-  either return *all* the equivalent positions (each with a chromosome and orientation, possibly
-  none), take a way of choosing between them (e.g. to choose a recombination breakpoint at
-  random), or report that the answer is ambiguous. This must be decided before implementing it.
-  Returning all of them is the most general, and the others can be built on it.
-
-- **What is at the top?** The deepest roots, a chosen reference genome (which ties in with the
-  reference sequences in {ref}`sec_design_mutations`, and with {issue}`158`), or the local MRCA
-  of each region?
-- **Where does it live?** In memory only, and rebuilt when needed? Or part of the tables, saved
-  with them and covered by validity flags? The storage note ({ref}`sec_design_storage`) has the
-  same question for the parent index.
-- **Keeping it up to date.** In a forward simulation, new iedges are added every generation. Can
-  the table be updated incrementally (new nodes are composed onto the existing table), or must it
-  be rebuilt when simplifying? At least, it needs a flag saying whether it is stale.
-- **Defragmentation.** Over a long simulation, intervals may be split into many pieces that could
-  be merged again, e.g. once a deletion is fixed (see the second comment on {issue}`140`). How
-  often should this be done, and is it equivalent to choosing a new reference?
-
 ## Related questions (out of scope here)
 
 - **Multiple counting.** Duplicated regions can share the same coalescence nodes above their
@@ -298,7 +259,6 @@ nodes, so that detection methods can be checked against them.
 
 ### What to measure
 
-For simplification:
 
 - **Time and peak memory** of simplifying, against population size, number of generations,
   genome length, and the rates of recombination and of each kind of structural variant.
@@ -308,14 +268,6 @@ For simplification:
   and using flags set by the simulator.
 - **How often to simplify** in a forward simulation (every generation, or every *k*
   generations), as in _tskit_'s forward simulation tutorial.
-
-For the homology table:
-
-- **Time to find homologous locations** (e.g. recombination breakpoints) with and without the
-  table, and against the depth of the graph.
-- **Cost of maintaining the table**, per generation (incrementally) or per simplification
-  (rebuilding), and its size compared with the iedges table.
-- **Cost and benefit of defragmenting,** and how often to do it.
 
 ### Checks of correctness
 
@@ -331,8 +283,6 @@ These belong in the unit tests (or slower validation scripts), not in the perfor
 - Simplifying twice gives the same as simplifying once.
 - With no structural variants, the result matches _tskit_'s `simplify(keep_input_roots=True)`
   (after converting with `to_tree_sequence()`).
-- Homologous locations found with the homology table match those found by tracing the full
-  iedges.
 - If duplication nodes are kept, those detected match those recorded by the simulator.
 
 (sec_design_simplification_discussion)=
@@ -366,7 +316,6 @@ conversation about the giglib API, mutations, and storage (November 2026), and i
 
 **Not yet discussed in detail:**
 
-- What is at the top of the homology table, and where it lives.
 - Whether duplication nodes, if kept, should be flagged (e.g. by a simulator), detected, or
   both.
 
@@ -380,8 +329,8 @@ conversation about the giglib API, mutations, and storage (November 2026), and i
 2. Add simplification cases to `evaluation/performance.py` (alongside the cases for
    {meth}`~giglib.Tables.find_homology`), and measure, e.g. how much faster finding homology is
    after simplifying.
-3. Make the choices left open here, from the measurements. Then build the homology table on the
-   same core.
+3. Make the choices left open here, from the measurements. The homology table
+   ({ref}`sec_design_homology_table`) can then be built on the same core.
 
 **Starting points in the code:**
 
@@ -413,6 +362,4 @@ conversation about the giglib API, mutations, and storage (November 2026), and i
   simulator, or detected)?
 - Should simplification optionally keep unary nodes, or other nodes (e.g. those with
   mutations), as _tskit_'s `simplify()` can?
-- What is at the top of the homology table, and where does it live?
-- What should `homologous_location()` return when a position has several (or no) equivalents?
 - Should `sample_resolve()` become an option of `simplify()`?
