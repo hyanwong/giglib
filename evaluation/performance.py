@@ -132,6 +132,51 @@ def case_homology_single_origin(size):
         yield {"variant": mode, "size": size, "value": ms, "records": records}
 
 
+def simplified_rows(gig, size):
+    """
+    Rows for simplifying a GIG with respect to its genomes in the last generation:
+    milliseconds to simplify (with the number of nodes before and after), and then
+    milliseconds per pair of genomes for find_homology in the simplified GIG, for the same
+    pairs as in the unsimplified cases (so the two can be compared)
+    """
+    samples = [int(u) for u in gig.sample_nodes(time=0).ids]
+    seconds = common.best_time(lambda: gig.simplify(samples))
+    tables = gig.tables.copy()
+    node_map = tables.simplify(samples)
+    yield {
+        "variant": "simplify",
+        "size": size,
+        "value": seconds * 1e3,
+        "nodes_before": len(gig.nodes),
+        "nodes_after": len(tables.nodes),
+    }
+    pairs = [(int(node_map[u]), int(node_map[v])) for u, v in sample_pairs(gig)]
+    for mode, ms, records in time_find_homology(tables, pairs, ["first_mrca", "closest_homologues", "all"]):
+        yield {"variant": f"find_homology_{mode}_per_pair", "size": size, "value": ms, "records": records}
+
+
+def case_simplify_microsatellites(size):
+    """
+    As homology_microsatellites, but simplifying the GIG before finding homology
+    """
+    from giglib.tools.simulation.microsatellites_forward import DTWF_microsatellite_sim
+
+    loci = [(x, 2, 10) for x in range(500, 10000, 1000)]
+    sim = DTWF_microsatellite_sim(loci, mutation_rate=0.01, min_chain_length=1000, max_gap=50)
+    gig = sim.run(num_diploids=10, seq_lens=[10000], gens=size, random_seed=1)
+    yield from simplified_rows(gig, size)
+
+
+def case_simplify_single_origin(size):
+    """
+    As homology_single_origin, but simplifying the GIG before finding homology
+    """
+    from giglib.tools.simulation.single_origin import sim_single_origin
+
+    gig = sim_single_origin(20, size, duplication_rate=0.05, deletion_rate=0.02, mean_length=10, random_seed=1)
+    yield from simplified_rows(gig, size)
+
+
 CASES = {
     # name: (function, unit, sizes, quick sizes)
     "add_iedges": (case_add_iedges, "us_per_iedge", [2000], [100]),
@@ -139,6 +184,8 @@ CASES = {
     "homology_microsatellites": (case_homology_microsatellites, "ms_per_pair", [20, 40, 80], [10]),
     "microsatellites_population_size": (case_microsatellites_population_size, "ms", [10, 50, 100], [10]),
     "homology_single_origin": (case_homology_single_origin, "ms_per_pair", [100, 200, 400], [50]),
+    "simplify_microsatellites": (case_simplify_microsatellites, "ms", [20, 40, 80], [10]),
+    "simplify_single_origin": (case_simplify_single_origin, "ms", [100, 200, 400], [50]),
 }
 
 
