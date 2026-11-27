@@ -342,3 +342,36 @@ def inverted_duplicate_with_missing_gig():
     add_iedge(tables, 90, 190, 0, 100, c=2, p=3)  # an iedge which is not sample-resolved
     tables.sort()
     return gigl.Graph(tables)
+
+
+@pytest.fixture(scope="session")
+def unequal_crossover_gig():
+    """
+    Unequal crossing-over at a tandem duplication. An old genome R (node 0, 30 positions)
+    has a region B at 10-20, between a (0-10) and c (20-30). An ancestor A (node 1) has a
+    tandem duplication of B, so reads a B1 B2 c (40 positions), and its descendants P1 and
+    P2 (nodes 2 and 3) have both copies. In a meiosis, P1's second copy pairs with P2's
+    first, and a crossover within them gives two products:
+
+    - X (node 4) = P1[0, 25) + P2[15, 40): a B B B c, with three copies of B (50 positions)
+    - Y (node 5) = P2[0, 15) + P1[25, 40): a B c, with one copy (30 positions)
+    """
+    tables = gigl.Tables()
+    R = tables.nodes.add_row(3)
+    A = tables.nodes.add_row(2)
+    P1 = tables.nodes.add_row(1)
+    P2 = tables.nodes.add_row(1)
+    X = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+    Y = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+    # A = R's a and B, then R's B (the copy) and c
+    add_iedge(tables, 0, 20, 0, 20, c=A, p=R)
+    add_iedge(tables, 20, 40, 10, 30, c=A, p=R)
+    add_iedge(tables, 0, 40, 0, 40, c=P1, p=A)
+    add_iedge(tables, 0, 40, 0, 40, c=P2, p=A)
+    # The products of the unequal crossover, at P1's position 25 and P2's position 15
+    add_iedge(tables, 0, 25, 0, 25, c=X, p=P1)
+    add_iedge(tables, 25, 50, 15, 40, c=X, p=P2)
+    add_iedge(tables, 0, 15, 0, 15, c=Y, p=P2)
+    add_iedge(tables, 15, 30, 25, 40, c=Y, p=P1)
+    tables.sort()
+    return gigl.Graph(tables)
