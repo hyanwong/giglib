@@ -1378,9 +1378,47 @@ class TestFindHomology:
         with pytest.raises(ValueError, match="Unknown mode"):
             double_inversion_gig.tables.find_homology(0, 1, mode="closest")
 
-    def test_same_genome(self, double_inversion_gig):
-        with pytest.raises(ValueError, match="different nodes"):
-            double_inversion_gig.tables.find_homology(0, 0)
+    @pytest.mark.parametrize("mode", ["first_mrca", "closest_homologues", "all"])
+    def test_same_genome_tandem_duplication(self, mode):
+        # u (node 1) has two copies of its parent's (node 0) positions 0-10: each copy is
+        # homologous to the other (both ways round), but each position's homology with
+        # itself is left out
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)
+        tables.nodes.add_row(0)
+        tables.iedges.add_row(1, 0, child_left=0, child_right=10, parent_left=0, parent_right=10)
+        tables.iedges.add_row(1, 0, child_left=10, child_right=20, parent_left=0, parent_right=10)
+        tables.sort()
+        tables.validate()
+        assert same_homology(
+            tables.find_homology(1, 1, mode=mode),
+            [((0, 10, 0), (10, 20, 0), 0, (0, 10, 0)), ((10, 20, 0), (0, 10, 0), 0, (0, 10, 0))],
+        )
+
+    def test_same_genome_different_chromosomes(self):
+        # P's positions 0-10 and 10-20 are both copies of R's 0-10. G's chromosome 0
+        # inherits P's 0-20, and its chromosome 1 inherits P's 0-10. Comparing all of G
+        # with its chromosome 0: at P, chromosome 1 meets chromosome 0's 0-10, which stops
+        # there, but chromosome 0's 0-10 on the u side only meets itself, so carries on, and
+        # meets chromosome 0's 10-20 at R
+        tables = gigl.Tables()
+        tables.nodes.add_row(2)  # 0: R
+        tables.nodes.add_row(1)  # 1: P
+        tables.nodes.add_row(0)  # 2: G
+        tables.iedges.add_row(1, 0, child_left=0, child_right=10, parent_left=0, parent_right=10)
+        tables.iedges.add_row(1, 0, child_left=10, child_right=20, parent_left=0, parent_right=10)
+        tables.iedges.add_row(2, 1, child_left=0, child_right=20, parent_left=0, parent_right=20)
+        tables.iedges.add_row(2, 1, child_left=0, child_right=10, parent_left=0, parent_right=10, child_chromosome=1)
+        tables.sort()
+        tables.validate()
+        assert same_homology(
+            tables.find_homology(2, 2, u_chromosome=None, v_chromosome=0),
+            [((0, 10, 1), (0, 10, 0), 1, (0, 10, 0)), ((0, 10, 0), (10, 20, 0), 0, (0, 10, 0))],
+        )
+
+    @pytest.mark.parametrize("mode", ["first_mrca", "closest_homologues", "all"])
+    def test_same_genome_without_duplications(self, mode, double_inversion_gig):
+        assert double_inversion_gig.tables.find_homology(0, 0, mode=mode) == []
 
 
 def copy_lost_tables():
@@ -1476,12 +1514,15 @@ class TestFindClosestHomologues:
         assert same_homology(tables.find_homology(2, 3, mode="all"), allelic + remote)
 
     @pytest.mark.parametrize("seed", range(10))
-    def test_closest_part_of_all_homology(self, seed):
+    @pytest.mark.parametrize("same_genome", [False, True])
+    def test_closest_part_of_all_homology(self, seed, same_genome):
         # In a population with nested copies, and (unequal) crossovers: the closest
         # homologues are the pairs of positions, from all the homology, whose MRCA is the
-        # most recent one for the position in u, or for the position in v
+        # most recent one for the position in u, or for the position in v (also within a
+        # single genome)
         tables = random_tables(seed, recombination=0.3)
-        u, v = tables.sample_nodes()[:2]
+        samples = tables.sample_nodes()
+        u, v = samples[0], samples[0] if same_genome else samples[1]
         closest = homologous_positions(tables.find_homology(u, v, mode="closest_homologues"))
         everything = homologous_positions(tables.find_homology(u, v, mode="all"))
         time = tables.nodes.time
@@ -1495,6 +1536,14 @@ class TestFindClosestHomologues:
             if time[mrca] == closest_in_u[x] or time[mrca] == closest_in_v[y]:
                 expected.add((x, y, mrca, z))
         assert closest == expected
+
+    @pytest.mark.parametrize("seed", range(10))
+    def test_same_genome_symmetric(self, seed):
+        tables = random_tables(seed, recombination=0.3)
+        u = tables.sample_nodes()[0]
+        pairs = {(x, y) for x, y, _, _ in homologous_positions(tables.find_homology(u, u, mode="all"))}
+        assert pairs == {(y, x) for x, y in pairs}
+        assert all(x != y for x, y in pairs)
 
     @pytest.mark.parametrize("seed", [1, 2, 3])
     def test_same_without_duplications(self, seed):

@@ -279,7 +279,10 @@ def plot(
     diagonal, coloured by the age of the duplication; and reversed homology (e.g. an
     inversion) runs from top left to bottom right. With the default colour map, recent
     homology is dark blue and older homology lighter, up to yellow; places with no
-    homology are left white, as if their TMRCA were infinite. See :ref:`sec_design_homology`.
+    homology are left white, as if their TMRCA were infinite. If ``u`` and ``v`` are the same
+    genome, the plot shows its paralogous homology (e.g. between the copies of a duplicated
+    region), symmetric about the diagonal, which is each position's homology with itself.
+    See :ref:`sec_design_homology`.
 
     This needs matplotlib, which is not a requirement of giglib itself.
 
@@ -312,16 +315,22 @@ def plot(
     homology.sort(key=lambda h: -node_times[h.mrca])
     lines = [[(h.u.left, h.v.left), (h.u.right, h.v.right)] for h in homology]
     times = [node_times[h.mrca] for h in homology]
+    if u == v and u_chromosome == v_chromosome and (time_cutoff is None or node_times[u] <= time_cutoff):
+        # A genome against itself: each position is trivially homologous to itself (with
+        # the genome as the MRCA), which find_homology leaves out, so add the diagonal
+        length = _known_length(tables, u, u_chromosome)
+        lines.append([(0, 0), (length, length)])
+        times.append(node_times[u])
     if ax is None:
         _, ax = plt.subplots(figsize=(6, 6))
     collection = LineCollection(lines, array=np.array(times), cmap=cmap, linewidths=linewidth)
     ax.add_collection(collection)
     # The axes cover every plotted end (in v, both ends, as a segment may be reversed), and
-    # the iedges above each genome (a root has none, so only the plotted ends count)
+    # the known length of each genome
     u_ends = [x for h in homology for x in (h.u.left, h.u.right)]
     v_ends = [y for h in homology for y in (h.v.left, h.v.right)]
-    ax.set_xlim(0, max([*u_ends, *_child_rights(tables, u, u_chromosome)], default=1))
-    ax.set_ylim(0, max([*v_ends, *_child_rights(tables, v, v_chromosome)], default=1))
+    ax.set_xlim(0, max([*u_ends, _known_length(tables, u, u_chromosome)]) or 1)
+    ax.set_ylim(0, max([*v_ends, _known_length(tables, v, v_chromosome)]) or 1)
     ax.set_aspect("equal")
     ax.set_xlabel(f"position in genome {u}")
     ax.set_ylabel(f"position in genome {v}")
@@ -329,9 +338,21 @@ def plot(
     return ax
 
 
-def _child_rights(tables, u, chromosome):
+def _known_length(tables, u, chromosome):
     """
-    The right ends of the iedges above a chromosome of ``u``
+    The known length of a chromosome of ``u``, as for :meth:`giglib.Graph.sequence_length`:
+    the furthest position given by the iedges above and below ``u``, and the mutations above
+    it (0 if none). This is found from the tables, which (unlike a Graph) don't index the
+    iedges by parent, and needs no validity flags beyond those of
+    :meth:`~giglib.Tables.find_homology`, so it scans the columns: fine for a plot.
     """
-    ids = tables.iedges.ids_for_child(u, chromosome=chromosome)
-    return tables.iedges.child_right[ids].tolist()
+    import numpy as np
+
+    iedges, mutations = tables.iedges, tables.mutations
+    above = (iedges.child == u) & (iedges.child_chromosome == chromosome)
+    ends = [0, *iedges.child_right[above].tolist()]
+    below = (iedges.parent == u) & (iedges.parent_chromosome == chromosome)
+    ends.extend(np.maximum(iedges.parent_left[below], iedges.parent_right[below]).tolist())
+    mutated = (mutations.node == u) & (mutations.chromosome == chromosome)
+    ends.extend((mutations.position[mutated] + 1).tolist())
+    return int(max(ends))

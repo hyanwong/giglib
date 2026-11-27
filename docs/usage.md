@@ -105,6 +105,10 @@ descend from. Its `mode` says which homology to find:
 - `"all"` finds all the homology, through every common ancestor. This can be much more work
   (and much more homology), which the `time_cutoff` parameter can limit.
 
+If `u` and `v` are the same genome, `find_homology` finds the homology between different
+positions of it (paralogous homology, e.g. between the copies of a duplicated region), leaving
+out each position's trivial homology with itself.
+
 See {ref}`this example <sec_examples_homology>` for how to use and interpret the records, and
 how the modes differ. The experimental {ref}`homology tools <sec_tools_homology>` build on this,
 e.g. to join homology into chains, and to plot it. The
