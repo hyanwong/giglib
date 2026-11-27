@@ -8,6 +8,8 @@ structural variants (see {ref}`sec_usage_simulations`). Each simulator has a pag
 - {ref}`sec_tools_simulation_no_recombination`: forward in time, with no recombination.
 - {ref}`sec_tools_simulation_one_break`: forward in time, with one crossover per meiosis,
   avoiding inverted regions.
+- {ref}`sec_tools_simulation_single_origin` (planned): forward in time, growing genomes from a
+  single base pair by tandem duplication.
 
 The rules a simulator uses (e.g. where crossovers can happen, between which copies of a
 duplicated region) are its own *policy*, built on the *mechanism* provided by _giglib_ (see
