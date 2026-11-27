@@ -1266,6 +1266,36 @@ class TestFindHomology:
             },
         )
 
+    def test_unequal_crossover_first_mrca(self, unequal_crossover_gig):
+        # X (node 4) = a B B B c and Y (node 5) = a B c. The lineages of X's first copy of B
+        # and Y's copy meet at A (node 1), as do X's third copy and the end of Y, and stop
+        assert unequal_crossover_gig.sequence_length(4) == 50
+        assert unequal_crossover_gig.sequence_length(5) == 30
+        assert same_homology(
+            unequal_crossover_gig.tables.find_homology(4, 5),
+            {
+                ((0, 15, 0), (0, 15, 0), 1, (0, 15, 0)),
+                ((35, 50, 0), (15, 30, 0), 1, (25, 40, 0)),
+            },
+        )
+
+    @pytest.mark.parametrize("mode", ["closest_homologues", "all"])
+    def test_unequal_crossover(self, unequal_crossover_gig, mode):
+        # Each copy of B in X is homologous to Y's one copy: at A for the positions that
+        # both inherit from the same position of A, and otherwise at R (node 0), through
+        # the duplication. Each position of X has only one homologue in Y, so the closest
+        # homologues are all the homology
+        assert same_homology(
+            unequal_crossover_gig.tables.find_homology(4, 5, mode=mode),
+            {
+                ((0, 15, 0), (0, 15, 0), 1, (0, 15, 0)),  # a, and the start of B
+                ((15, 20, 0), (15, 20, 0), 0, (15, 20, 0)),  # the end of the first copy
+                ((20, 30, 0), (10, 20, 0), 0, (10, 20, 0)),  # the second copy
+                ((30, 35, 0), (10, 15, 0), 0, (10, 15, 0)),  # the start of the third copy
+                ((35, 50, 0), (15, 30, 0), 1, (25, 40, 0)),  # the end of B, and c
+            },
+        )
+
     def test_no_recomb_sv_dup_del(self, all_sv_types_no_re_gig):
         assert same_homology(
             all_sv_types_no_re_gig.tables.find_homology(8, 10),
