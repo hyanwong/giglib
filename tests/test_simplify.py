@@ -7,6 +7,7 @@ simplification design note)
 import msprime
 import numpy as np
 import pytest
+import tskit
 
 import giglib as gigl
 from giglib.tools.simulation.one_break_inversions import DTWF_one_break_no_rec_inversions_slow_sim
@@ -97,7 +98,7 @@ class TestWithoutStructuralVariants:
         simplified = gig.simplify()
         assert len(simplified.nodes) < len(gig.nodes)
         ours = simplified.to_tree_sequence().dump_tables()
-        expected = ts.simplify().dump_tables()
+        expected = ts.simplify(keep_input_roots=True).dump_tables()
         assert ours.nodes.time.tolist() == expected.nodes.time.tolist()
         assert ours.nodes.flags.tolist() == expected.nodes.flags.tolist()
         ours.edges.squash()
@@ -107,16 +108,26 @@ class TestWithoutStructuralVariants:
             assert simplified.haplotype(u) == gig.haplotype(u)
 
     def test_forward_simulation(self):
-        # A forward simulation, without structural variants, also has many unary nodes
+        # A forward simulation, without structural variants, also has many unary nodes. It
+        # has not fully coalesced, so the roots of lineages are kept (as with tskit's
+        # keep_input_roots), but numbered in a different order: compare the edges using
+        # the original node IDs
         gig = DTWF_one_break_no_rec_inversions_slow_sim().run(num_diploids=10, seq_lens=[200], gens=10, random_seed=1)
         samples = gig.sample_nodes(time=0).ids
-        simplified = gig.simplify(samples)
-        ours = simplified.to_tree_sequence().dump_tables()
-        expected = gig.to_tree_sequence().simplify(samples, filter_individuals=False).dump_tables()
-        assert ours.nodes.time.tolist() == expected.nodes.time.tolist()
+        tables = gig.tables.copy()
+        node_map = tables.simplify(samples)
+        ts, ts_node_map = gig.to_tree_sequence().simplify(
+            samples, filter_individuals=False, keep_input_roots=True, map_nodes=True
+        )
+        ours = tables.graph().to_tree_sequence().dump_tables()
+        expected = ts.dump_tables()
         ours.edges.squash()
         expected.edges.squash()
-        assert ours.edges == expected.edges
+        ours_original = {new: old for old, new in enumerate(node_map) if new != gigl.NULL}
+        expected_original = {new: old for old, new in enumerate(ts_node_map) if new != tskit.NULL}
+        assert {(e.left, e.right, ours_original[e.parent], ours_original[e.child]) for e in ours.edges} == {
+            (e.left, e.right, expected_original[e.parent], expected_original[e.child]) for e in expected.edges
+        }
 
     def test_already_simplified(self):
         # msprime's tree sequences are already simplified, so nothing is removed
@@ -231,3 +242,28 @@ class TestSimplify:
         tables = clonal_tables_with_rearrangements(1)
         with pytest.raises(ValueError, match="distinct"):
             tables.simplify([20, 20])
+
+    @pytest.mark.parametrize("sample", [-1, 1000])
+    def test_samples_are_nodes(self, sample):
+        tables = clonal_tables_with_rearrangements(1)
+        with pytest.raises(ValueError, match="not a node ID"):
+            tables.simplify([sample])
+
+    @pytest.mark.parametrize("positions", [[], [0, 1, 2, 3, 4]])
+    def test_missing_data_at_the_end_is_kept(self, positions):
+        # A sample inherits 0-10 from a root with mutations at these positions only, so
+        # the rest is missing data. The root is kept, as otherwise the sample's genome
+        # would only be known up to its last mutation
+        tables = gigl.Tables()
+        tables.nodes.add_row(1)  # 0: the root
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # 1: the sample
+        tables.iedges.add_row(1, 0, child_left=0, child_right=10, parent_left=0, parent_right=10)
+        for x in positions:
+            tables.mutations.add_row(0, x, "A")
+        tables.sort()
+        tables.validate()
+        haplotype = tables.copy().graph().haplotype(1)
+        tables.simplify()
+        gig = tables.graph()
+        assert gig.sequence_length(0) == 10
+        assert gig.haplotype(0) == haplotype

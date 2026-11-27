@@ -2270,11 +2270,19 @@ class Tables:
         sample positions merge, either from different children, or through two iedges of
         the same child (a copy, e.g. the parent of a tandem duplication). Elsewhere it is
         bypassed, by composing the iedges above and below it, and a node that is not a
-        branch point anywhere is removed. This is a generalisation of _tskit_'s
-        ``simplify()``.
+        branch point anywhere is removed. A node is also kept where a lineage ends without
+        merging (at a root, or a node that doesn't inherit those positions), so that every
+        sample position still has an iedge above it. This is a generalisation of _tskit_'s
+        ``simplify()``, with ``keep_input_roots=True``.
 
-        The ancestry of the samples is unchanged: their haplotypes are the same, and so is
-        their homology, as found by :meth:`find_homology` (after relabelling the nodes).
+        The ancestry of the samples is unchanged:
+
+        * their haplotypes are the same, including missing data, so each sample's genome
+          has the same length (:meth:`Graph.sequence_length`);
+        * their homology is the same, as found by :meth:`find_homology` in every mode
+          (after relabelling the nodes);
+        * simplifying again changes nothing.
+
         Mutations above a bypassed region of a node are moved down to the node below it
         that is kept (complemented if the path between them includes an odd number of
         inversions), and mutations at positions with no descendant samples are removed.
@@ -2290,10 +2298,13 @@ class Tables:
         self._require_iedge_flags(ValidFlags.IEDGES_FOR_TRACING, "simplify()")
         if samples is None:
             samples = self.sample_nodes()
+        old_nodes, old_iedges, old_mutations = self.nodes, self.iedges, self.mutations
         samples = [int(u) for u in samples]
         if len(set(samples)) != len(samples):
             raise ValueError("The samples must be distinct")
-        old_nodes, old_iedges, old_mutations = self.nodes, self.iedges, self.mutations
+        for u in samples:
+            if not 0 <= u < len(old_nodes):
+                raise ValueError(f"Sample {u} is not a node ID")
         node_map = np.full(len(old_nodes), NULL, dtype=np.int64)
         nodes = NodeTable()
 
@@ -2364,12 +2375,31 @@ class Tables:
             else:
                 for chromosome, keys in arriving.items():
                     sets = {key: interval_sets.normalise(intervals) for key, intervals in keys.items()}
+                    # The positions of u that it inherits: lineages end at u elsewhere
+                    inherited = interval_sets.normalise(
+                        [
+                            (old_iedges[ie_id].child_left, old_iedges[ie_id].child_right)
+                            for ie_id in old_iedges.ids_for_child(u, chromosome=chromosome)
+                        ]
+                    )
                     here = collections.defaultdict(list)
                     for left, right, covering in interval_sets.coverage(sets):
                         if len(covering) == 1:
-                            # Not a branch point: bypass u, passing the material straight up
                             (key,) = covering
-                            here[key].append((left, right))
+                            # Where the lineage ends here without merging, keep u (like
+                            # tskit's keep_input_roots), as otherwise the positions would
+                            # have no iedge, and a sample could lose the end of its genome
+                            # (e.g. missing data at the end)
+                            ended = interval_sets.subtract([(left, right)], inherited)
+                            if ended:
+                                out = output_node(u, is_sample=False)
+                                for end_left, end_right in ended:
+                                    add_iedge(key, out, chromosome, end_left, end_right)
+                                    here[(out, chromosome, identity)].append((end_left, end_right))
+                            # Elsewhere, not a branch point: bypass u, passing the material
+                            # straight up
+                            for pass_left, pass_right in interval_sets.subtract([(left, right)], ended):
+                                here[key].append((pass_left, pass_right))
                         else:
                             # A branch point: keep u here, inherited by each output node
                             out = output_node(u, is_sample=False)
