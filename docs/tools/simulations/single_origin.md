@@ -114,7 +114,7 @@ As everything is homologous, every pair of positions, one in genome `u` and one 
 a time to its most recent common ancestor (TMRCA). What matters is each position's *closest*
 homologues (those with the most recent common ancestor, usually allelic), rather than its
 *remote* homology through older ancestors, e.g. with other copies of a region (see
-{ref}`finding homology <sec_usage_homology>`). So the plots here use
+{ref}`finding homology <sec_usage_homology>`). So most of the plots here use
 {meth}`~giglib.Tables.find_homology` with `mode="closest_homologues"`, whose output, unlike all
 the homology (`mode="all"`), doesn't grow with the square of genome length.
 
@@ -146,6 +146,29 @@ fig, axes = plt.subplots(1, 3, figsize=(16, 5))
 for ax, (u, v) in zip(axes, [(samples[0], samples[1]), (samples[2], samples[3]), (child, parent)]):
     homology.plot(gig.tables, u, v, mode="closest_homologues", ax=ax)
 axes[2].set_title("a genome against its parent")
+plt.show()
+```
+
+As every position descends from the single base, *all* the homology between two genomes covers
+every pair of positions. So rather than a dot plot, it is clearer as a matrix, with a cell for
+each pair of positions, coloured by the time of their MRCA. The recent allelic homology runs
+along the diagonal (with its copies, made since the lineages split), within blocks of older
+homology between copies made earlier, nested like the clades of a tree:
+
+```{code-cell}
+:tags: [hide-input]
+
+fig, axes = plt.subplots(1, 2, figsize=(11, 5))
+for ax, (u, v) in zip(axes, [(samples[0], samples[1]), (samples[2], samples[3])]):
+    # The time of the MRCA of each pair of positions, from all the homology
+    tmrca = np.full((gig.sequence_length(v), gig.sequence_length(u)), np.nan)
+    for h in gig.find_homology(u, v, mode="all"):
+        for x in range(h.u.left, h.u.right):
+            tmrca[h.map.position(x), x] = gig.nodes[h.mrca].time
+    image = ax.imshow(tmrca, origin="lower", cmap="viridis")
+    fig.colorbar(image, ax=ax, label="TMRCA", shrink=0.8)
+    ax.set_xlabel(f"position in genome {u}")
+    ax.set_ylabel(f"position in genome {v}")
 plt.show()
 ```
 
