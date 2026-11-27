@@ -53,7 +53,7 @@ the iedges above and below a genome, and `IEdge.transform_position()` (or a
 homologous, e.g. to place crossovers. `find_homology(u, v)` finds the segments of `u` and `v`
 that descend from the same segment of a common ancestor. In a GIG, sequences can be homologous
 at different levels (reflecting the fact that e.g. genes within a gene family are homologous to
-some degree), and its `mode` says which to find: see {ref}`finding homology <sec_usage_homology>` below.
+some degree), and its `mode` says which to find: see {ref}`sec_usage_homology` below.
 
 **Trimming.** `sample_resolve()` removes material that doesn't reach the samples, and
 `decapitate()` removes everything older than a given time. (A full equivalent of _tskit_'s
@@ -65,7 +65,7 @@ examples to show how to build targeted simulators.
 
 (sec_usage_homology)=
 
-## Homology
+## Finding homology
 
 Two positions, in genomes `u` and `v`, are **homologous** if they descend from the same position
 in a common ancestor. This is homology *by descent*, recorded in the graph, not sequence
