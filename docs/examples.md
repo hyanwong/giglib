@@ -138,10 +138,10 @@ of such simulations.
 {meth}`~giglib.Tables.find_homology` finds which segments of two genomes descend from the same
 segment of a common ancestor (see {ref}`finding homology <sec_usage_homology>`). Here is a small
 GIG to try it on. An ancestor `A` has two copies of a region of an older ancestor `R` (a tandem
-duplication). Genome `u` inherits both copies, and genome `v` only the first, with its second half
-inverted. In the diagram, each genome is a horizontal bar, and each iedge is a band joining an
-interval of a child (below) to the interval of its parent (above) that it inherits; a band that
-crosses itself is an inversion:
+duplication). Genome `u` inherits both copies. Genome `v` inherits the first copy, with its second
+half inverted, and only the first half of the second copy. This *inheritance plot* draws each
+genome as a horizontal bar, and each iedge as a band joining an interval of a child (below) to the
+interval of its parent (above) that it inherits; a band that crosses itself is an inversion:
 
 ```{code-cell}
 :tags: [hide-input]
@@ -156,43 +156,55 @@ R = tables.nodes.add_row(10)
 A = tables.nodes.add_row(5)
 u = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
 v = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+# A has two copies of R's positions 0-10
 tables.iedges.add_row(A, R, child_left=0, child_right=10, parent_left=0, parent_right=10)
 tables.iedges.add_row(A, R, child_left=10, child_right=20, parent_left=0, parent_right=10)
-tables.iedges.add_row(u, A, child_right=20)  # both copies
-tables.iedges.add_row(v, A, child_right=5)  # the first half of the first copy...
-tables.iedges.add_row(v, A, child_left=5, child_right=10, parent_left=10, parent_right=5)  # ...and the second, inverted
+# u inherits both copies
+tables.iedges.add_row(u, A, child_right=20)
+# v inherits the first copy, with its second half (A's 5-10) inverted, and the first half of the second
+tables.iedges.add_row(v, A, child_left=0, child_right=5, parent_left=0, parent_right=5)
+tables.iedges.add_row(v, A, child_left=5, child_right=10, parent_left=10, parent_right=5)
+tables.iedges.add_row(v, A, child_left=10, child_right=15, parent_left=10, parent_right=15)
 tables.sort()
 tables.validate()
 
-# Where to draw each genome: (y, x offset, label)
-rows = {R: (2, 10, "R"), A: (1, 5, "A"), v: (0, 0, "v"), u: (0, 15, "u")}
+# Where to draw each genome: (y, x offset, length, label)
+rows = {R: (2, 10, 10, "R"), A: (1, 5, 20, "A"), v: (0, 0, 15, "v"), u: (0, 18, 20, "u")}
+# A colour for each record of homology, the same in every plot (all the homology includes every record)
+record_colours = dict(zip(tables.find_homology(u, v, mode="all"), plt.get_cmap("tab10").colors))
 
 
-def draw(ax, highlight=None):
-    for node, (y, x, label) in rows.items():
-        length = max(ie.child_right for ie in tables.iedges if ie.child == node) if node != R else 10
-        ax.add_patch(Rectangle((x, y - 0.1), length, 0.2, color="0.6"))
+def draw(ax, records=(), title=None):
+    """
+    Draw the GIG, with the segments of u, v and their MRCA in each homology record coloured:
+    in the top half of each genome if the MRCA is A, and in the bottom half if it is R
+    """
+    for y, x, length, label in rows.values():
+        ax.add_patch(Rectangle((x, y - 0.1), length, 0.2, color="0.75"))
         ax.text(x - 0.5, y, label, ha="right", va="center", fontsize=12)
         ax.text(x, y - 0.18, "0", ha="center", va="top", fontsize=8)
         ax.text(x + length, y - 0.18, str(length), ha="center", va="top", fontsize=8)
     for ie in tables.iedges:
-        (cy, cx, _), (py, px, _) = rows[ie.child], rows[ie.parent]
+        (cy, cx, _, _), (py, px, _, _) = rows[ie.child], rows[ie.parent]
         corners = [
             (cx + ie.child_left, cy + 0.1),
             (cx + ie.child_right, cy + 0.1),
             (px + ie.parent_right, py - 0.1),
             (px + ie.parent_left, py - 0.1),
         ]
-        ax.add_patch(Polygon(corners, color="tab:blue", alpha=0.25))
-    if highlight is not None:
-        # Mark the segments of u, v and their MRCA in a homology record
-        for node, segment in [(u, highlight.u), (v, highlight.v), (highlight.mrca, highlight.mrca_segment)]:
-            y, x, _ = rows[node]
+        ax.add_patch(Polygon(corners, color="tab:blue", alpha=0.2))
+    for h in records:
+        colour = record_colours[h]
+        bottom = 0 if h.mrca == A else -0.1  # the top or bottom half of a genome
+        for node, segment in [(u, h.u), (v, h.v), (h.mrca, h.mrca_segment)]:
+            y, x, _, _ = rows[node]
             left, right = sorted([segment.left, segment.right])
-            ax.add_patch(Rectangle((x + left, y - 0.1), right - left, 0.2, color="tab:orange"))
-    ax.set_xlim(-2, 37)
+            ax.add_patch(Rectangle((x + left + 0.1, y + bottom), right - left - 0.2, 0.1, color=colour))
+    ax.set_xlim(-2, 40)
     ax.set_ylim(-0.5, 2.4)
     ax.axis("off")
+    if title is not None:
+        ax.set_title(title, loc="left")
 
 
 fig, ax = plt.subplots(figsize=(8, 3))
@@ -220,7 +232,7 @@ highlighted here:
 :tags: [hide-input]
 
 fig, ax = plt.subplots(figsize=(8, 3))
-draw(ax, highlight=tables.find_homology(u, v)[1])
+draw(ax, [tables.find_homology(u, v)[1]])
 plt.show()
 ```
 
@@ -240,11 +252,11 @@ a segment (if the GIG has mutations) with `gig.haplotype(u, **h.u)`.
 
 ### Which homology is found
 
-So far, there is no homology for `u`'s second copy of the region (positions 10 to 20). By default
-(`mode="first_mrca"`), each lineage stops being traced at the first MRCA it reaches. The lineage
-of `v`'s copy reaches `A`, where it meets that of `u`'s first copy, and stops. So it isn't there
-to meet the lineage of `u`'s second copy, which only meets it further back, in `R`. The other
-modes find this homology too:
+So far, there is no homology for the second half of `u`'s second copy (its positions 15 to 20).
+By default (`mode="first_mrca"`), each lineage stops being traced at the first MRCA it reaches.
+The lineage of `v`'s positions 5 to 10 reaches `A`, where it meets that of `u`'s positions 5 to
+10, and stops. So it isn't there to meet the lineage of `u`'s positions 15 to 20, which only meets
+it further back, in `R`. The other modes find more:
 
 ```{code-cell}
 names = {R: "R", A: "A"}
@@ -255,13 +267,33 @@ for mode in ["first_mrca", "closest_homologues", "all"]:
         print(f"  u {h.u.left}-{h.u.right} ~ v {h.v.left}-{h.v.right}, through {mrca} (time {tables.nodes.time[h.mrca]:g})")
 ```
 
-Here, `"closest_homologues"` and `"all"` give the same result, as the homology through `R` is the
-closest that `u`'s second copy has. They would differ if `v` also had the second copy: then each
-copy's closest homologue would be the same copy in the other genome, through `A`, and only
-`"all"` would also find the older homology between the two copies, through `R`.
+- `"closest_homologues"` also finds that `u`'s positions 15 to 20 are homologous to `v`'s
+  positions 5 to 10 (reversed), through `R`. This is the closest homology that `u`'s positions
+  have, as `v` has nothing closer.
+- `"all"` also finds the older homology *between the copies*: e.g. `u`'s positions 0 to 5 (in
+  its first copy) are homologous to `v`'s positions 10 to 15 (its half of the second copy),
+  through `R`. But both of these positions have closer homologues, through `A` (`u`'s 0 to 5
+  with `v`'s 0 to 5, and `v`'s 10 to 15 with `u`'s 10 to 15), so this is *remote* homology,
+  which `"closest_homologues"` leaves out.
+
+In these inheritance plots, each record of homology is a different colour, on its segments of
+`u`, `v` and their MRCA: in the top half of each genome if the MRCA is `A`, and in the bottom
+half if it is `R`. (Several records can descend from the same segment of their MRCA, e.g. `R`'s
+positions 0 to 5, shared by the two records of homology between the copies, so only one of their
+colours shows there.)
+
+```{code-cell}
+:tags: [hide-input]
+
+fig, axes = plt.subplots(3, 1, figsize=(8, 9))
+for ax, mode in zip(axes, ["first_mrca", "closest_homologues", "all"]):
+    draw(ax, tables.find_homology(u, v, mode=mode), title=f'mode="{mode}"')
+plt.show()
+```
 
 The homology between two genomes is easiest to see in a dot plot (see
-{ref}`the homology tools <sec_tools_homology>`), coloured by the time of the MRCA:
+{ref}`the homology tools <sec_tools_homology>`), coloured by the time of the MRCA. This one shows
+all the homology:
 
 ```{code-cell}
 from giglib.tools import homology
