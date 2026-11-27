@@ -61,6 +61,8 @@ def sim_microsatellites_backward(
     positions = [position for position, _ in loci]
     if len(set(positions)) != len(positions) or any(not 0 <= p < sequence_length for p in positions):
         raise ValueError("Microsatellite positions must be distinct, and within the sequence")
+    if max_units < 2:
+        raise ValueError("max_units must be at least 2, so that the number of repeats can change")
     rng = np.random.default_rng(random_seed)
     ancestry_seed, mutation_seed = rng.integers(1, 2**31, size=2)
     ts = msprime.sim_ancestry(
@@ -73,29 +75,34 @@ def sim_microsatellites_backward(
     )
     # Mutations only at the microsatellites
     breaks = sorted({0, sequence_length, *positions, *(p + 1 for p in positions)})
-    rates = [mutation_rate if left in positions else 0 for left in breaks[:-1]]
+    position_set = set(positions)
+    rates = [mutation_rate if left in position_set else 0 for left in breaks[:-1]]
     model = msprime.SMM(lo=1, hi=max_units)
     ts = msprime.sim_mutations(
         ts, rate=msprime.RateMap(position=breaks, rate=rates), model=model, random_seed=mutation_seed
     )
 
-    # Give each locus room for max_units repeats, by shifting the positions after it
+    # Give each locus room for max_units repeats, by shifting the positions after it: a
+    # position moves right by the extra room (span - 1) of every locus before it
     motifs = dict(loci)
     span = {position: len(motif) * max_units for position, motif in loci}
+    shift_after = np.cumsum([0] + [span[p] - 1 for p in positions])  # the shift after the first i loci
 
     def new_position(x):
-        return x + sum(span[p] - 1 for p in positions if p < x)
+        # x can be a position or an array of them: searchsorted gives the number of
+        # loci before each (positions is sorted)
+        return x + shift_after[np.searchsorted(positions, x)]
 
     def allele(position, num_units):
         repeats = motifs[position] * int(num_units)
         return repeats + "-" * (span[position] - len(repeats))
 
     tables = ts.dump_tables()
-    tables.sequence_length = new_position(sequence_length)
+    tables.sequence_length = int(new_position(sequence_length))
     edges = tables.edges
     edges.set_columns(
-        left=np.array([new_position(x) for x in edges.left]),
-        right=np.array([new_position(x) for x in edges.right]),
+        left=new_position(edges.left),
+        right=new_position(edges.right),
         parent=edges.parent,
         child=edges.child,
     )
@@ -103,7 +110,9 @@ def sim_microsatellites_backward(
     tables.mutations.clear()
     for site in ts.sites():
         position = int(site.position)
-        tables.sites.add_row(position=new_position(position), ancestral_state=allele(position, site.ancestral_state))
+        tables.sites.add_row(
+            position=int(new_position(position)), ancestral_state=allele(position, site.ancestral_state)
+        )
         for m in site.mutations:
             tables.mutations.add_row(
                 site=site.id, node=m.node, derived_state=allele(position, m.derived_state), parent=m.parent, time=m.time
@@ -114,7 +123,7 @@ def sim_microsatellites_backward(
     for position in positions:
         if position not in mutated:
             num_units = rng.choice(model.alleles, p=model.root_distribution)
-            tables.sites.add_row(position=new_position(position), ancestral_state=allele(position, num_units))
+            tables.sites.add_row(position=int(new_position(position)), ancestral_state=allele(position, num_units))
     tables.sort()
     tables.build_index()
     return indels.from_tree_sequence(tables.tree_sequence())

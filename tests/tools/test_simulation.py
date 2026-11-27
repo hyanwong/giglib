@@ -499,6 +499,13 @@ class TestMicrosatellitesBackward:
         expected = 1000 - len(self.loci) + sum(len(motif) * n for (_, motif), n in zip(self.loci, counts))
         assert {gig.sequence_length(u) for u in gig.sample_nodes().ids} == {expected}
 
+    def test_max_units_one(self):
+        # With at most one repeat, a microsatellite can't vary
+        with pytest.raises(ValueError, match="max_units must be at least 2"):
+            sim_microsatellites_backward(
+                2, 1000, self.loci, max_units=1, population_size=100, recombination_rate=0, mutation_rate=0
+            )
+
     @pytest.mark.parametrize("loci", [[(200, "AT"), (200, "CA")], [(1000, "AT")], [(-1, "AT")]])
     def test_bad_loci(self, loci):
         with pytest.raises(ValueError, match="distinct, and within the sequence"):
