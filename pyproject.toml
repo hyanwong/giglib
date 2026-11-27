@@ -41,7 +41,6 @@ keywords = [
 requires-python = ">=3.12"
 dependencies = [
     "numpy",
-    "portion",
     "sortedcontainers",
     "tskit>=1.0.0",
 ]

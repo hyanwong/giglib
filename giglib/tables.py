@@ -2,14 +2,15 @@ import collections
 import dataclasses
 import itertools
 import logging
+import math
 import types
 
 import numpy as np
 import numpy.typing as npt
-import portion as P
 import sortedcontainers
 import tskit
 
+from . import intervals as interval_sets
 from .constants import Const, ValidFlags
 from .util import (
     DEFAULT_ALLELE_COMPLEMENTS,
@@ -2167,11 +2168,10 @@ class Tables:
         sample nodes are always kept).
         """
         # == Implementation details ==
-        # A. Rather than representing the intervals for a node as a list of
-        #    (left, right) tuples, the "portion" library is used, allowing multiple
-        #    intervals to be combined into a single object and automatically merged
-        #    together when they adjoin or overlap (coalesce). This reduces the
-        #    number of intervals and their fragmentation as we go up the stack.
+        # A. The intervals passed up to a node are collected in a list, and merged into
+        #    a set of intervals (see giglib.intervals) when the node is visited, joining
+        #    those that adjoin or overlap (coalesce). This reduces the number of
+        #    intervals and their fragmentation as we go up the stack.
         # B. For simplicity we put all nodes onto the stack at the start, in time
         #    order (relying on the fact that python dicts now preserve order). We
         #    then fill out their intervals as we go, and gradually remove the items
@@ -2186,7 +2186,7 @@ class Tables:
         #    "recombination diamonds". This could be useful for some applications,
         self._require_iedge_flags(ValidFlags.IEDGES_FOR_TRACING, "sample_resolve()")
 
-        stack = {c: collections.defaultdict(P.interval.Interval) for c in reversed(np.argsort(self.nodes.time))}
+        stack = {c: collections.defaultdict(list) for c in reversed(np.argsort(self.nodes.time))}
         old_iedges = self.iedges
         # The new iedges are trimmed copies of the old ones, so keep the guarantees that
         # don't depend on the order of the iedges (sorting gives those that do)
@@ -2196,11 +2196,12 @@ class Tables:
         ancestral_regions = {}
         while len(stack):
             child, chromosomes = stack.popitem()
+            chromosomes = {chrom: interval_sets.normalise(intervals) for chrom, intervals in chromosomes.items()}
             ancestral_regions[child] = chromosomes
             # An internal sample might have some material passed-up from its children
             # here, but we can replace that with everything passed up to parents
             if self.nodes[child].is_sample():
-                chromosomes = {chrom: P.closedopen(0, np.inf) for chrom in old_iedges.chromosomes_as_child(child)}
+                chromosomes = {chrom: [(0, math.inf)] for chrom in old_iedges.chromosomes_as_child(child)}
             # We can't add in the edges in the correct order because we are adding
             # the youngest edges first, so we don't need to keep chromosomes in the
             # right order (we will have to sort anyway). If we *did* want to keep
@@ -2211,30 +2212,30 @@ class Tables:
                     ie = old_iedges[ie_id]
                     parent = ie.parent
                     parent_chr = ie.parent_chromosome
-                    child_ivl = P.closedopen(ie.child_left, ie.child_right)
                     to_parent = PositionMap.from_iedge(ie)
                     # JEROME'S NOTE (from previous algorithm): if we had an index here
                     # sorted by left coord we could binary search to first match, and
                     # could break once c_right > left (I think?), rather than having
                     # to intersect all the intervals with the current c_rgt/c_lft
-                    for intervals in chromosomes[child_chr]:
-                        for interval in intervals:
-                            if c := child_ivl & interval:  # intersect
-                                p = to_parent.interval(c.lower, c.upper)
-                                # For passing up, interval orientation doesn't matter, so
-                                # put the lowest position first, as `portion` requires
-                                stack[parent][parent_chr] |= P.closedopen(min(p), max(p))
-                                # Add the trimmed interval to the new edge table
-                                self.iedges.add_row(
-                                    child,
-                                    parent,
-                                    child_left=c.lower,
-                                    child_right=c.upper,
-                                    parent_left=p[0],
-                                    parent_right=p[1],
-                                    child_chromosome=child_chr,
-                                    parent_chromosome=parent_chr,
-                                )
+                    for left, right in chromosomes[child_chr]:
+                        # The part of this interval that the iedge passes to the parent
+                        left, right = max(left, ie.child_left), min(right, ie.child_right)
+                        if left < right:
+                            p = to_parent.interval(left, right)
+                            # For passing up, interval orientation doesn't matter, so
+                            # put the lowest position first
+                            stack[parent][parent_chr].append((min(p), max(p)))
+                            # Add the trimmed interval to the new edge table
+                            self.iedges.add_row(
+                                child,
+                                parent,
+                                child_left=left,
+                                child_right=right,
+                                parent_left=p[0],
+                                parent_right=p[1],
+                                child_chromosome=child_chr,
+                                parent_chromosome=parent_chr,
+                            )
         self._remove_non_ancestral_mutations(ancestral_regions)
         if sort:
             self.sort()
@@ -2254,7 +2255,7 @@ class Tables:
             for i, (u, chrom, x) in enumerate(
                 zip(mutations.node.tolist(), mutations.chromosome.tolist(), mutations.position.tolist())
             )
-            if is_sample[u] or x in ancestral_regions.get(u, {}).get(chrom, P.empty())
+            if is_sample[u] or interval_sets.contains(ancestral_regions.get(u, {}).get(chrom, []), x)
         ]
         if len(keep) < len(mutations):
             mutations._subset(keep)
@@ -2378,14 +2379,16 @@ class Tables:
         # The material of u and v traced up to each node. Intervals need tracking
         # separately if they have been transformed (inverted or coordinate-shifted), so
         # for each node, the stack stores *two* dicts, the first for the material of u and
-        # the second for that of v. Each maps a chromosome of the node to a dict of
-        # portion intervals in the node's coordinates, keyed by (to_original, original
-        # chromosome), where to_original is the PositionMap from the coordinates of the
-        # node back to those of u (or v). If a node has material in both dicts, positions
-        # of u and v can meet there, making it their MRCA.
+        # the second for that of v. Each maps a chromosome of the node to a dict of lists
+        # of (left, right) intervals in the node's coordinates (see giglib.intervals),
+        # keyed by (to_original, original chromosome), where to_original is the
+        # PositionMap from the coordinates of the node back to those of u (or v). If a node
+        # has material in both dicts, positions of u and v can meet there, making it their
+        # MRCA. Intervals are added to a node's lists as they arrive, and the lists are
+        # tidied into sets of intervals once, when the node is visited.
         identity = PositionMap(1, 0)
-        stack[u] = ({c: {(identity, c): P.closedopen(0, np.inf)} for c in u_chromosomes}, {})
-        stack[v] = ({}, {c: {(identity, c): P.closedopen(0, np.inf)} for c in v_chromosomes})
+        stack[u] = ({c: {(identity, c): [(0, math.inf)]} for c in u_chromosomes}, {})
+        stack[v] = ({}, {c: {(identity, c): [(0, math.inf)]} for c in v_chromosomes})
 
         result = []
         # What has been reported so far. As nodes are visited from the most recent, a pair
@@ -2397,18 +2400,18 @@ class Tables:
         # once all the nodes at that time have been visited, so that ties are kept).
         reported = {"all": {}, "found": ({}, {}), "pending": ({}, {}), "time": -np.inf}
 
-        def concat(x, y):
-            # combine a pair of sets in x and a pair of sets in y
-            return (x[0] | y[0], x[1] | y[1])
-
         while len(stack) > 0:
             node, (u_dict, v_dict) = stack.popitem()
             if node_times[node] > time_cutoff:
                 break
+            for material in (u_dict, v_dict):
+                for interval_dict in material.values():
+                    for key, intervals in interval_dict.items():
+                        interval_dict[key] = interval_sets.normalise(intervals)
             if node_times[node] > reported["time"]:
                 for found, pending in zip(reported["found"], reported["pending"]):
                     for chromosome, intervals in pending.items():
-                        found[chromosome] = found.get(chromosome, P.empty()) | intervals
+                        found[chromosome] = interval_sets.union(found.get(chromosome, []), intervals)
                     pending.clear()
                 reported["time"] = node_times[node]
                 # In mode "closest_homologues", a pair is only reported if this is the
@@ -2429,27 +2432,23 @@ class Tables:
             ):
                 if node == genome and chromosome is None:
                     for c in other.keys() - own.keys():
-                        own[c] = {(identity, c): P.closedopen(0, np.inf)}
+                        own[c] = {(identity, c): [(0, math.inf)]}
             for chrom in u_dict.keys() & v_dict.keys():
                 # Cut the node's chromosome into pieces that each have the same material of
                 # u and of v (there can be several of each, e.g. copies of a duplicated
-                # region). Intervals are not sorted, so check all combinations.
-                pieces = P.IntervalDict()
-                for u_key, u_intervals in u_dict[chrom].items():
-                    for v_key, v_intervals in v_dict[chrom].items():
-                        if overlap := u_intervals & v_intervals:
-                            pieces = pieces.combine(P.IntervalDict({overlap: ({u_key}, {v_key})}), how=concat)
-                for piece_intervals, (u_keys, v_keys) in pieces.items():
-                    for piece in piece_intervals:
-                        mrca_segment = Segment(piece.lower, piece.upper, chrom)
-                        for u_key in u_keys:
-                            for v_key in v_keys:
-                                self._add_homology(result, reported, mode, node, mrca_segment, u_key, v_key)
+                # region)
+                pieces = interval_sets.pieces(u_dict[chrom], v_dict[chrom])
+                for left, right, u_keys, v_keys in pieces:
+                    mrca_segment = Segment(left, right, chrom)
+                    for u_key in u_keys:
+                        for v_key in v_keys:
+                            self._add_homology(result, reported, mode, node, mrca_segment, u_key, v_key)
                 if mode == "first_mrca" and len(pieces) > 0:
                     # Each lineage stops at its first MRCA: remove what has met here
+                    met = interval_sets.normalise([(left, right) for left, right, _, _ in pieces])
                     for uv_dict in (u_dict, v_dict):
-                        for key in uv_dict[chrom].keys():
-                            uv_dict[chrom][key] -= pieces.domain()
+                        for key, intervals in uv_dict[chrom].items():
+                            uv_dict[chrom][key] = interval_sets.subtract(intervals, met)
 
             # Transmit the remaining intervals upwards
             for ie_id in self.iedges.ids_for_child(node):
@@ -2459,7 +2458,6 @@ class Tables:
                 # offsets / orientations separately
                 ie = self.iedges[ie_id]
                 parent = ie.parent
-                child_ivl = P.closedopen(ie.child_left, ie.child_right)  # cache
                 to_parent = PositionMap.from_iedge(ie)
                 from_parent = to_parent.inverse()
                 for u_or_v, u_or_v_dict in enumerate((u_dict, v_dict)):
@@ -2468,18 +2466,15 @@ class Tables:
                             continue
                         for (to_original, orig_chr), intervals in interval_dict.items():
                             key = (from_parent.then(to_original), orig_chr)
-                            for interval in intervals:
-                                if c := child_ivl & interval:
-                                    p = to_parent.interval(c.lower, c.upper)
-                                    parent_ivl = P.closedopen(min(p), max(p))
+                            for left, right in intervals:
+                                # The part of this interval that the iedge passes to the parent
+                                left, right = max(left, ie.child_left), min(right, ie.child_right)
+                                if left < right:
+                                    p = to_parent.interval(left, right)
                                     if parent not in stack:
                                         stack[parent] = ({}, {})
-                                    if ie.parent_chromosome not in stack[parent][u_or_v]:
-                                        stack[parent][u_or_v][ie.parent_chromosome] = {}
-                                    if key in stack[parent][u_or_v][ie.parent_chromosome]:
-                                        stack[parent][u_or_v][ie.parent_chromosome][key] |= parent_ivl
-                                    else:
-                                        stack[parent][u_or_v][ie.parent_chromosome][key] = parent_ivl
+                                    at_parent = stack[parent][u_or_v].setdefault(ie.parent_chromosome, {})
+                                    at_parent.setdefault(key, []).append((min(p), max(p)))
 
         result.sort(key=lambda h: (h.u.chromosome, h.u.left, h.u.right, h.v.chromosome, h.v.left, h.v.right, h.mrca))
         return result
@@ -2494,14 +2489,11 @@ class Tables:
         for material, found_here in zip(dicts, found):
             for interval_dict in material.values():
                 for (to_original, original_chromosome), intervals in interval_dict.items():
-                    for interval in intervals:
-                        if interval.empty:
-                            continue
-                        ends = to_original.interval(interval.lower, interval.upper)
-                        original = P.closedopen(min(ends), max(ends))
-                        if not original - found_here.get(original_chromosome, P.empty()):
-                            continue
-                        return True
+                    for left, right in intervals:
+                        ends = to_original.interval(left, right)
+                        original = [(min(ends), max(ends))]
+                        if interval_sets.subtract(original, found_here.get(original_chromosome, [])):
+                            return True
         return False
 
     @staticmethod
@@ -2520,32 +2512,29 @@ class Tables:
         u_to_v = u_to_mrca.then(to_v)
         u_ends = to_u.interval(mrca_segment.left, mrca_segment.right)
         u_left, u_right = int(min(u_ends)), int(max(u_ends))
+        here = [(u_left, u_right)]
         if mode == "all":
             key = (u_to_v, u_chr, v_chr)
-            already = reported["all"].get(key, P.empty())
-            new = P.closedopen(u_left, u_right) - already
-            reported["all"][key] = already | new
+            already = reported["all"].get(key, [])
+            new = interval_sets.subtract(here, already)
+            reported["all"][key] = interval_sets.union(already, new)
         elif mode == "closest_homologues":
             (u_found, v_found), (u_pending, v_pending) = reported["found"], reported["pending"]
-            here = P.closedopen(u_left, u_right)
             # The positions of u, and those (in u's coordinates) whose homologues in v,
             # have no homology at a more recent time
-            new = here - u_found.get(u_chr, P.empty())
+            new = interval_sets.subtract(here, u_found.get(u_chr, []))
             v_ends = u_to_v.interval(u_left, u_right)
             v_to_u = u_to_v.inverse()
-            for v_interval in P.closedopen(min(v_ends), max(v_ends)) - v_found.get(v_chr, P.empty()):
-                if not v_interval.empty:
-                    ends = v_to_u.interval(v_interval.lower, v_interval.upper)
-                    new |= P.closedopen(min(ends), max(ends))
-            for interval in new:
-                if not interval.empty:
-                    u_pending[u_chr] = u_pending.get(u_chr, P.empty()) | interval
-                    ends = u_to_v.interval(interval.lower, interval.upper)
-                    v_pending[v_chr] = v_pending.get(v_chr, P.empty()) | P.closedopen(min(ends), max(ends))
+            for left, right in interval_sets.subtract([(min(v_ends), max(v_ends))], v_found.get(v_chr, [])):
+                ends = v_to_u.interval(left, right)
+                new = interval_sets.union(new, [(min(ends), max(ends))])
+            for left, right in new:
+                u_pending[u_chr] = interval_sets.union(u_pending.get(u_chr, []), [(left, right)])
+                ends = u_to_v.interval(left, right)
+                v_pending[v_chr] = interval_sets.union(v_pending.get(v_chr, []), [(min(ends), max(ends))])
         else:
-            new = P.closedopen(u_left, u_right)
-        u_intervals = [(i.lower, i.upper) for i in new if not i.empty]
-        for left, right in u_intervals:
+            new = here
+        for left, right in new:
             result.append(
                 Homology(
                     Segment(int(left), int(right), u_chr),

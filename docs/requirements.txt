@@ -1,4 +1,3 @@
-portion
 networkx
 matplotlib
 tskit
