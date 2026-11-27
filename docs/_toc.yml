@@ -28,4 +28,5 @@ chapters:
   - file: design/simplification
   - file: design/insertions
   - file: design/homology
+  - file: design/recombination
 #- file: CHANGELOG

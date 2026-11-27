@@ -23,7 +23,15 @@ between species.
 A (generalised) genetic inheritance graph (or GIG) extends the concept of an ARG
 so that “edge annotations” can specify different parent and child left/right coordinates.
 The resulting structure is comparable to an ARG, but is capable of representing
-arbitrarily complex patterns of genetic inheritance. 
+arbitrarily complex patterns of genetic inheritance.
+
+Because a GIG records where each piece of DNA came from, even when it has been moved, copied or
+inverted, it can be used to find **homology**: the regions of two genomes that descend from the
+same region of a common ancestor. In a tree sequence, homologous positions are simply those at the
+same coordinate, but in a GIG, finding them means tracing ancestry back through the graph. This is
+one of the main things a GIG adds to an ARG, e.g. to decide where crossovers can happen between
+genomes that differ in structure, and is why _giglib_ provides ways to find and plot homology (see
+{ref}`sec_concepts_homology`).
 
 The Genetic Inheritance Graph Library (giglib) is a proof-of-concept implementation of the idea
 behind GIGs, and is inspired by the standard [tskit](https://tskit.dev) ARG library.
@@ -102,6 +110,65 @@ A deletion simply occurs when no material from the parent is transmitted to any 
 {parent: P, child: C, child_left: 0, child_right: 5, parent_left: 0, parent_right: 5}
 {parent: P, child: C, child_left: 5, child_right: 10, parent_left: 15, parent_right: 20}
 ```
+
+(sec_concepts_homology)=
+
+## Homology
+
+In a GIG, genomes can have different lengths and different arrangements, so a position's
+coordinate says little about which positions of another genome it corresponds to. Instead, each
+position can be traced back through the iedges to its position in each ancestor: two positions are
+**homologous** if they trace back to the same position in a common ancestor. This is homology by
+descent, recorded in the graph, rather than similarity of sequence.
+
+Homology is easiest to see in a *dot plot*, which draws each homologous segment of two genomes as a
+line, at its position in one genome (horizontally) and in the other (vertically). Here, genomes `u`
+and `v` inherit from a common ancestor `P`, which has a copy of a region that was duplicated in an
+older ancestor `R`, and `v` also has an inversion:
+
+```{code-cell}
+:tags: [hide-input]
+
+import matplotlib.pyplot as plt
+
+import giglib as gigl
+from giglib.tools import homology
+
+tables = gigl.Tables()
+R = tables.nodes.add_row(3)  # an old ancestor, 40 positions long
+P = tables.nodes.add_row(1)  # the common ancestor of u and v
+u = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+v = tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+# P has a tandem duplication of R's positions 10-20 (so is 50 positions long)
+tables.iedges.add_row(P, R, child_left=0, child_right=20, parent_left=0, parent_right=20)
+tables.iedges.add_row(P, R, child_left=20, child_right=30, parent_left=10, parent_right=20)
+tables.iedges.add_row(P, R, child_left=30, child_right=50, parent_left=20, parent_right=40)
+# u inherits P unchanged, and v has an inversion of P's positions 35-45
+tables.iedges.add_row(u, P, child_right=50)
+tables.iedges.add_row(v, P, child_left=0, child_right=35, parent_left=0, parent_right=35)
+tables.iedges.add_row(v, P, child_left=35, child_right=45, parent_left=45, parent_right=35)
+tables.iedges.add_row(v, P, child_left=45, child_right=50, parent_left=45, parent_right=50)
+tables.sort()
+tables.validate()
+
+ax = homology.plot(tables, u, v)
+ax.set_xlabel("position in genome u")
+ax.set_ylabel("position in genome v")
+plt.show()
+```
+
+The lines are coloured by the time of the most recent common ancestor (MRCA) of each pair of
+segments. Most of the homology runs along the diagonal, through `P`, as `u` and `v` share most of
+their genome in the same order. The region inverted in `v` runs the other way (from top left to
+bottom right). The two copies of the duplicated region are also homologous to each other, but
+more distantly, through the older ancestor `R`, so they appear as lighter lines off the diagonal.
+So a GIG records homology at different levels, as for the members of a gene family: each copy's
+closest homologue is the matching copy in the other genome, and the other copy is a more remote
+homologue.
+
+See {ref}`sec_usage_homology` for how to find homology, {ref}`sec_tools_homology` for tools that
+build on it (e.g. joining homology into chains, to decide where crossovers can happen), and
+{ref}`sec_design_homology` for the design.
 
 ## Mutations
 
