@@ -194,6 +194,53 @@ class TestDTWF_one_break_no_rec_inversions_slow:
         gig = gig.sample_resolve()
         ts.tables.assert_equals(gig.to_tree_sequence().tables, ignore_provenance=True)
 
+    def test_tandem_duplication(self):
+        """
+        Insert a large tandem duplication into a few genomes, then carry on simulating.
+        Nothing stops crossovers between different copies of the duplicated region, so
+        unequal crossing-over changes the number of copies (from issue #100). However
+        many copies a genome has, its length must be the original length plus a whole
+        number of duplicated regions.
+        """
+        length, dup_left, dup_right = 531, 50, 500  # positions 50-500 are duplicated
+        simulator = DTWF_one_break_no_rec_inversions_slow_sim()
+        simulator.run(num_diploids=10, seq_lens=[length], gens=1, random_seed=2)
+        # Replace the iedges of 5 genomes in the last generation with those of a tandem
+        # duplication of their (first) parent's genome: the parent's positions up to
+        # dup_right, then a copy of dup_left onwards
+        tables = simulator.tables
+        duplicated = [int(u) for u in np.where(tables.nodes.time == 0)[0][:5]]
+        new_tables = tables.copy()
+        new_tables.iedges.clear()
+        for ie in tables.iedges:
+            if ie.child not in duplicated:
+                new_tables.iedges.add_row(**ie._asdict())
+        for u in duplicated:
+            parent = next(ie.parent for ie in tables.iedges if ie.child == u)
+            new_tables.iedges.add_row(u, parent, child_right=dup_right)
+            new_tables.iedges.add_row(
+                u,
+                parent,
+                child_left=dup_right,
+                child_right=length + dup_right - dup_left,
+                parent_left=dup_left,
+                parent_right=length,
+            )
+        new_tables.sort()
+        new_tables.validate()
+        simulator.tables = new_tables
+
+        gig = simulator.run_more(num_diploids=20, gens=20, random_seed=2)
+        dup_length = dup_right - dup_left
+        num_copies = []
+        for u in gig.sample_nodes(time=0).ids:
+            extra = gig.sequence_length(u) - length
+            assert extra % dup_length == 0
+            num_copies.append(1 + extra // dup_length)
+        # With this seed, genomes with one and with two copies remain (other seeds may lose
+        # the duplication by drift)
+        assert set(num_copies) == {1, 2}, "the random seed doesn't suit this test"
+
     def test_inversion(self):
         """
         Run a simulation in which a single inversion is introduced then the
