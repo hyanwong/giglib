@@ -72,9 +72,12 @@ class DTWF_microsatellite_sim(DTWF_one_break_no_rec_inversions_slow_sim):
 
     def find_crossover(self, mum, dad):
         """
-        Return homologous positions in ``mum`` and ``dad``, either side of which a
-        crossover can be placed: in the same orientation, in a long enough chain of
-        homology, and not in a microsatellite
+        Choose where to break ``mum`` and ``dad`` for a crossover, and return the two
+        breaks (each between two positions). A break is allowed between two positions of
+        ``mum`` that are in the same block of a long enough chain of homology with ``dad``
+        (in the same orientation), and are not in a microsatellite of either parent. Such a
+        break is always strictly inside both genomes. One is chosen uniformly from all
+        the allowed breaks.
         """
         blocks = homology.homology_blocks(self.tables, mum, dad)
         allowed = [
@@ -84,27 +87,28 @@ class DTWF_microsatellite_sim(DTWF_one_break_no_rec_inversions_slow_sim):
             for block in chain
             if not block.is_reversed
         ]
-        if len(allowed) == 0:
-            raise ValueError(f"No chain of homology between {mum} and {dad} is long enough for a crossover")
-        weights = np.array([block.length for block in allowed], dtype=float)
-        for _ in range(self.num_tries_for_breakpoint):
-            block = allowed[self.rng.choice(len(allowed), p=weights / weights.sum())]
-            x = block.u_left + int(self.rng.integers(block.length))
-            y = block.map.position(x)
-            if not self._in_locus(mum, x) and not self._in_locus(dad, y):
-                return x, y
-        raise ValueError(
-            f"Could not find a crossover outside microsatellites after {self.num_tries_for_breakpoint} tries"
-        )
+        # The stretches of mum (and their offsets to dad) outside the microsatellites
+        stretches = []
+        for block in allowed:
+            offset = block.map.offset  # the block is not reversed, so dad's position is mum's + offset
+            loci = [(start, start + unit * num) for _, start, unit, num in self.loci[mum]]
+            loci += [(start - offset, start + unit * num - offset) for _, start, unit, num in self.loci[dad]]
+            for left, right in _subtract_intervals(block.u_left, block.u_right, loci):
+                stretches.append((left, right, offset))
+        # A stretch of n positions has n - 1 breaks between them
+        num_breaks = np.array([right - left - 1 for left, right, _ in stretches], dtype=float)
+        if num_breaks.sum() == 0:
+            raise ValueError(f"No place for a crossover between {mum} and {dad}")
+        left, right, offset = stretches[self.rng.choice(len(stretches), p=num_breaks / num_breaks.sum())]
+        mum_break = left + 1 + int(self.rng.integers(right - left - 1))
+        return mum_break, mum_break + offset
 
     def add_inheritance_paths(self, parent_nodes, child, _):
         mum, dad = parent_nodes
-        x, y = self.find_crossover(mum, dad)
-        # Break just before or just after the homologous positions, and choose at random
-        # which parent gives the left of the child's genome
-        rnd = int(self.rng.integers(4))
-        breaks = {mum: x + (rnd & 1), dad: y + (rnd & 1)}
-        left_parent, right_parent = (mum, dad) if rnd & 2 else (dad, mum)
+        mum_break, dad_break = self.find_crossover(mum, dad)
+        breaks = {mum: mum_break, dad: dad_break}
+        # Choose at random which parent gives the left of the child's genome
+        left_parent, right_parent = (mum, dad) if self.rng.random() < 0.5 else (dad, mum)
         left_break, right_break = breaks[left_parent], breaks[right_parent]
         right_length = self.tables.iedges.max_pos_as_child(right_parent, chromosome=0)
         # The child's genome, as a list of [parent, parent_start, length] segments in order
@@ -200,3 +204,20 @@ def _merge_segments(segments):
         else:
             merged.append([parent, parent_start, length])
     return merged
+
+
+def _subtract_intervals(left, right, holes):
+    """
+    The parts of the interval ``[left, right)`` outside the intervals ``holes`` (a list of
+    ``(left, right)`` tuples, in any order), as a list of ``(left, right)`` tuples
+    """
+    result = []
+    for hole_left, hole_right in sorted(holes):
+        if hole_right <= left or hole_left >= right:
+            continue
+        if hole_left > left:
+            result.append((left, hole_left))
+        left = max(left, hole_right)
+    if left < right:
+        result.append((left, right))
+    return result

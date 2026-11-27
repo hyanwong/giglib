@@ -421,12 +421,31 @@ class TestMicrosatelliteSim:
         # crossover once the parents' microsatellites differ, but chains are
         loci = [(x, 2, 3) for x in range(5, 200, 20)]
         self.simulate(loci=loci, max_gap=10)
-        with pytest.raises(ValueError, match="long enough for a crossover"):
+        with pytest.raises(ValueError, match="No place for a crossover"):
             self.simulate(loci=loci, max_gap=0)
 
     def test_no_mutations(self):
         _, gig = self.simulate(mutation_rate=0)
         assert {gig.sequence_length(u) for u in gig.sample_nodes().ids} == {200}
+
+    def test_mostly_microsatellite(self):
+        # A microsatellite covers 180 of the 200 positions, leaving room for crossovers
+        # only either side of it: every meiosis still has one (with no limit on tries)
+        _, gig = self.simulate(loci=[(10, 1, 180)], mutation_rate=0, gens=20)
+        for ie in gig.iedges:
+            # Each break between two parents is outside the microsatellite
+            assert ie.child_left < 10 or ie.child_left > 190
+
+    def test_breaks_are_inside_the_genome(self):
+        # With genomes of 2 positions, the only break strictly inside them is between
+        # the two, so every child gets one position from each genome of its parent
+        sim = DTWF_microsatellite_sim([], mutation_rate=0, min_chain_length=1, max_gap=0)
+        gig = sim.run(num_diploids=3, seq_lens=[2], gens=5, random_seed=1)
+        for u in gig.nodes:
+            if u.time < 5:
+                iedges = gig.iedges_for_child(u)
+                assert [(ie.child_left, ie.child_right) for ie in iedges] == [(0, 1), (1, 2)]
+                assert iedges[0].parent != iedges[1].parent
 
     def test_overlapping_loci(self):
         with pytest.raises(ValueError, match="must not overlap"):
