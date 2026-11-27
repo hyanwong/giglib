@@ -214,9 +214,8 @@ compatibility with _tskit_. In particular:
   edges for a given child are adjacent, child intervals for those edges cannot overlap. Edges for a
   given child are ordered by left coordinate, which helps algorithmic efficiency. The internal
   `gig.iedges_for_parent(u)` method returns iedges for a parent in the order expected by tskit.
-- **No `.trees()` iterator** See above: the meaning of a "local tree" is unclear in a GIG, so
-  implementing the equivalent of the fundamental _tskit_ `.trees()` method is likely to require
-  substantial theoretical work.
+- **No `.trees()` iterator** The concept of a local tree in a GIG is complicated (see
+  {issue}`35`).
 - **Algorithms on tables** Unlike _tskit_, some fundamental algorithms such as `find_homology` and
   `sample_resolve` (a basic type of `simplify`) can be run directly on a set of tables.
   For this to work, the tables need to conform to certain validity criteria, recorded as separate
