@@ -2,6 +2,9 @@ import numpy as np
 import pytest
 import tskit
 
+from giglib.tools import homology
+from giglib.tools.simulation.microsatellites_backward import sim_microsatellites_backward
+from giglib.tools.simulation.microsatellites_forward import DTWF_microsatellite_sim
 from giglib.tools.simulation.no_recombination import DTWF_no_recombination_sim
 from giglib.tools.simulation.one_break_inversions import DTWF_one_break_no_rec_inversions_slow_sim
 
@@ -371,3 +374,160 @@ class TestDTWF_one_break_no_rec_inversions_slow:
                     assert len(gig.find_homology(s1, s2, u_chromosome=chromA, v_chromosome=chromB)) == 0
                 else:
                     assert len(gig.find_homology(s1, s2, u_chromosome=chromA, v_chromosome=chromB)) > 0
+
+
+class TestMicrosatelliteSim:
+    """
+    Microsatellites change the lengths of genomes, so homology between parents is broken
+    into blocks, which crossovers must chain across (see issue 202)
+    """
+
+    loci = ((20, 2, 5), (70, 3, 4), (120, 2, 6))
+
+    def simulate(self, *, loci=None, mutation_rate=0.2, max_gap=20, min_chain_length=100, gens=8, seed=1):
+        sim = DTWF_microsatellite_sim(
+            self.loci if loci is None else loci,
+            mutation_rate=mutation_rate,
+            min_chain_length=min_chain_length,
+            max_gap=max_gap,
+        )
+        gig = sim.run(num_diploids=5, seq_lens=[200], gens=gens, random_seed=seed)
+        return sim, gig
+
+    def test_lengths_change_only_at_microsatellites(self):
+        sim, gig = self.simulate()
+        lengths = set()
+        for u in gig.sample_nodes().ids:
+            # (node IDs in the GIG are one less than in the simulation, which has a grand MRCA)
+            changes = [unit * (num - sim.founder_loci[i][2]) for i, _, unit, num in sim.loci[u + 1]]
+            assert gig.sequence_length(u) == 200 + sum(changes)
+            lengths.add(gig.sequence_length(u))
+        assert len(lengths) > 1  # the microsatellites have mutated
+
+    def test_crossovers_continue(self):
+        # Every child has a crossover (inheriting from both parents), however much the
+        # parents' microsatellites differ. (An unequal crossover would raise an error, as
+        # a microsatellite would be inherited twice, or not at all.)
+        sim, _ = self.simulate()
+        parents = {}
+        for ie in sim.tables.iedges:
+            parents.setdefault(ie.child, set()).add(ie.parent)
+        children = [u for u, ps in parents.items() if sim.grand_mrca not in ps]
+        assert len(children) > 0
+        assert all(len(parents[u]) == 2 for u in children)
+
+    def test_dense_microsatellites_need_chains(self):
+        # With a microsatellite every 20 positions, no single block is long enough for a
+        # crossover once the parents' microsatellites differ, but chains are
+        loci = [(x, 2, 3) for x in range(5, 200, 20)]
+        self.simulate(loci=loci, max_gap=10)
+        with pytest.raises(ValueError, match="No place for a crossover"):
+            self.simulate(loci=loci, max_gap=0)
+
+    def test_no_mutations(self):
+        _, gig = self.simulate(mutation_rate=0)
+        assert {gig.sequence_length(u) for u in gig.sample_nodes().ids} == {200}
+
+    def test_mostly_microsatellite(self):
+        # A microsatellite covers 180 of the 200 positions, leaving room for crossovers
+        # only either side of it: every meiosis still has one (with no limit on tries)
+        _, gig = self.simulate(loci=[(10, 1, 180)], mutation_rate=0, gens=20)
+        for ie in gig.iedges:
+            # Each break between two parents is outside the microsatellite
+            assert ie.child_left < 10 or ie.child_left > 190
+
+    def test_breaks_are_inside_the_genome(self):
+        # With genomes of 2 positions, the only break strictly inside them is between
+        # the two, so every child gets one position from each genome of its parent
+        sim = DTWF_microsatellite_sim([], mutation_rate=0, min_chain_length=1, max_gap=0)
+        gig = sim.run(num_diploids=3, seq_lens=[2], gens=5, random_seed=1)
+        for u in gig.nodes:
+            if u.time < 5:
+                iedges = gig.iedges_for_child(u)
+                assert [(ie.child_left, ie.child_right) for ie in iedges] == [(0, 1), (1, 2)]
+                assert iedges[0].parent != iedges[1].parent
+
+    def test_overlapping_loci(self):
+        with pytest.raises(ValueError, match="must not overlap"):
+            DTWF_microsatellite_sim([(10, 2, 5), (15, 2, 5)], mutation_rate=0, min_chain_length=1, max_gap=0)
+
+    def test_loci_before_the_sequence(self):
+        with pytest.raises(ValueError, match="within the sequence"):
+            DTWF_microsatellite_sim([(-5, 2, 5)], mutation_rate=0, min_chain_length=1, max_gap=0)
+
+    def test_loci_beyond_the_sequence(self):
+        sim = DTWF_microsatellite_sim([(195, 2, 5)], mutation_rate=0, min_chain_length=1, max_gap=0)
+        with pytest.raises(ValueError, match="within the sequence"):
+            sim.run(num_diploids=2, seq_lens=[200], gens=1, random_seed=1)
+
+
+class TestMicrosatellitesBackward:
+    """
+    Microsatellites laid on a genealogy simulated with msprime (see issue 202)
+    """
+
+    loci = ((200, "AT"), (500, "CAG"), (800, "GATA"))
+
+    def simulate(self, seed=1, **kwargs):
+        params = {"max_units": 10, "population_size": 1e4, "recombination_rate": 1e-6, "mutation_rate": 1e-4}
+        params.update(kwargs)
+        return sim_microsatellites_backward(10, 1000, self.loci, random_seed=seed, **params)
+
+    def repeats(self, gig, u):
+        # The known bases of a genome are its microsatellites, in order
+        bases = "".join(c for c in gig.haplotype(u) if c != "N")
+        counts = []
+        for _, motif in self.loci:
+            n = 0
+            while bases.startswith(motif):
+                bases, n = bases[len(motif) :], n + 1
+            counts.append(n)
+        assert bases == ""
+        return counts
+
+    def test_lengths_change_only_at_microsatellites(self):
+        gig = self.simulate()
+        lengths = set()
+        for u in gig.sample_nodes().ids:
+            counts = self.repeats(gig, u)
+            assert all(1 <= n <= 10 for n in counts)
+            # (each locus is a single position in the sequence simulated by msprime)
+            expected = 1000 - len(self.loci) + sum(len(motif) * n for (_, motif), n in zip(self.loci, counts))
+            assert gig.sequence_length(u) == expected
+            lengths.add(expected)
+        assert len(lengths) > 1
+
+    def test_chains_span_the_genome(self):
+        # The homology between two samples is one chain, across the microsatellites
+        gig = self.simulate()
+        u, v = gig.sample_nodes().ids[:2]
+        chains = homology.chains(homology.homology_blocks(gig.tables, u, v), max_gap=4 * 10)
+        shortest = min(gig.sequence_length(u), gig.sequence_length(v))
+        assert homology.chain_length(chains[0]) > shortest - 4 * 10 * len(self.loci)
+
+    def test_reproducible(self):
+        assert self.simulate(seed=3).tables == self.simulate(seed=3).tables
+
+    def test_no_mutations(self):
+        # Each locus still has its ancestral number of repeats, the same in every sample
+        gig = self.simulate(mutation_rate=0)
+        counts = {tuple(self.repeats(gig, u)) for u in gig.sample_nodes().ids}
+        assert len(counts) == 1
+        (counts,) = counts
+        assert all(1 <= n <= 10 for n in counts)
+        expected = 1000 - len(self.loci) + sum(len(motif) * n for (_, motif), n in zip(self.loci, counts))
+        assert {gig.sequence_length(u) for u in gig.sample_nodes().ids} == {expected}
+
+    def test_max_units_one(self):
+        # With at most one repeat, a microsatellite can't vary
+        with pytest.raises(ValueError, match="max_units must be at least 2"):
+            sim_microsatellites_backward(
+                2, 1000, self.loci, max_units=1, population_size=100, recombination_rate=0, mutation_rate=0
+            )
+
+    @pytest.mark.parametrize("loci", [[(200, "AT"), (200, "CA")], [(1000, "AT")], [(-1, "AT")]])
+    def test_bad_loci(self, loci):
+        with pytest.raises(ValueError, match="distinct, and within the sequence"):
+            sim_microsatellites_backward(
+                2, 1000, loci, max_units=5, population_size=100, recombination_rate=0, mutation_rate=0
+            )

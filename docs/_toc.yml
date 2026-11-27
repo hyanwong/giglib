@@ -21,6 +21,8 @@ chapters:
     sections:
     - file: tools/simulations/no_recombination
     - file: tools/simulations/one_break_inversions
+    - file: tools/simulations/microsatellites_forward
+    - file: tools/simulations/microsatellites_backward
     - file: tools/simulations/single_origin
 - file: design
   sections:

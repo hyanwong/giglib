@@ -8,6 +8,10 @@ structural variants (see {ref}`sec_usage_simulations`). Each simulator has a pag
 - {ref}`sec_tools_simulation_no_recombination`: forward in time, with no recombination.
 - {ref}`sec_tools_simulation_one_break`: forward in time, with one crossover per meiosis,
   avoiding inverted regions.
+- {ref}`sec_tools_simulation_microsatellites_forward`: forward in time, with microsatellites,
+  and crossovers placed using chains of homology.
+- {ref}`sec_tools_simulation_microsatellites_backward`: backward in time, laying
+  microsatellites on a genealogy simulated with msprime.
 - {ref}`sec_tools_simulation_single_origin` (planned): forward in time, growing genomes from a
   single base pair by tandem duplication.
 
@@ -43,5 +47,6 @@ mutations, and convert the resulting tree sequence with the
 {ref}`indels tool <sec_tools_indels>`. This only gives changes that fit in a multiple
 sequence alignment (substitutions, insertions and deletions, including changes in the
 number of repeats at microsatellites), not other structural variants, which need the
-forward-time simulators. A backward-time simulator of SNP-like indels is planned
-({issue}`216`).
+forward-time simulators. The
+{ref}`microsatellite simulator <sec_tools_simulation_microsatellites_backward>` works this way,
+and a backward-time simulator of SNP-like indels is planned ({issue}`216`).

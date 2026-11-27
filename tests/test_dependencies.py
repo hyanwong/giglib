@@ -24,6 +24,7 @@ import sys
 sys.modules[{optional!r}] = None
 import giglib, giglib.tools, giglib.tools.indels, giglib.tools.homology
 import giglib.tools.simulation.no_recombination, giglib.tools.simulation.one_break_inversions
+import giglib.tools.simulation.microsatellites_forward, giglib.tools.simulation.microsatellites_backward
 tables = giglib.Tables()
 tables.nodes.add_row(1)
 tables.nodes.add_row(0, flags=giglib.NODE_IS_SAMPLE)
