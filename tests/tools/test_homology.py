@@ -173,6 +173,13 @@ class TestFindAllHomology:
         (collection,) = ax.collections
         assert set(collection.get_array()) == {1, 10}
 
+    def test_plot_closest_homologues(self):
+        # Each copy's closest homologue is through the recent common ancestor (time 1), so
+        # the older homology between the copies (time 10) isn't shown
+        ax = homology.plot(cnv_tables(), 2, 3, mode="closest_homologues")
+        (collection,) = ax.collections
+        assert set(collection.get_array()) == {1}
+
 
 class TestRandomHomologousPositions:
     def test_both_positions_chosen(self):

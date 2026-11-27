@@ -55,9 +55,11 @@ that descend from the same segment of a common ancestor. In a GIG, sequences can
 at different levels (reflecting the fact that e.g. genes within a gene family are homologous to
 some degree), and its `mode` says which to find: see {ref}`sec_usage_homology` below.
 
-**Trimming.** `sample_resolve()` removes material that doesn't reach the samples, and
-`decapitate()` removes everything older than a given time. (A full equivalent of _tskit_'s
-`simplify()` doesn't exist yet: see {ref}`sec_design_simplification`.)
+**Simplifying and trimming.** `simplify()` keeps only what is needed to describe the ancestry of
+the samples (the samples, and the nodes where their lineages merge), like _tskit_'s `simplify()`,
+without changing their haplotypes or homology (see {ref}`sec_design_simplification`).
+`sample_resolve()` removes the material that doesn't reach the samples, but keeps every node, and
+`decapitate()` removes everything older than a given time.
 
 **Tools.** The experimental {ref}`giglib.tools <sec_tools>` package has extras built on these:
 converting tree sequences with indels, finding and plotting homology, and some simple
@@ -194,7 +196,7 @@ compatibility with _tskit_. In particular:
 - **No `.trees()` iterator** The concept of a local tree in a GIG is complicated (see
   {issue}`35`).
 - **Algorithms on tables** Unlike _tskit_, some fundamental algorithms such as `find_homology` and
-  `sample_resolve` (a basic type of `simplify`) can be run directly on a set of tables.
+  `simplify` can be run directly on a set of tables.
   For this to work, the tables need to conform to certain validity criteria, recorded as separate
   validity flags, which can be checked as rows are added, or in bulk with `tables.validate()`.
   This allows use of the GIG structure during generation of the tables, without having the substantial

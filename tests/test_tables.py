@@ -8,7 +8,7 @@ import tskit
 import giglib as gigl
 from giglib.constants import Const, ValidFlags
 from giglib.tools.homology import random_homologous_positions
-from tests.gigutil import homologous_positions, same_homology, valid_tables_without_flags
+from tests.gigutil import homologous_positions, random_tables, same_homology, valid_tables_without_flags
 
 
 class TestCreation:
@@ -1266,6 +1266,36 @@ class TestFindHomology:
             },
         )
 
+    def test_unequal_crossover_first_mrca(self, unequal_crossover_gig):
+        # X (node 4) = a B B B c and Y (node 5) = a B c. The lineages of X's first copy of B
+        # and Y's copy meet at A (node 1), as do X's third copy and the end of Y, and stop
+        assert unequal_crossover_gig.sequence_length(4) == 50
+        assert unequal_crossover_gig.sequence_length(5) == 30
+        assert same_homology(
+            unequal_crossover_gig.tables.find_homology(4, 5),
+            {
+                ((0, 15, 0), (0, 15, 0), 1, (0, 15, 0)),
+                ((35, 50, 0), (15, 30, 0), 1, (25, 40, 0)),
+            },
+        )
+
+    @pytest.mark.parametrize("mode", ["closest_homologues", "all"])
+    def test_unequal_crossover(self, unequal_crossover_gig, mode):
+        # Each copy of B in X is homologous to Y's one copy: at A for the positions that
+        # both inherit from the same position of A, and otherwise at R (node 0), through
+        # the duplication. Each position of X has only one homologue in Y, so the closest
+        # homologues are all the homology
+        assert same_homology(
+            unequal_crossover_gig.tables.find_homology(4, 5, mode=mode),
+            {
+                ((0, 15, 0), (0, 15, 0), 1, (0, 15, 0)),  # a, and the start of B
+                ((15, 20, 0), (15, 20, 0), 0, (15, 20, 0)),  # the end of the first copy
+                ((20, 30, 0), (10, 20, 0), 0, (10, 20, 0)),  # the second copy
+                ((30, 35, 0), (10, 15, 0), 0, (10, 15, 0)),  # the start of the third copy
+                ((35, 50, 0), (15, 30, 0), 1, (25, 40, 0)),  # the end of B, and c
+            },
+        )
+
     def test_no_recomb_sv_dup_del(self, all_sv_types_no_re_gig):
         assert same_homology(
             all_sv_types_no_re_gig.tables.find_homology(8, 10),
@@ -1428,52 +1458,6 @@ class TestFindHomologyModes:
         assert same_homology(tables.find_homology(0, 3), tables.find_homology(0, 3, mode="all"))
 
 
-def clonal_tables_with_copies(seed, generations=15, size=6):
-    """
-    A small clonal population, from one genome of 20 positions, in which each child has a
-    tandem duplication (with probability 0.6) or else a deletion of up to 5 positions: so
-    it has many nested copies, which differ in number between genomes
-    """
-    rng = np.random.default_rng(seed)
-    tables = gigl.Tables()
-    tables.nodes.add_row(generations)
-    lengths = {0: 20}
-    population = [0]
-    for time in range(generations - 1, -1, -1):
-        children = []
-        for _ in range(size):
-            parent = population[rng.integers(len(population))]
-            n = lengths[parent]
-            child = tables.nodes.add_row(time, flags=gigl.NODE_IS_SAMPLE if time == 0 else 0)
-            length = int(rng.integers(1, min(5, n) + 1))
-            start = int(rng.integers(0, n - length + 1))
-            if rng.random() < 0.6:  # duplicate [start, start + length)
-                pieces = [(0, start + length, 0), (start + length, start + 2 * length, start)]
-                pieces.append((start + 2 * length, n + length, start + length))
-                lengths[child] = n + length
-            elif length < n:  # delete [start, start + length)
-                pieces = [(0, start, 0), (start, n - length, start + length)]
-                lengths[child] = n - length
-            else:
-                pieces = [(0, n, 0)]
-                lengths[child] = n
-            for child_left, child_right, parent_left in pieces:
-                if child_right > child_left:
-                    tables.iedges.add_row(
-                        child,
-                        parent,
-                        child_left=child_left,
-                        child_right=child_right,
-                        parent_left=parent_left,
-                        parent_right=parent_left + child_right - child_left,
-                    )
-            children.append(child)
-        population = children
-    tables.sort()
-    tables.validate()
-    return tables, population
-
-
 class TestFindClosestHomologues:
     def test_copy_lost(self):
         # As in TestFindHomologyModes: u's second copy's closest homologue is v's only
@@ -1511,10 +1495,12 @@ class TestFindClosestHomologues:
     @pytest.mark.parametrize("seed", range(10))
     @pytest.mark.parametrize("same_genome", [False, True])
     def test_closest_part_of_all_homology(self, seed, same_genome):
-        # In a population with many nested copies: the closest homologues are the pairs
-        # of positions, from all the homology, whose MRCA is the most recent one for the
-        # position in u, or for the position in v (also within a single genome)
-        tables, samples = clonal_tables_with_copies(seed)
+        # In a population with nested copies, and (unequal) crossovers: the closest
+        # homologues are the pairs of positions, from all the homology, whose MRCA is the
+        # most recent one for the position in u, or for the position in v (also within a
+        # single genome)
+        tables = random_tables(seed, recombination=0.3)
+        samples = tables.sample_nodes()
         u, v = samples[0], samples[0] if same_genome else samples[1]
         closest = homologous_positions(tables.find_homology(u, v, mode="closest_homologues"))
         everything = homologous_positions(tables.find_homology(u, v, mode="all"))
@@ -1532,8 +1518,8 @@ class TestFindClosestHomologues:
 
     @pytest.mark.parametrize("seed", range(10))
     def test_same_genome_symmetric(self, seed):
-        tables, samples = clonal_tables_with_copies(seed)
-        u = samples[0]
+        tables = random_tables(seed, recombination=0.3)
+        u = tables.sample_nodes()[0]
         pairs = {(x, y) for x, y, _, _ in homologous_positions(tables.find_homology(u, u, mode="all"))}
         assert pairs == {(y, x) for x, y in pairs}
         assert all(x != y for x, y in pairs)
@@ -1574,8 +1560,9 @@ class TestHomologyRecords:
     @staticmethod
     def examples():
         for seed in range(5):
-            tables, samples = clonal_tables_with_copies(seed)
-            yield tables, samples[0], samples[1]
+            tables = random_tables(seed, recombination=0.3)
+            u, v = tables.sample_nodes()[:2]
+            yield tables, u, v
         tables = copy_lost_tables()
         yield tables, 2, 3
 

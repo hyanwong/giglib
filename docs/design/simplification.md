@@ -2,10 +2,10 @@
 
 # Simplification
 
-**Status: Proposed.** Nothing here is implemented yet, apart from
-{meth}`~giglib.Tables.sample_resolve`, which does not remove nodes. Several choices are left open,
-to be decided by performance measurements on forward simulations
-(see {ref}`sec_design_simplification_evaluation`).
+**Status: Partly implemented.** {meth}`~giglib.Tables.simplify` keeps the branch points of the
+position tree, region by region, with the algorithm below. The homology table is not implemented.
+Several other choices are left open, to be decided by performance measurements on forward
+simulations (see {ref}`sec_design_simplification_evaluation`).
 Related: {issue}`140` (a "homology table" for locating recombination breakpoints),
 {ref}`sec_design_mutations` (which requires simplification to keep duplication nodes),
 {ref}`sec_design_storage` (cached indexes), {issue}`158` (reference lengths).
@@ -27,7 +27,13 @@ This note also records **where the discussion has reached** (see
   gives both simplification, and the more aggressive "homology table" proposed in
   {issue}`140`. The homology table is a cache used for finding equivalent positions in different
   genomes (e.g. to place recombination breakpoints).
-- **Coalescence and duplication nodes are distinguished.** Both are places where copies of an
+- **Simplification keeps the branch points of the position tree.** Each position of a genome has
+  a single parent position, so the ancestry of the samples' positions is a tree. Simplification
+  keeps the nodes (in the regions) where lineages of sample positions merge, whether from
+  different children (a split) or through two iedges of the same child (a copy), and bypasses
+  them elsewhere. So {meth}`~giglib.Tables.find_homology` gives the same results after
+  simplifying, which is the main test of correctness.
+- **Coalescence and duplication are distinguished.** Both are places where copies of an
   ancestral region split. But only coalescences tell us about demography, and duplications must
   be kept to know which copy of a duplicated region is which.
 - **Many choices depend on speed and memory,** and should be settled by measurements on forward
@@ -58,16 +64,53 @@ several iedges above it, all from the same parent, or where both pieces of a spl
 the same ancestor). These can be merged with {meth}`~giglib.tables.IEdgeTable.squash`, as
 _tskit_'s `simplify()` does with edges.
 
+(sec_design_simplification_branch_points)=
+
+## What simplification keeps: the branch points of the position tree
+
+Each position of a genome inherits from a single position of a single parent, so following a
+position back in time gives a single lineage. The lineages of all the samples' positions therefore
+form a tree, the *position tree* (or a forest, if there are several roots), whose leaves are the
+positions of the samples (see {issue}`111`). A **branch point** of this tree is a position of an
+ancestral node where two or more lineages of sample positions merge, either
+
+- from **different children** (a split, as at a coalescence in a tree sequence), or
+- through **two iedges of the same child**, both inheriting that position (a copy: the parent of a
+  tandem duplication, for example).
+
+**Simplification keeps exactly the branch points**, together with the samples. Like _tskit_'s
+`simplify()`, it works region by region: a node is kept in the regions where it is a branch point,
+and bypassed (by composing iedges) where it is not. A node that is a branch point nowhere is
+removed. The ends of lineages that never merge are also kept (as with _tskit_'s
+`keep_input_roots=True`): a GIG has no separate record of a genome's length, which is known
+only from its iedges and mutations, so without an iedge for each sample position a sample with
+missing data at the end of its genome would become shorter.
+
+This definition gives the main test of correctness. The MRCA of any two homologous positions, as
+reported by {meth}`~giglib.Tables.find_homology`, is where their lineages merge, so it is a branch
+point. So after simplifying, {meth}`~giglib.Tables.find_homology` must give the same results, in
+every mode (after relabelling the nodes). And the haplotypes of the samples must be unchanged, once
+mutations are moved (see {ref}`sec_design_simplification_mutations`).
+
+**The branch point of a duplication is not the "duplication node" below.** For a tandem
+duplication, the copies merge in the *parent* (both copies inherit the same positions of it), so the
+parent is the branch point, and is kept. The child, which is the oldest genome containing both
+copies (the duplication node, below), is not a branch point: removing it loses only *when* (in
+which genome) the duplication happened, not any homology. This agrees with the mutations design,
+which asks for "a node with a duplication beneath it" to be kept ({ref}`sec_design_mutations`).
+So keeping duplication nodes is an option, for when the timing of duplications matters, e.g. for
+nodes that a simulator has flagged as duplications.
+
 ## One core, different rules for which nodes to keep
 
 | | Keeps | Removes |
 |---|---|---|
-| **Simplification** | samples, coalescence nodes, duplication nodes | everything else, e.g. unary nodes |
-| **Homology table** ({issue}`140`) | samples, duplication nodes, and something at the top (see below) | unary nodes *and* ordinary coalescence nodes |
+| **Simplification** | samples, and the branch points of the position tree (where lineages split, and where they are copied) | everything else, e.g. unary nodes |
+| **Homology table** ({issue}`140`) | samples, the branch points where lineages are copied, and something at the top (see below) | unary nodes *and* ordinary coalescence nodes |
 
 So the homology table is a more aggressive simplification, kept alongside the real iedges. It
 skips the intermediate ancestors that make tracing between two genomes slow, while keeping the
-duplication nodes needed to know which copy of a duplicated region is which. This suggests
+nodes where copies were made, needed to know which copy of a duplicated region is which. This suggests
 writing a single core routine that composes iedges, taking a rule for which nodes (or regions of
 nodes) to keep, and building both on top of it.
 
@@ -121,8 +164,9 @@ distinction as in gene-tree / species-tree reconciliation.
   duplication node is unary, removing it just leaves a descendant with two iedges that overlap
   in one ancestor. But that loses when (and in which genome) the duplication happened.
 
-So both simplification and the homology table should keep duplication nodes. This is also what
-the mutations design assumes ({ref}`sec_design_mutations`).
+So both simplification and the homology table keep the branch points where copies merge (see
+{ref}`sec_design_simplification_branch_points`). Keeping the duplication nodes themselves, which
+record when the duplications happened, is an option.
 
 ### Finding duplication nodes
 
@@ -141,12 +185,35 @@ expensive part. Options:
 
 Option 3 is cheapest, but only works for GIGs whose creator knows where duplications happened.
 
+## The algorithm
+
+A generalisation of _tskit_'s simplify algorithm (Kelleher et al. 2018), which passes segments of
+"ancestral material" up the graph from the samples, using maps rather than shared coordinates:
+
+1. Visit the nodes from the youngest to the oldest. Each node has a list of segments of ancestral
+   material, passed up from its children: an interval of the node's genome, the output node that
+   it comes from, and the {class}`~giglib.PositionMap` from the node's coordinates to that output
+   node's. A sample starts with a segment covering its whole genome, mapping to itself.
+2. Cut the node's genome into pieces covered by the same segments, with a single sweep (as
+   {meth}`~giglib.Tables.find_homology` does, with `giglib.intervals.pieces`). Where a piece is
+   covered by two or more segments, the node is a branch point: it is kept (as an output node),
+   with an output iedge from each segment's output node to it, and passes up one segment, mapping
+   to itself. Where a piece is covered by one segment, the node is bypassed there, and that
+   segment is passed up, its map composed with each iedge above.
+3. Move each mutation above a bypassed region down to the output node of the segment covering
+   it, at the mapped position (complementing its derived state if the map is reversed). Remove the
+   mutations above regions with no ancestral material.
+4. Merge output iedges that abut ({meth}`~giglib.tables.IEdgeTable.squash`), renumber the nodes,
+   and return the map from the old node IDs to the new ones.
+
 ## Granularity: whole nodes or regions of nodes
 
 _tskit_'s `simplify()` keeps a node if it is a coalescence *somewhere*, but bypasses it in regions
 where it is unary. The alternative is to keep or remove whole nodes. Bypassing unary regions
 gives fewer, longer iedges, but more composing, and more splitting of iedges at the boundaries
-of regions. Which is faster to compute, and gives smaller tables, needs measuring.
+of regions. Which is faster to compute, and gives smaller tables, needs measuring. The definition
+above (keeping branch points) is region by region, so that is the default; keeping whole nodes
+could be an option.
 
 (sec_design_simplification_mutations)=
 
@@ -254,12 +321,19 @@ For the homology table:
 
 These belong in the unit tests (or slower validation scripts), not in the performance scripts:
 
-- Haplotypes of the remaining samples are unchanged by simplification.
-- With no structural variants, the result matches _tskit_'s `simplify()` (after converting with
-  `to_tree_sequence()`).
+- {meth}`~giglib.Tables.find_homology` gives the same results after simplifying, in every mode
+  (after relabelling the nodes), on graphs with structural variants (e.g. from the simulators of
+  tandem duplications, microsatellites, and genomes from a single base pair).
+- Haplotypes of the remaining samples are unchanged by simplification, including missing data,
+  except that a sample whose genome was only known to be longer from descendants that are removed
+  becomes shorter (losing only missing data: a GIG has no record of genome lengths, see
+  {issue}`158`).
+- Simplifying twice gives the same as simplifying once.
+- With no structural variants, the result matches _tskit_'s `simplify(keep_input_roots=True)`
+  (after converting with `to_tree_sequence()`).
 - Homologous locations found with the homology table match those found by tracing the full
   iedges.
-- Detected duplication nodes match those recorded by the simulator.
+- If duplication nodes are kept, those detected match those recorded by the simulator.
 
 (sec_design_simplification_discussion)=
 
@@ -279,7 +353,12 @@ conversation about the giglib API, mutations, and storage (November 2026), and i
 - The definition of a duplication node above ("the oldest node whose genome contains both
   copies, at different positions") was proposed so that duplications created by unequal
   crossing-over are handled. It has not been challenged, but has not been formally agreed.
-- Simplification keeps duplication nodes, as the mutations design already says.
+- Simplification keeps the branch points of the position tree, region by region, so that
+  {meth}`~giglib.Tables.find_homology` gives the same results afterwards (proposed in November
+  2026, after the homology work of {issue}`111`; see
+  {ref}`sec_design_simplification_branch_points`). For a duplication, the branch point is the
+  node with the duplication beneath it, as the mutations design says. Keeping the duplication
+  nodes themselves (which record when duplications happened) is an option.
 - Many choices should be **decided by efficiency**, measured with a forward simulator (see
   {ref}`sec_design_simplification_evaluation`), rather than settled in advance.
 - The multiple-counting question (duplicated regions sharing coalescences) is theory rather than
@@ -288,24 +367,21 @@ conversation about the giglib API, mutations, and storage (November 2026), and i
 **Not yet discussed in detail:**
 
 - What is at the top of the homology table, and where it lives.
-- Whether duplication nodes should be flagged (e.g. by a simulator), detected, or both.
-- The exact algorithm. A natural starting point is _tskit_'s simplify algorithm (Kelleher et al.
-  2018), which passes "ancestral material" up the graph from the samples, extended so that each
-  piece of material carries a map (shift and orientation) to its position in each descendant
-  sample, rather than assuming shared coordinates.
+- Whether duplication nodes, if kept, should be flagged (e.g. by a simulator), detected, or
+  both.
 
 **Suggested next steps:**
 
-1. Settle the open questions that don't need measuring (e.g. the definition of a duplication
-   node), and update this note.
-2. Add simplification cases to `evaluation/performance.py`.
-3. Write a forward simulator with recombination and structural variants, including tandem
-   duplications and unequal crossing-over, that records the true duplication nodes.
-4. Implement a first simplification, composing iedges and keeping samples, coalescences and
-   (easily detected) duplication nodes, with correctness tests (haplotypes unchanged; agreement
-   with _tskit_ when there are no structural variants).
-5. Measure, then make the choices left open here. Then build the homology table on the same
-   core.
+1. Implement a first simplification, keeping the branch points, with the algorithm above, and
+   the checks of correctness (see {ref}`sec_design_simplification_evaluation`). Simulators with
+   structural variants now exist to test it on: tandem duplications with unequal crossing-over
+   (a test of the one-crossover simulator), microsatellites, and genomes from a single base pair
+   ({issue}`221`).
+2. Add simplification cases to `evaluation/performance.py` (alongside the cases for
+   {meth}`~giglib.Tables.find_homology`), and measure, e.g. how much faster finding homology is
+   after simplifying.
+3. Make the choices left open here, from the measurements. Then build the homology table on the
+   same core.
 
 **Starting points in the code:**
 
@@ -332,8 +408,9 @@ conversation about the giglib API, mutations, and storage (November 2026), and i
 
 ## Open questions
 
-- Whole-node or region granularity (decided by measurement)?
-- How to find duplication nodes, and should they be flagged?
+- Should keeping whole nodes (rather than regions) be an option, if measurements favour it?
+- Should keeping duplication nodes be an option, and if so, how are they found (flagged by a
+  simulator, or detected)?
 - Should simplification optionally keep unary nodes, or other nodes (e.g. those with
   mutations), as _tskit_'s `simplify()` can?
 - What is at the top of the homology table, and where does it live?

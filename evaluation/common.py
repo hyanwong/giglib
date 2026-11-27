@@ -68,11 +68,15 @@ def best_time(func, *, number=1, repeats=3):
 
 
 def write_csv(rows, name):
-    """Write a list of dicts (with the same keys) to results/<name>"""
+    """
+    Write a list of dicts to results/<name>, with a column for each key in any of them
+    (left empty for rows without it)
+    """
     RESULTS.mkdir(exist_ok=True)
     path = RESULTS / name
+    fieldnames = list(dict.fromkeys(key for row in rows for key in row))
     with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(rows)
     return path

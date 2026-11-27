@@ -56,10 +56,89 @@ def case_haplotypes(size):
     yield {"variant": "haplotype", "size": size, "value": seconds / len(samples) * 1e3}
 
 
+def time_find_homology(tables, pairs, modes):
+    """
+    The mean time, in milliseconds per pair of genomes, of find_homology in each mode,
+    and the mean number of records it returns
+    """
+    for mode in modes:
+        seconds = common.best_time(lambda m=mode: [tables.find_homology(u, v, mode=m) for u, v in pairs])
+        records = sum(len(tables.find_homology(u, v, mode=mode)) for u, v in pairs) / len(pairs)
+        yield mode, seconds / len(pairs) * 1e3, records
+
+
+def sample_pairs(gig, num_pairs=5):
+    """Pairs of genomes in the last generation, from different individuals where possible"""
+    samples = [int(u) for u in gig.sample_nodes(time=0).ids]
+    return [(samples[2 * i], samples[2 * i + 3]) for i in range(num_pairs)]
+
+
+def case_homology_microsatellites(size):
+    """
+    Milliseconds per pair of genomes for find_homology, in a forward simulation of 10
+    diploids whose genomes (10 kb) differ only at 10 sparse microsatellites, after ``size``
+    generations: the typical case, with few copies, but a deep graph
+    """
+    from giglib.tools.simulation.microsatellites_forward import DTWF_microsatellite_sim
+
+    loci = [(x, 2, 10) for x in range(500, 10000, 1000)]
+    sim = DTWF_microsatellite_sim(loci, mutation_rate=0.01, min_chain_length=1000, max_gap=50)
+    gig = sim.run(num_diploids=10, seq_lens=[10000], gens=size, random_seed=1)
+    for mode, ms, records in time_find_homology(
+        gig.tables, sample_pairs(gig), ["first_mrca", "closest_homologues", "all"]
+    ):
+        yield {"variant": mode, "size": size, "value": ms, "records": records}
+
+
+def case_microsatellites_population_size(size):
+    """
+    Milliseconds per generation to simulate ``size`` diploids for 20 generations, with the
+    forward simulator of microsatellites (as in homology_microsatellites, which finds the
+    homology between the parents at every meiosis), and milliseconds per pair of genomes
+    for find_homology at the end
+    """
+    import time
+
+    from giglib.tools.simulation.microsatellites_forward import DTWF_microsatellite_sim
+
+    loci = [(x, 2, 10) for x in range(500, 10000, 1000)]
+    generations = 20
+    sim = DTWF_microsatellite_sim(loci, mutation_rate=0.01, min_chain_length=1000, max_gap=50)
+    start = time.perf_counter()
+    gig = sim.run(num_diploids=size, seq_lens=[10000], gens=generations, random_seed=1)
+    yield {
+        "variant": "simulation_per_generation",
+        "size": size,
+        "value": (time.perf_counter() - start) / generations * 1e3,
+    }
+    for mode, ms, records in time_find_homology(
+        gig.tables, sample_pairs(gig), ["first_mrca", "closest_homologues", "all"]
+    ):
+        yield {"variant": f"find_homology_{mode}_per_pair", "size": size, "value": ms, "records": records}
+
+
+def case_homology_single_origin(size):
+    """
+    Milliseconds per pair of genomes for find_homology, in a simulation of 20 genomes grown
+    from a single base pair over ``size`` generations: the extreme case, in which everything
+    is homologous, through many copies
+    """
+    from giglib.tools.simulation.single_origin import sim_single_origin
+
+    gig = sim_single_origin(20, size, duplication_rate=0.05, deletion_rate=0.02, mean_length=10, random_seed=1)
+    for mode, ms, records in time_find_homology(
+        gig.tables, sample_pairs(gig), ["first_mrca", "closest_homologues", "all"]
+    ):
+        yield {"variant": mode, "size": size, "value": ms, "records": records}
+
+
 CASES = {
     # name: (function, unit, sizes, quick sizes)
     "add_iedges": (case_add_iedges, "us_per_iedge", [2000], [100]),
     "haplotypes": (case_haplotypes, "ms_per_haplotype", [50], [5]),
+    "homology_microsatellites": (case_homology_microsatellites, "ms_per_pair", [20, 40, 80], [10]),
+    "microsatellites_population_size": (case_microsatellites_population_size, "ms", [10, 50, 100], [10]),
+    "homology_single_origin": (case_homology_single_origin, "ms_per_pair", [100, 200, 400], [50]),
 }
 
 
