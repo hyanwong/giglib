@@ -13,7 +13,7 @@ structural variants (see {ref}`sec_usage_simulations`). Each simulator has a pag
 
 The rules a simulator uses (e.g. where crossovers can happen, between which copies of a
 duplicated region) are its own *policy*, built on the *mechanism* provided by _giglib_ (see
-{ref}`sec_design_homology`). Each simulator's page says which rules it uses.
+the {ref}`homology design note <sec_design_homology>`). Each simulator's page says which rules it uses.
 
 Code shared by several simulators is described on this page, below.
 
@@ -36,7 +36,7 @@ inherits from its parents, by overriding `add_inheritance_paths()`.
 ## Backward-time simulators
 
 Changes in the length of genomes, such as indels, don't affect where crossovers can happen
-(as long as homology is chained across small gaps, see {ref}`sec_design_homology`), so the
+(as long as homology is chained across small gaps, see the {ref}`homology design note <sec_design_homology>`), so the
 genealogy doesn't depend on them ({issue}`93`). So a GIG with indels can be simulated much
 faster backward in time: simulate the genealogy, e.g. with msprime, add the indels as
 mutations, and convert the resulting tree sequence with the

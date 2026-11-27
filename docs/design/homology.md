@@ -50,7 +50,7 @@ first happens is in their most recent common ancestor (MRCA) at that position.
 {meth}`~giglib.Tables.find_homology` finds the regions of `u` and `v` that are homologous in
 this way, and where they are in each genome: with `mode="all"`, all of them; by default
 (`mode="first_mrca"`), it stops tracing each lineage at its first MRCA, so it can miss older
-homology of duplicated regions (see {ref}`sec_usage_homology`).
+homology of duplicated regions (see {ref}`finding homology <sec_usage_homology>`).
 
 This is homology by descent, which is reference-free. It is not the same as similarity of sequence,
 which is what the cell's recombination machinery detects. But old homology has had more time to

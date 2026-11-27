@@ -31,7 +31,7 @@ same region of a common ancestor. In a tree sequence, homologous positions are s
 same coordinate, but in a GIG, finding them means tracing ancestry back through the graph. This is
 one of the main things a GIG adds to an ARG, e.g. to decide where crossovers can happen between
 genomes that differ in structure, and is why _giglib_ provides ways to find and plot homology (see
-{ref}`sec_concepts_homology`).
+{ref}`below <sec_concepts_homology>`).
 
 The Genetic Inheritance Graph Library (giglib) is a proof-of-concept implementation of the idea
 behind GIGs, and is inspired by the standard [tskit](https://tskit.dev) ARG library.
@@ -166,13 +166,15 @@ So a GIG records homology at different levels, as for the members of a gene fami
 closest homologue is the matching copy in the other genome, and the other copy is a more remote
 homologue.
 
-See {ref}`sec_usage_homology` for how to find homology, {ref}`sec_tools_homology` for tools that
+See {ref}`finding homology <sec_usage_homology>` for how to find it, {ref}`the homology tools <sec_tools_homology>` for tools that
 build on it (e.g. joining homology into chains, to decide where crossovers can happen), and
-{ref}`sec_design_homology` for the design.
+{ref}`the homology design note <sec_design_homology>` for the design.
 
 ## Mutations
 
-Mutations are stored in a mutations table. Since a GIG has no shared coordinate system, there is
+Genetic differences caused by mutation are not needed to find common ancestry, or to deduce
+homology. However, it can be useful to output actual DNA bases (e.g. A, C, G or T) from a GIG,
+in which case *mutations* need to be placed upon it. Mutations are stored in a mutations table. Since a GIG has no shared coordinate system, there is
 no sites table: each mutation records its position in the coordinates of the node it lies above.
 The allele of any genome at a position is given by the most recent mutation above it, found by
 tracing the position up through the iedges (see {meth}`~giglib.Graph.allele_at` and
