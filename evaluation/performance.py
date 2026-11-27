@@ -90,6 +90,33 @@ def case_homology_microsatellites(size):
         yield {"variant": mode, "size": size, "value": ms, "records": records}
 
 
+def case_microsatellites_population_size(size):
+    """
+    Milliseconds per generation to simulate ``size`` diploids for 20 generations, with the
+    forward simulator of microsatellites (as in homology_microsatellites, which finds the
+    homology between the parents at every meiosis), and milliseconds per pair of genomes
+    for find_homology at the end
+    """
+    import time
+
+    from giglib.tools.simulation.microsatellites_forward import DTWF_microsatellite_sim
+
+    loci = [(x, 2, 10) for x in range(500, 10000, 1000)]
+    generations = 20
+    sim = DTWF_microsatellite_sim(loci, mutation_rate=0.01, min_chain_length=1000, max_gap=50)
+    start = time.perf_counter()
+    gig = sim.run(num_diploids=size, seq_lens=[10000], gens=generations, random_seed=1)
+    yield {
+        "variant": "simulation_per_generation",
+        "size": size,
+        "value": (time.perf_counter() - start) / generations * 1e3,
+    }
+    for mode, ms, records in time_find_homology(
+        gig.tables, sample_pairs(gig), ["first_mrca", "closest_homologues", "all"]
+    ):
+        yield {"variant": f"find_homology_{mode}_per_pair", "size": size, "value": ms, "records": records}
+
+
 def case_homology_single_origin(size):
     """
     Milliseconds per pair of genomes for find_homology, in a simulation of 20 genomes grown
@@ -110,6 +137,7 @@ CASES = {
     "add_iedges": (case_add_iedges, "us_per_iedge", [2000], [100]),
     "haplotypes": (case_haplotypes, "ms_per_haplotype", [50], [5]),
     "homology_microsatellites": (case_homology_microsatellites, "ms_per_pair", [20, 40, 80], [10]),
+    "microsatellites_population_size": (case_microsatellites_population_size, "ms", [10, 50, 100], [10]),
     "homology_single_origin": (case_homology_single_origin, "ms_per_pair", [100, 200, 400], [50]),
 }
 
