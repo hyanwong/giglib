@@ -553,6 +553,13 @@ class TestSingleOrigin:
         gig = sim_single_origin(5, 10, duplication_rate=1, deletion_rate=0, random_seed=1)
         assert min(gig.sequence_length(u) for u in gig.sample_nodes().ids) >= 11
 
+    def test_long_stretches_are_redrawn(self):
+        # With very long stretches, a duplication would double every genome if its length
+        # were capped at the genome's length (giving 8 positions after 3 generations), but
+        # it is redrawn, so the lengths vary
+        gig = sim_single_origin(50, 3, duplication_rate=1, deletion_rate=0, mean_length=1000, random_seed=1)
+        assert len({gig.sequence_length(u) for u in gig.sample_nodes().ids}) > 1
+
     def test_deletions_keep_a_position(self):
         gig = sim_single_origin(5, 50, duplication_rate=0.5, deletion_rate=0.5, random_seed=1)
         assert min(gig.sequence_length(u) for u in gig.sample_nodes().ids) >= 1

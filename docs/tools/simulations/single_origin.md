@@ -40,8 +40,9 @@ It isn't meant to be a realistic model of genome evolution.
 The population grows from the single genome to `N` haploid genomes (doubling each generation),
 then stays at that size (Wright-Fisher). Each child copies its parent, and occasionally has a
 tandem duplication or a deletion, whose lengths are drawn from a geometric distribution (with mean
-`mean_length`), but no longer than the genome (and a deletion never removes a genome's last
-position). A duplication of positions `[s, s + L)` of a parent of length `n` is recorded by three
+`mean_length`), and redrawn if longer than the genome (or, for a deletion, if it would remove the
+genome's last position). Capping the length instead would make deleting all but one position of a
+short genome common, so many genomes would collapse to a single position. A duplication of positions `[s, s + L)` of a parent of length `n` is recorded by three
 iedges, which give the child's positions in terms of the parent's:
 
 | Child positions | Parent positions |
@@ -78,10 +79,8 @@ print(len(gig.nodes), "genomes, joined by", len(gig.iedges), "iedges")
 ```
 
 Here are the lengths of the genomes in each generation, and their standard deviation, compared
-with the prediction. The lengths drift a lot. A short genome tends to stay short (as a deletion
-removes much of it), so a lineage whose genome became short early on can persist as a clade of
-short genomes beside the long ones, and sometimes takes over. The prediction ignores this, so is
-too low while there are both short and long genomes.
+with the prediction. The lengths drift a lot, and the standard deviation fluctuates around the
+prediction, as it depends on the random genealogy of the population.
 
 ```{code-cell}
 :tags: [hide-input]
