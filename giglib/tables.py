@@ -2277,8 +2277,11 @@ class Tables:
 
         The ancestry of the samples is unchanged:
 
-        * their haplotypes are the same, including missing data, so each sample's genome
-          has the same length (:meth:`Graph.sequence_length`);
+        * their haplotypes are the same, including missing data. A GIG has no record of
+          genome lengths (:meth:`Graph.sequence_length` is the furthest position known from
+          the iedges and mutations), so the one exception is a sample whose genome was
+          only known to be longer from descendants that are removed: it can become shorter,
+          losing only missing data;
         * their homology is the same, as found by :meth:`find_homology` in every mode
           (after relabelling the nodes);
         * simplifying again changes nothing.

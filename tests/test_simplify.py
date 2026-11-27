@@ -4,12 +4,15 @@ branch points of the position tree, so the ancestry of the samples is unchanged 
 simplification design note)
 """
 
+import itertools
+
 import msprime
 import numpy as np
 import pytest
 import tskit
 
 import giglib as gigl
+from giglib.tools.simulation.microsatellites_forward import DTWF_microsatellite_sim
 from giglib.tools.simulation.one_break_inversions import DTWF_one_break_no_rec_inversions_slow_sim
 from giglib.tools.simulation.single_origin import sim_single_origin
 from tests.gigutil import homologous_positions
@@ -73,16 +76,124 @@ def clonal_tables_with_rearrangements(seed, generations=12, size=5):
 
 def check_homology_unchanged(tables, simplified, node_map, samples, mode):
     """
-    find_homology gives the same results before and after simplifying, for pairs of the
-    samples, once the nodes are relabelled
+    find_homology gives the same results before and after simplifying, for each pair of
+    the first four samples, once the nodes are relabelled
     """
-    for u, v in [(samples[0], samples[1]), (samples[1], samples[2]), (samples[0], samples[3])]:
+    for u, v in itertools.combinations(samples[:4], 2):
         before = {
             (x, y, int(node_map[mrca]), z)
             for x, y, mrca, z in homologous_positions(tables.find_homology(u, v, mode=mode))
         }
         after = homologous_positions(simplified.find_homology(int(node_map[u]), int(node_map[v]), mode=mode))
         assert after == before
+
+
+def length_from_ancestry(tables, u, chromosome):
+    """
+    The length of a chromosome of u as known from u's own ancestry: from the iedges above
+    u and the mutations above it, but not from the iedges to its children
+    """
+    ends = [tables.iedges[i].child_right for i in tables.iedges.ids_for_child(u, chromosome=chromosome)]
+    for i in tables.mutations.ids_for_node(u):
+        if tables.mutations[i].chromosome == chromosome:
+            ends.append(tables.mutations[i].position + 1)
+    return max(ends, default=0)
+
+
+def check_invariants(gig, samples):
+    """
+    The invariants of simplify() (see its docstring), for these samples of a GIG
+    """
+    tables = gig.tables.copy()
+    node_map = tables.simplify(samples)
+    simplified = tables.graph()
+    for u in samples:
+        for chromosome in gig.chromosomes(u):
+            before = gig.haplotype(u, chromosome=chromosome)
+            after = simplified.haplotype(int(node_map[u]), chromosome=chromosome)
+            # The genome is known at least as far as its own ancestry shows. Beyond that, it
+            # can be shorter, if it was only known from children that are removed (a GIG
+            # has no record of genome lengths, #158), but that is all missing data
+            assert len(after) >= length_from_ancestry(gig.tables, u, chromosome)
+            assert before == after + "N" * (len(before) - len(after))
+    for mode in ["first_mrca", "closest_homologues", "all"]:
+        check_homology_unchanged(gig.tables, tables, node_map, samples, mode)
+    again = tables.copy()
+    again.simplify()
+    assert again == tables
+
+
+def some_nodes(gig, seed):
+    """
+    Up to six nodes of a GIG, chosen at random: samples of mixed times, some of them
+    ancestors of others or roots
+    """
+    rng = np.random.default_rng(seed)
+    return [int(u) for u in rng.choice(len(gig.nodes), size=min(6, len(gig.nodes)), replace=False)]
+
+
+class TestInvariants:
+    """
+    The invariants of simplify(), on the hand-built examples and the simulators, using the
+    samples and also nodes of mixed times as samples
+    """
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "trivial_gig",
+            "extended_inversion_gig",
+            "double_inversion_gig",
+            "multi_chromosome_gig",
+            "all_sv_types_no_re_gig",
+            "all_sv_types_1re_gig",
+            "all_sv_types_2re_gig",
+            "inverted_duplicate_gig",
+            "inverted_duplicate_with_missing_gig",
+        ],
+    )
+    def test_examples(self, name, request):
+        gig = request.getfixturevalue(name)
+        check_invariants(gig, [int(u) for u in gig.sample_nodes().ids])
+        for seed in range(3):
+            check_invariants(gig, some_nodes(gig, seed))
+
+    @pytest.mark.parametrize("seed", range(1, 6))
+    def test_microsatellites(self, seed):
+        loci = ((20, 2, 5), (70, 3, 4), (120, 2, 6))
+        sim = DTWF_microsatellite_sim(loci, mutation_rate=0.2, min_chain_length=100, max_gap=20)
+        gig = sim.run(num_diploids=5, seq_lens=[200], gens=8, random_seed=seed)
+        check_invariants(gig, [int(u) for u in gig.sample_nodes(time=0).ids])
+        check_invariants(gig, some_nodes(gig, seed))
+
+    @pytest.mark.parametrize("seed", range(1, 4))
+    def test_inversions_two_chromosomes(self, seed):
+        gig = DTWF_one_break_no_rec_inversions_slow_sim().run(
+            num_diploids=6, seq_lens=[100, 50], gens=10, random_seed=seed
+        )
+        check_invariants(gig, [int(u) for u in gig.sample_nodes(time=0).ids])
+        check_invariants(gig, some_nodes(gig, seed))
+
+    @pytest.mark.parametrize("seed", range(1, 4))
+    def test_single_origin(self, seed):
+        gig = sim_single_origin(6, 40, duplication_rate=0.1, deletion_rate=0.03, mean_length=5, random_seed=seed)
+        check_invariants(gig, [int(u) for u in gig.sample_nodes().ids])
+        check_invariants(gig, some_nodes(gig, seed))
+
+    def test_length_known_only_from_removed_children(self):
+        # A sample with no mutations, known to have 10 positions only from its child,
+        # which is removed: its genome is known only as far as the other child shows
+        tables = gigl.Tables()
+        tables.nodes.add_row(1, flags=gigl.NODE_IS_SAMPLE)  # 0: the sample
+        tables.nodes.add_row(0)  # 1: removed
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)  # 2: another sample
+        tables.iedges.add_row(1, 0, child_left=0, child_right=10, parent_left=0, parent_right=10)
+        tables.iedges.add_row(2, 0, child_left=0, child_right=6, parent_left=0, parent_right=6)
+        tables.sort()
+        tables.validate()
+        assert tables.copy().graph().sequence_length(0) == 10
+        tables.simplify()
+        assert tables.graph().sequence_length(0) == 6
 
 
 class TestWithoutStructuralVariants:

@@ -324,8 +324,10 @@ These belong in the unit tests (or slower validation scripts), not in the perfor
 - {meth}`~giglib.Tables.find_homology` gives the same results after simplifying, in every mode
   (after relabelling the nodes), on graphs with structural variants (e.g. from the simulators of
   tandem duplications, microsatellites, and genomes from a single base pair).
-- Haplotypes of the remaining samples are unchanged by simplification, including missing data
-  (so their lengths are unchanged).
+- Haplotypes of the remaining samples are unchanged by simplification, including missing data,
+  except that a sample whose genome was only known to be longer from descendants that are removed
+  becomes shorter (losing only missing data: a GIG has no record of genome lengths, see
+  {issue}`158`).
 - Simplifying twice gives the same as simplifying once.
 - With no structural variants, the result matches _tskit_'s `simplify(keep_input_roots=True)`
   (after converting with `to_tree_sequence()`).
