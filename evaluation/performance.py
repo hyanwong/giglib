@@ -9,9 +9,11 @@ Example:
 """
 
 import argparse
+import time
 
 import common  # (also puts this checkout of giglib on the path)
 import msprime
+import wright_fisher
 
 import giglib as gigl
 
@@ -177,6 +179,39 @@ def case_simplify_single_origin(size):
     yield from simplified_rows(gig, size)
 
 
+def case_tskit_comparison(size):
+    """
+    Milliseconds per generation for a forward simulation of ``size`` haploid genomes of
+    10 kb over 100 generations, with a crossover in half the children, and no structural
+    variants, simplified every 10 generations: in tskit, in giglib with crossovers at
+    random coordinates, and in giglib checking each crossover against the parents'
+    homology (see wright_fisher.py). Each row also has the milliseconds per generation spent
+    on the tables, on crossovers and on simplifying. All three must give the same genealogy.
+    (Each simulation is timed once per repeat, as it is slow.)
+    """
+    generations = 100
+    rows, results = [], {}
+    for variant in wright_fisher.VARIANTS:
+        start = time.perf_counter()
+        ts, seconds = wright_fisher.simulate(
+            variant, size, 10_000, generations, recombination_rate=0.5, simplify_interval=10, random_seed=1
+        )
+        total = time.perf_counter() - start
+        results[variant] = ts
+        rows.append(
+            {
+                "variant": variant,
+                "size": size,
+                "value": total / generations * 1e3,
+                **{f"{part}_ms": value / generations * 1e3 for part, value in seconds.items()},
+            }
+        )
+    for variant in wright_fisher.VARIANTS[1:]:
+        if not wright_fisher.same_genealogy(results["tskit"], results[variant]):
+            raise AssertionError(f"{variant} gives a different genealogy from tskit")
+    yield from rows
+
+
 CASES = {
     # name: (function, unit, sizes, quick sizes)
     "add_iedges": (case_add_iedges, "us_per_iedge", [2000], [100]),
@@ -186,6 +221,7 @@ CASES = {
     "homology_single_origin": (case_homology_single_origin, "ms_per_pair", [100, 200, 400], [50]),
     "simplify_microsatellites": (case_simplify_microsatellites, "ms", [20, 40, 80], [10]),
     "simplify_single_origin": (case_simplify_single_origin, "ms", [100, 200, 400], [50]),
+    "tskit_comparison": (case_tskit_comparison, "ms_per_generation", [20, 50, 100], [10]),
 }
 
 
