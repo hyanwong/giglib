@@ -625,6 +625,31 @@ class TestSingleOrigin:
         params = {"duplication_rate": 0.2, "deletion_rate": 0.1, "random_seed": 3}
         assert sim_single_origin(5, 20, **params).tables == sim_single_origin(5, 20, **params).tables
 
+    @pytest.mark.parametrize("target_length", [30, 120])
+    def test_selection_holds_lengths_near_the_target(self, target_length):
+        gig = sim_single_origin(
+            30,
+            500,
+            duplication_rate=0.05,
+            deletion_rate=0.02,
+            mean_length=10,
+            target_length=target_length,
+            fitness_width=10,
+            random_seed=1,
+        )
+        mean_length = np.mean([gig.sequence_length(u) for u in gig.sample_nodes().ids])
+        assert abs(mean_length - target_length) < 10
+
+    @pytest.mark.parametrize(
+        ("target_length", "fitness_width", "match"),
+        [(100, None, "both"), (None, 10, "both"), (100, 0, "positive")],
+    )
+    def test_bad_selection(self, target_length, fitness_width, match):
+        with pytest.raises(ValueError, match=match):
+            sim_single_origin(
+                5, 20, duplication_rate=0.1, deletion_rate=0.1, target_length=target_length, fitness_width=fitness_width
+            )
+
     def test_rates_too_high(self):
         with pytest.raises(ValueError, match="add up to more than 1"):
             sim_single_origin(5, 20, duplication_rate=0.6, deletion_rate=0.6)

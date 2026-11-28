@@ -12,7 +12,15 @@ import giglib as gigl
 
 
 def sim_single_origin(
-    population_size, generations, *, duplication_rate, deletion_rate, mean_length=20, random_seed=None
+    population_size,
+    generations,
+    *,
+    duplication_rate,
+    deletion_rate,
+    mean_length=20,
+    target_length=None,
+    fitness_width=None,
+    random_seed=None,
 ):
     """
     Simulate a population of haploid genomes, starting from a single genome of length 1.
@@ -28,8 +36,13 @@ def sim_single_origin(
     would make a deletion of most of a short genome common, and leave many genomes with a
     single position.
 
-    There is no recombination, and no selection. No mutations are added, so the genomes
-    have no sequence, but their homology is recorded by the iedges.
+    If ``target_length`` is given, there is stabilising selection on genome length: a genome
+    of length ``n`` has fitness ``exp(-(n - target_length)² / (2 fitness_width²))``, and
+    parents are chosen in proportion to their fitness. Otherwise (the default) there is no
+    selection, and every genome is equally likely to be a parent.
+
+    There is no recombination. No mutations are added, so the genomes have no sequence, but
+    their homology is recorded by the iedges.
 
     :param int population_size: The number of genomes in each generation, once the
         population has grown
@@ -39,6 +52,11 @@ def sim_single_origin(
     :param float deletion_rate: The probability that a child has a deletion (if it has no
         duplication)
     :param float mean_length: The mean length of a duplication or deletion
+    :param float target_length: The genome length favoured by selection, or None (default)
+        for no selection
+    :param float fitness_width: How fast fitness falls away from ``target_length``: the
+        standard deviation of the Gaussian fitness function (needed if ``target_length`` is
+        given)
     :param int random_seed: The random seed
     :return: A GIG
     :rtype: giglib.Graph
@@ -49,6 +67,10 @@ def sim_single_origin(
         raise ValueError("The rates of duplication and deletion must be between 0 and 1")
     if duplication_rate + deletion_rate > 1:
         raise ValueError("The rates of duplication and deletion can't add up to more than 1")
+    if (target_length is None) != (fitness_width is None):
+        raise ValueError("Selection needs both a target_length and a fitness_width")
+    if fitness_width is not None and fitness_width <= 0:
+        raise ValueError("The fitness_width must be positive")
     rng = np.random.default_rng(random_seed)
     tables = gigl.Tables()
     population = [tables.nodes.add_row(generations)]
@@ -56,8 +78,17 @@ def sim_single_origin(
     for time in range(generations - 1, -1, -1):
         flags = gigl.NODE_IS_SAMPLE if time == 0 else 0
         children, child_lengths = [], []
+        if target_length is not None:
+            # The probability of each genome being a parent, in proportion to its fitness
+            # (subtracting the largest log fitness first, so that exp() can't underflow to 0)
+            log_fitness = -((np.array(lengths) - target_length) ** 2) / (2 * fitness_width**2)
+            weights = np.exp(log_fitness - log_fitness.max())
+            parent_probabilities = weights / weights.sum()
         for _ in range(min(2 * len(population), population_size)):
-            i = rng.integers(len(population))
+            if target_length is None:
+                i = rng.integers(len(population))
+            else:
+                i = rng.choice(len(population), p=parent_probabilities)
             parent, parent_length = population[i], lengths[i]
             child = tables.nodes.add_row(time, flags=flags)
             child_length = _add_child(
