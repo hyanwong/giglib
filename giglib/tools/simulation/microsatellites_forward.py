@@ -3,9 +3,7 @@ A forward-time simulator with microsatellites, which places crossovers using cha
 homology (see :mod:`giglib.tools.homology`).
 """
 
-import numpy as np
-
-from giglib.tools import homology
+from giglib.tools import recombination
 
 from .one_break_inversions import DTWF_one_break_no_rec_inversions_slow_sim
 
@@ -73,35 +71,27 @@ class DTWF_microsatellite_sim(DTWF_one_break_no_rec_inversions_slow_sim):
     def find_crossover(self, mum, dad):
         """
         Choose where to break ``mum`` and ``dad`` for a crossover, and return the two
-        breaks (each between two positions). A break is allowed between two positions of
-        ``mum`` that are in the same block of a long enough chain of homology with ``dad``
-        (in the same orientation), and are not in a microsatellite of either parent. Such a
-        break is always strictly inside both genomes. One is chosen uniformly from all
-        the allowed breaks.
+        breaks (each between two positions), using the rules of
+        :func:`~giglib.tools.recombination.allowed_crossovers`: in a long enough chain of
+        homology, in the same orientation in both parents, and not in a microsatellite of
+        either parent. One is chosen uniformly from all the allowed breaks.
         """
-        blocks = homology.homology_blocks(self.tables, mum, dad)
-        allowed = [
-            block
-            for chain in homology.chains(blocks, max_gap=self.max_gap)
-            if homology.chain_length(chain) >= self.min_chain_length
-            for block in chain
-            if not block.is_reversed
-        ]
-        # The stretches of mum (and their offsets to dad) outside the microsatellites
-        stretches = []
-        for block in allowed:
-            offset = block.map.offset  # the block is not reversed, so dad's position is mum's + offset
-            loci = [(start, start + unit * num) for _, start, unit, num in self.loci[mum]]
-            loci += [(start - offset, start + unit * num - offset) for _, start, unit, num in self.loci[dad]]
-            for left, right in _subtract_intervals(block.u_left, block.u_right, loci):
-                stretches.append((left, right, offset))
-        # A stretch of n positions has n - 1 breaks between them
-        num_breaks = np.array([right - left - 1 for left, right, _ in stretches], dtype=float)
-        if num_breaks.sum() == 0:
+        allowed = recombination.allowed_crossovers(
+            self.tables,
+            mum,
+            dad,
+            min_chain_length=self.min_chain_length,
+            max_gap=self.max_gap,
+            u_excluded=self._loci_intervals(mum),
+            v_excluded=self._loci_intervals(dad),
+        )
+        breaks = recombination.random_crossover(allowed, self.rng)
+        if breaks is None:
             raise ValueError(f"No place for a crossover between {mum} and {dad}")
-        left, right, offset = stretches[self.rng.choice(len(stretches), p=num_breaks / num_breaks.sum())]
-        mum_break = left + 1 + int(self.rng.integers(right - left - 1))
-        return mum_break, mum_break + offset
+        return breaks
+
+    def _loci_intervals(self, u):
+        return [(start, start + unit * num) for _, start, unit, num in self.loci[u]]
 
     def add_inheritance_paths(self, parent_nodes, child, _):
         mum, dad = parent_nodes
@@ -204,20 +194,3 @@ def _merge_segments(segments):
         else:
             merged.append([parent, parent_start, length])
     return merged
-
-
-def _subtract_intervals(left, right, holes):
-    """
-    The parts of the interval ``[left, right)`` outside the intervals ``holes`` (a list of
-    ``(left, right)`` tuples, in any order), as a list of ``(left, right)`` tuples
-    """
-    result = []
-    for hole_left, hole_right in sorted(holes):
-        if hole_right <= left or hole_left >= right:
-            continue
-        if hole_left > left:
-            result.append((left, hole_left))
-        left = max(left, hole_right)
-    if left < right:
-        result.append((left, right))
-    return result

@@ -149,3 +149,20 @@ def random_tables(seed, *, generations=12, size=5, recombination=0):
     tables.sort()
     tables.validate()
     return tables
+
+
+def two_samples(iedges_u, iedges_v, *, root_length=None):
+    """
+    Tables with a root (node 0) and two samples (1 and 2), whose iedges from the root are
+    given as lists of (child_left, child_right, parent_left, parent_right)
+    """
+    tables = gigl.Tables()
+    tables.nodes.add_row(1)
+    for _ in range(2):
+        tables.nodes.add_row(0, flags=gigl.NODE_IS_SAMPLE)
+    for child, iedges in ((1, iedges_u), (2, iedges_v)):
+        for cl, cr, pl, pr in iedges:
+            tables.iedges.add_row(child, 0, child_left=cl, child_right=cr, parent_left=pl, parent_right=pr)
+    tables.sort()
+    tables.validate()
+    return tables

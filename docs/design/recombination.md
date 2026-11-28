@@ -30,7 +30,8 @@ _giglib_ provides. Related: {issue}`121` (transposable element simulations), {is
 
 ## Rules for recombination
 
-These would be options of a simulator, not part of _giglib_:
+These would be options of a simulator, not part of _giglib_'s core. Those shared by several
+simulators are in {ref}`giglib.tools.recombination <sec_tools_recombination>`:
 
 - **Crossovers** are placed only in chains at least `L` positions long, and at least some margin
   from the ends of the chain (as a crossover needs homology either side of it). Within such a

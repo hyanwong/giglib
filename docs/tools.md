@@ -20,5 +20,7 @@ The tools are:
   sequence alignment.
 - {ref}`sec_tools_homology` (`giglib.tools.homology`): finding the homology between two
   genomes, joining it into chains, and plotting it.
+- {ref}`sec_tools_recombination` (`giglib.tools.recombination`): rules for placing crossovers
+  between two genomes using their homology, shared by the simulators.
 - {ref}`sec_tools_simulation` (`giglib.tools.simulation`): simple simulators that record
   their genealogies as GIGs, each described on a page of its own.

@@ -9,7 +9,7 @@ one base, so all positions are homologous to each other at some level. See
 import numpy as np
 
 import giglib as gigl
-from giglib.tools import homology
+from giglib.tools import recombination
 
 
 def sim_single_origin(
@@ -142,7 +142,10 @@ def sim_single_origin(
                 shortest = min_chain_length
                 if min_chain_fraction is not None:
                     shortest = min(shortest, min_chain_fraction * min(lengths[i], lengths[j]))
-                breaks = _find_crossover(tables, rng, population[i], population[j], shortest, max_gap)
+                allowed = recombination.allowed_crossovers(
+                    tables, population[i], population[j], min_chain_length=shortest, max_gap=max_gap
+                )
+                breaks = recombination.random_crossover(allowed, rng)
                 if breaks is not None:
                     i_break, j_break = breaks
                     segments = [[population[i], 0, i_break], [population[j], j_break, lengths[j] - j_break]]
@@ -185,31 +188,6 @@ def _choose_other_parent(rng, i, num_genomes, log_fitness):
         return int(others[rng.integers(len(others))])
     weights = np.exp(log_fitness[others] - log_fitness[others].max())
     return int(others[rng.choice(len(others), p=weights / weights.sum())])
-
-
-def _find_crossover(tables, rng, mum, dad, min_chain_length, max_gap):
-    """
-    Choose where to break ``mum`` and ``dad`` for a crossover, and return the two breaks
-    (each between two positions), or None if there is nowhere allowed. A break is allowed
-    between two positions of ``mum`` in the same block of a long enough chain of homology
-    with ``dad`` (in the same orientation), so it is strictly inside both genomes. One is
-    chosen uniformly from all the allowed breaks.
-    """
-    blocks = homology.homology_blocks(tables, mum, dad)
-    allowed = [
-        block
-        for chain in homology.chains(blocks, max_gap=max_gap)
-        if homology.chain_length(chain) >= min_chain_length
-        for block in chain
-        if not block.is_reversed
-    ]
-    # A block of n positions has n - 1 breaks between them
-    num_breaks = np.array([block.u_right - block.u_left - 1 for block in allowed], dtype=float)
-    if num_breaks.sum() == 0:
-        return None
-    block = allowed[rng.choice(len(allowed), p=num_breaks / num_breaks.sum())]
-    mum_break = block.u_left + 1 + int(rng.integers(block.u_right - block.u_left - 1))
-    return mum_break, mum_break + block.map.offset
 
 
 def _stretch_length(rng, mean_length, max_length):

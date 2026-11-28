@@ -17,6 +17,7 @@ chapters:
   sections:
   - file: tools/indels
   - file: tools/homology
+  - file: tools/recombination
   - file: tools/simulations
     sections:
     - file: tools/simulations/no_recombination
