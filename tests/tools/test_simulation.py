@@ -661,6 +661,19 @@ class TestSingleOrigin:
         num_parents = [len({tables.iedges[i].parent for i in tables.iedges.ids_for_child(u)}) for u in gig.nodes.ids]
         assert num_parents.count(2) > 50
 
+    def test_min_chain_fraction_lets_short_genomes_recombine(self):
+        # Without selection, genomes stay shorter than min_chain_length, so few children
+        # are recombinant, unless chains covering half the shorter parent are allowed
+        params = {**CROSSOVER_PARAMS, "target_length": None, "fitness_width": None, "min_chain_length": 50}
+        counts = []
+        for min_chain_fraction in [None, 0.5]:
+            gig = sim_single_origin(10, 60, min_chain_fraction=min_chain_fraction, random_seed=1, **params)
+            tables = gig.tables
+            parents = [{tables.iedges[i].parent for i in tables.iedges.ids_for_child(u)} for u in gig.nodes.ids]
+            counts.append(sum(len(p) == 2 for p in parents))
+        assert counts[0] == 0
+        assert counts[1] > 10
+
     @pytest.mark.parametrize("seed", [1, 2])
     def test_simplifying_periodically_gives_the_same_genomes(self, seed):
         # Simplifying doesn't change the homology between the genomes that are kept, so the
@@ -675,6 +688,7 @@ class TestSingleOrigin:
             ({"recombination_rate": 0.5}, "min_chain_length and a max_gap"),
             ({"recombination_rate": 1.5, "min_chain_length": 10, "max_gap": 5}, "between 0 and 1"),
             ({"simplify_interval": 0}, "at least 1"),
+            ({"recombination_rate": 0.5, "min_chain_length": 10, "max_gap": 5, "min_chain_fraction": 0}, "fraction"),
         ],
     )
     def test_bad_recombination_or_simplification(self, params, match):

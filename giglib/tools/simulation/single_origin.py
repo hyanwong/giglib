@@ -24,6 +24,7 @@ def sim_single_origin(
     recombination_rate=0,
     min_chain_length=None,
     max_gap=None,
+    min_chain_fraction=None,
     simplify_interval=None,
     random_seed=None,
 ):
@@ -53,9 +54,14 @@ def sim_single_origin(
     ``min_chain_length`` positions long, whose blocks are separated by gaps of at most
     ``max_gap`` positions, between two positions of a block in the same orientation in both
     parents (chosen uniformly from all such places). If there is none, the child has the
-    first parent only. A recombinant child can also have a duplication or deletion, as
-    above. A crossover in a chain between copies that aren't allelic (e.g. where a copy was
-    lost in one parent) is unequal, and changes the number of copies.
+    first parent only. With ``min_chain_fraction``, a chain is also long enough if it covers
+    at least that fraction of the shorter parent's genome, so that short genomes (e.g. early
+    on, without selection to make them grow) can recombine. This is for testing: as short
+    chains are less likely to be allelic, it gives many unequal crossovers between short
+    genomes, so it isn't meant for simulations with any biological realism. A recombinant
+    child can also have a duplication or deletion, as above. A crossover in a chain between
+    copies that aren't allelic (e.g. where a copy was lost in one parent) is unequal, and
+    changes the number of copies.
 
     Finding homology between the parents at every crossover traces them back through the
     graph, which grows by ``population_size`` genomes every generation. So with
@@ -86,6 +92,8 @@ def sim_single_origin(
         placed (needed if ``recombination_rate`` is not 0)
     :param int max_gap: The largest gap between consecutive blocks of a chain (needed if
         ``recombination_rate`` is not 0)
+    :param float min_chain_fraction: If given, a chain is also long enough if it covers at
+        least this fraction of the shorter parent's genome (for testing: see above)
     :param int simplify_interval: If given, simplify the tables every this many generations,
         and at the end (default None: don't simplify)
     :param int random_seed: The random seed
@@ -106,6 +114,8 @@ def sim_single_origin(
         raise ValueError("The recombination_rate must be between 0 and 1")
     if recombination_rate > 0 and (min_chain_length is None or max_gap is None):
         raise ValueError("Recombination needs a min_chain_length and a max_gap")
+    if min_chain_fraction is not None and not 0 < min_chain_fraction <= 1:
+        raise ValueError("The min_chain_fraction must be greater than 0, and at most 1")
     if simplify_interval is not None and simplify_interval < 1:
         raise ValueError("The simplify_interval must be at least 1")
     rng = np.random.default_rng(random_seed)
@@ -131,7 +141,10 @@ def sim_single_origin(
                 j = i
                 while j == i:
                     j = _choose_parent(rng, population, parent_probabilities)
-                breaks = _find_crossover(tables, rng, population[i], population[j], min_chain_length, max_gap)
+                shortest = min_chain_length
+                if min_chain_fraction is not None:
+                    shortest = min(shortest, min_chain_fraction * min(lengths[i], lengths[j]))
+                breaks = _find_crossover(tables, rng, population[i], population[j], shortest, max_gap)
                 if breaks is not None:
                     i_break, j_break = breaks
                     segments = [[population[i], 0, i_break], [population[j], j_break, lengths[j] - j_break]]

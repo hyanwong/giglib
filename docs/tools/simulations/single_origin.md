@@ -271,7 +271,10 @@ only placed in a long *chain* of homology between the parents (at least `min_cha
 positions, with gaps of at most `max_gap`), as a stand-in for allelic homology. Where a chain
 pairs copies that aren't allelic (e.g. where one parent lost a copy), the crossover is unequal,
 and changes the number of copies. Genomes need to be longer than `min_chain_length` for
-crossovers to happen, so here selection holds them near a length of 200.
+crossovers to happen, so here selection holds them near a length of 200. (For testing, the
+`min_chain_fraction` option also allows chains that cover a given fraction of the shorter parent,
+so that short genomes can recombine. Short chains are less likely to be allelic, so this isn't
+meant for simulations with any biological realism.)
 
 Each crossover finds the homology between two parents, tracing them back through the graph. So
 the simulation can simplify the graph every `simplify_interval` generations, with respect to the
