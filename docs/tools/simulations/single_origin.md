@@ -16,8 +16,8 @@ kernelspec:
 # Genomes from a single base pair
 
 ```{note}
-Stage 1 of this simulator (neutral and clonal) is written; the later stages are planned. The
-working plan, and progress, are in {issue}`221`.
+Stages 1 to 3 of this simulator are written: neutral and clonal, then selection on genome length,
+then crossovers placed by homology. The working plan, and progress, are in {issue}`221`.
 ```
 
 This forward-time simulator starts from a single genome, one base pair long, and grows a
