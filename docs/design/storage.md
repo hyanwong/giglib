@@ -114,7 +114,17 @@ the guarantees it needs, using `has_all_bitflags()`. Creating a `Graph` requires
 
 `Tables.freeze()` (called when creating a `Graph`) makes each `_datastore` non-writeable, and
 prevents attributes being set on the tables, so a `Graph` is immutable. Freezing is permanent:
-to edit, use `tables.copy()`.
+to edit, use `gig.dump_tables()`, which returns an editable copy (`Tables.copy()`). Every attempt to
+edit frozen tables (adding rows, sorting, table algorithms, ...) raises the same error, saying so.
+
+**No separate immutable type ({issue}`136`).** _tskit_ has an `ImmutableTableCollection` for the
+tables of a tree sequence. Here, freezing makes one unnecessary: `gig.tables` is a frozen `Tables`,
+which refuses every edit with a clear error, so a second class mirroring the reading parts of
+`Tables` would add more to keep consistent, for no extra safety. This may change with a compiled
+core ({ref}`sec_design_storage_core`): the tables would then live in compiled memory, owned by the
+graph, and `gig.tables` would either copy them into Python (slow for large graphs) or give a
+read-only view of them, which is naturally a separate type, as in _tskit_. `gig.dump_tables()` would
+stay the way to get editable tables.
 
 ## Public contract
 
