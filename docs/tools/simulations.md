@@ -13,7 +13,8 @@ structural variants (see {ref}`sec_usage_simulations`). Each simulator has a pag
 - {ref}`sec_tools_simulation_microsatellites_backward`: backward in time, laying
   microsatellites on a genealogy simulated with msprime.
 - {ref}`sec_tools_simulation_single_origin`: forward in time, growing genomes from a
-  single base pair by tandem duplication.
+  single base pair by tandem duplication and deletion, optionally with selection on genome
+  length, and crossovers placed by homology.
 
 The rules a simulator uses (e.g. where crossovers can happen, between which copies of a
 duplicated region) are its own *policy*, built on the *mechanism* provided by _giglib_ (see

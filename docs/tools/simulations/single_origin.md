@@ -16,8 +16,8 @@ kernelspec:
 # Genomes from a single base pair
 
 ```{note}
-Stage 1 of this simulator (neutral and clonal) is written; the later stages are planned. The
-working plan, and progress, are in {issue}`221`.
+Stages 1 to 3 of this simulator are written: neutral and clonal, then selection on genome length,
+then crossovers placed by homology. The working plan, and progress, are in {issue}`221`.
 ```
 
 This forward-time simulator starts from a single genome, one base pair long, and grows a
@@ -262,17 +262,66 @@ for ax, (u, v) in zip(axes, [(0, 1), (2, 3)]):
 plt.show()
 ```
 
+## Crossovers
+
+With `recombination_rate`, a child can have two parents, and inherits the start of one and the end
+of the other, joined at a crossover. As in the
+{ref}`microsatellite simulator <sec_tools_simulation_microsatellites_forward>`, a crossover is
+only placed in a long *chain* of homology between the parents (at least `min_chain_length`
+positions, with gaps of at most `max_gap`), as a stand-in for allelic homology. Where a chain
+pairs copies that aren't allelic (e.g. where one parent lost a copy), the crossover is unequal,
+and changes the number of copies. Genomes need to be longer than `min_chain_length` for
+crossovers to happen, so here selection holds them near a length of 200. (For testing, the
+`min_chain_fraction` option also allows chains that cover a given fraction of the shorter parent,
+so that short genomes can recombine. Short chains are less likely to be allelic, so this isn't
+meant for simulations with any biological realism.)
+
+Each crossover finds the homology between two parents, tracing them back through the graph. So
+the simulation can simplify the graph every `simplify_interval` generations, with respect to the
+current generation, and at the end. As simplification doesn't change the homology between the
+genomes it keeps, this gives the same genomes as not simplifying (which is tested), but here it
+takes about 7 seconds rather than 25:
+
+```{code-cell}
+recombinant = sim_single_origin(
+    30,
+    300,
+    duplication_rate=duplication_rate,
+    deletion_rate=deletion_rate,
+    mean_length=mean_length,
+    target_length=200,
+    fitness_width=50,
+    recombination_rate=0.5,
+    min_chain_length=50,
+    max_gap=10,
+    simplify_interval=10,
+    random_seed=1,
+)
+print(len(recombinant.nodes), "genomes, joined by", len(recombinant.iedges), "iedges")
+```
+
+The homology between two genomes is now a mosaic: where they inherit from parents that share a
+recent common ancestor, it is recent, and elsewhere older:
+
+```{code-cell}
+fig, axes = plt.subplots(1, 2, figsize=(11, 5))
+for ax, (u, v) in zip(axes, [(0, 1), (2, 3)]):
+    homology.plot(recombinant.tables, u, v, mode="closest_homologues", ax=ax)
+plt.show()
+```
+
 ## Stages
 
 1. **Neutral, clonal, with duplications and deletions** (done). The outputs are the
    distribution of genome lengths, compared with the prediction, and homology plots between
    genomes, between a child and its parent, and of a genome with itself.
 2. **Selection on genome size** (done), with the same outputs.
-3. **Crossovers placed by homology.** Each child has two parents, and a crossover is placed in a
-   long chain of closest homology between them, as in the microsatellite simulator. The rule for
-   which chains count as allelic will be chosen after looking at the plots from the first two
-   stages (see {ref}`sec_design_recombination`). Unequal crossing over, between copies that
-   aren't allelic, then follows naturally.
+3. **Crossovers placed by homology** (done). A recombinant child has two parents, and a crossover
+   placed in a long chain of homology between them, as in the microsatellite simulator, so
+   unequal crossing over, between copies that aren't allelic, follows naturally. Other rules
+   (see {ref}`sec_design_recombination`), and a separate rate of unequal crossing over
+   ({issue}`83`), could be tried, as could choosing breakpoints by rejection sampling
+   ({issue}`102`), which would be faster.
 4. **Evaluation cases.** The time and memory used per generation, and by the homology tools for
    each pair of genomes (including the number of homology records), as genomes get longer and the
    graph deeper.

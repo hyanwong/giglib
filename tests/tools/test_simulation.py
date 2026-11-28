@@ -581,6 +581,20 @@ class TestMicrosatellitesBackward:
             )
 
 
+# For the single-origin simulator with crossovers: selection makes genomes long enough for
+# chains of homology in which to place crossovers
+CROSSOVER_PARAMS = {
+    "duplication_rate": 0.05,
+    "deletion_rate": 0.02,
+    "mean_length": 5,
+    "target_length": 60,
+    "fitness_width": 20,
+    "recombination_rate": 0.5,
+    "min_chain_length": 10,
+    "max_gap": 5,
+}
+
+
 class TestSingleOrigin:
     def test_population_grows_then_stays_the_same_size(self):
         gig = sim_single_origin(10, 8, duplication_rate=0.1, deletion_rate=0.1, random_seed=1)
@@ -639,6 +653,67 @@ class TestSingleOrigin:
         )
         mean_length = np.mean([gig.sequence_length(u) for u in gig.sample_nodes().ids])
         assert abs(mean_length - target_length) < 10
+
+    def test_crossovers(self):
+        # Some children have two parents
+        gig = sim_single_origin(10, 60, random_seed=1, **CROSSOVER_PARAMS)
+        tables = gig.tables
+        num_parents = [len({tables.iedges[i].parent for i in tables.iedges.ids_for_child(u)}) for u in gig.nodes.ids]
+        assert num_parents.count(2) > 50
+
+    def test_min_chain_fraction_lets_short_genomes_recombine(self):
+        # Without selection, genomes stay shorter than min_chain_length, so few children
+        # are recombinant, unless chains covering half the shorter parent are allowed
+        params = {**CROSSOVER_PARAMS, "target_length": None, "fitness_width": None, "min_chain_length": 50}
+        counts = []
+        for min_chain_fraction in [None, 0.5]:
+            gig = sim_single_origin(10, 60, min_chain_fraction=min_chain_fraction, random_seed=1, **params)
+            tables = gig.tables
+            parents = [{tables.iedges[i].parent for i in tables.iedges.ids_for_child(u)} for u in gig.nodes.ids]
+            counts.append(sum(len(p) == 2 for p in parents))
+        assert counts[0] == 0
+        assert counts[1] > 10
+
+    def test_second_parent_when_the_others_have_no_weight(self):
+        # Two genomes, of lengths 1 and 2: with a target of 2 and very strong selection, the
+        # weight of the genome of length 1 is 0, but it must still be the second parent
+        # when the other is the first (choosing again until a different parent comes up
+        # would never end)
+        gig = sim_single_origin(
+            2,
+            3,
+            duplication_rate=0.5,
+            deletion_rate=0,
+            mean_length=2,
+            target_length=2,
+            fitness_width=0.01,
+            recombination_rate=1,
+            min_chain_length=1,
+            max_gap=0,
+            random_seed=1,
+        )
+        assert len(gig.sample_nodes()) == 2
+
+    @pytest.mark.parametrize("seed", [1, 2])
+    def test_simplifying_periodically_gives_the_same_genomes(self, seed):
+        # Simplifying doesn't change the homology between the genomes that are kept, so the
+        # crossovers are the same: the result is the same as simplifying once, at the end
+        periodically = sim_single_origin(10, 60, simplify_interval=7, random_seed=seed, **CROSSOVER_PARAMS)
+        once = sim_single_origin(10, 60, random_seed=seed, **CROSSOVER_PARAMS).simplify()
+        assert periodically.tables == once.tables
+
+    @pytest.mark.parametrize(
+        ("params", "match"),
+        [
+            ({"recombination_rate": 0.5}, "min_chain_length and a max_gap"),
+            ({"recombination_rate": 1.5, "min_chain_length": 10, "max_gap": 5}, "between 0 and 1"),
+            ({"simplify_interval": 0}, "at least 1"),
+            ({"recombination_rate": 0.5, "min_chain_length": 10, "max_gap": 5, "min_chain_fraction": 0}, "fraction"),
+        ],
+    )
+    def test_bad_recombination_or_simplification(self, params, match):
+        with pytest.raises(ValueError, match=match):
+            sim_single_origin(5, 20, duplication_rate=0.1, deletion_rate=0.1, **params)
 
     @pytest.mark.parametrize(
         ("target_length", "fitness_width", "match"),
