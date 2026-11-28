@@ -1446,6 +1446,38 @@ class TestAlleleComplements:
         assert gig.tables.copy().allele_complements["A"] == "T"
 
 
+class TestDumpTables:
+    @pytest.mark.parametrize(
+        "edit",
+        [
+            lambda tables: tables.nodes.add_row(0),
+            lambda tables: tables.iedges.add_row(1, 0, child_right=5),
+            lambda tables: tables.mutations.add_row(0, 1, "A"),
+            lambda tables: tables.individuals.add_row(),
+            lambda tables: tables.sort(),
+            lambda tables: tables.change_times(1),
+            lambda tables: tables.iedges.squash(),
+            lambda tables: tables.simplify(),
+            lambda tables: tables.sample_resolve(),
+            lambda tables: tables.decapitate(0.5),
+            lambda tables: tables.clear(),
+        ],
+    )
+    def test_graph_tables_refuse_edits(self, trivial_gig, edit):
+        # Every kind of edit to the tables of a graph gives the same, helpful error...
+        with pytest.raises(ValueError, match="use Graph.dump_tables"):
+            edit(trivial_gig.tables)
+        # ... and works on the dumped tables
+        edit(trivial_gig.dump_tables())
+
+    def test_dump_tables(self, trivial_gig):
+        tables = trivial_gig.dump_tables()
+        assert tables == trivial_gig.tables
+        assert tables is not trivial_gig.tables
+        tables.nodes.add_row(10)
+        assert len(tables.nodes) == len(trivial_gig.nodes) + 1
+
+
 class TestToTreeSequenceWithMutations:
     @staticmethod
     def assert_round_trip(ts, exact_order=True):

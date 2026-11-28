@@ -114,7 +114,19 @@ the guarantees it needs, using `has_all_bitflags()`. Creating a `Graph` requires
 
 `Tables.freeze()` (called when creating a `Graph`) makes each `_datastore` non-writeable, and
 prevents attributes being set on the tables, so a `Graph` is immutable. Freezing is permanent:
-to edit, use `tables.copy()`.
+to edit, use `gig.dump_tables()`, which returns an editable copy (`Tables.copy()`). Every attempt to
+edit frozen tables (adding rows, sorting, table algorithms, ...) raises the same error, saying so.
+
+**No separate immutable type ({issue}`136`).** Here, freezing makes one unnecessary: `gig.tables`
+is a frozen `Tables`, which refuses every edit with a clear error, so a second class mirroring the
+reading parts of `Tables` would add more to keep consistent, for no extra safety. This is likely to
+change with a compiled core ({ref}`sec_design_storage_core`), as it did in _tskit_. There, a tree
+sequence's tables are held in C memory, so before version 1.0, `ts.tables` returned a copy (slow
+for large tree sequences, and not even read-only). Since 1.0, it returns an
+`ImmutableTableCollection`, a zero-copy, read-only view of that memory, and `ts.dump_tables()`
+returns an editable copy. A compiled core could instead check a frozen flag in each editing method,
+as now, but a read-only view type is the natural design. Either way, `gig.dump_tables()` would stay
+the way to get editable tables.
 
 ## Public contract
 

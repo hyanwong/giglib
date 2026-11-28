@@ -803,6 +803,18 @@ class Graph:
         tables.build_index()
         tables.compute_mutation_parents()
 
+    def dump_tables(self):
+        """
+        Return a copy of the tables of this GIG, which (unlike ``gig.tables``) can be
+        edited, e.g. to add rows, or to run table algorithms such as
+        :meth:`Tables.simplify`. Call :meth:`Tables.graph` on the edited tables to make a
+        new GIG.
+
+        :return: An editable copy of the tables
+        :rtype: Tables
+        """
+        return self.tables.copy()
+
     def decapitate(self, time, *, discard_old_mutations=False):
         """
         Return a new GIG with all nodes at least as old as ``time`` removed. See
@@ -816,7 +828,7 @@ class Graph:
         :return: A new GIG object
         :rtype: Graph
         """
-        tables = self.tables.copy()
+        tables = self.dump_tables()
         tables.decapitate(time, discard_old_mutations=discard_old_mutations)
         return self.__class__(tables)
 
@@ -832,7 +844,7 @@ class Graph:
         :return: A new GIG object
         :rtype: Graph
         """
-        new_tables = self.tables.copy()
+        new_tables = self.dump_tables()
         new_tables.sample_resolve()
         return new_tables.graph()
 
@@ -849,7 +861,7 @@ class Graph:
         :return: A new GIG object
         :rtype: Graph
         """
-        new_tables = self.tables.copy()
+        new_tables = self.dump_tables()
         new_tables.simplify(None if samples is None else [as_id(u) for u in samples])
         return new_tables.graph()
 

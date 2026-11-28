@@ -136,7 +136,7 @@ class TestFreeze:
             tables.tables.clear()
         with pytest.raises(AttributeError):
             tables.tables.sort()
-        with pytest.raises(AttributeError):
+        with pytest.raises(ValueError, match="dump_tables"):
             tables.iedges.flags = ValidFlags.NONE
         tables = tables.copy()
         # we can modify the copy

@@ -408,6 +408,12 @@ class MutationTableRow(
     """
 
 
+# The error for any attempt to edit the frozen tables of a Graph
+FROZEN_MESSAGE = (
+    "These tables belong to a Graph, so can't be changed: use Graph.dump_tables() to get tables you can edit"
+)
+
+
 class BaseTable:
     _RowClass = None
     _non_int64_fieldtypes = types.MappingProxyType({})  # By default all fields are int64
@@ -452,9 +458,12 @@ class BaseTable:
         copy._frozen = False
         return copy
 
-    def __setattr__(self, attr, value):
+    def _check_not_frozen(self):
         if self._frozen:
-            raise AttributeError("Trying to set attribute on a frozen (read-only) instance")
+            raise ValueError(FROZEN_MESSAGE)
+
+    def __setattr__(self, attr, value):
+        self._check_not_frozen()
         super().__setattr__(attr, value)
         if attr == "_datastore":
             # Whenever the storage array is replaced, make read-only views of its
@@ -840,6 +849,7 @@ class IEdgeTable(BaseTable):
                 parent_right=50,
             )
         """
+        self._check_not_frozen()
         if child_right is None:
             if child_left is not None:
                 raise ValueError("child_right must be given if child_left is given")
@@ -916,8 +926,7 @@ class IEdgeTable(BaseTable):
         chromosome and then position, e.g. as after :meth:`~giglib.Tables.sort`
         (i.e. the :data:`~giglib.ValidFlags.IEDGES_WITHIN_CHILD_SORTED` flags).
         """
-        if self._frozen:
-            raise AttributeError("Cannot squash the iedges of frozen tables: use a copy")
+        self._check_not_frozen()
         if not self.has_all_bitflags(ValidFlags.IEDGES_WITHIN_CHILD_SORTED):
             raise ValueError(
                 "Squashing requires the iedges for each child to be adjacent, and ordered by chromosome and "
@@ -1129,6 +1138,7 @@ class NodeTable(BaseExtraTable):
         Example:
             new_id = nodes.add_row(0, flags=NODE_IS_SAMPLE)
         """
+        self._check_not_frozen()
         if flags is None:
             flags = 0
         if individual is None:
@@ -1204,6 +1214,7 @@ class IndividualTable(BaseExtraTable):
         :return: The ID of the newly added individual
         :rtype: int
         """
+        self._check_not_frozen()
         if flags is None:
             flags = 0
         # Store sequences (e.g. numpy arrays from tskit) as tuples of Python numbers, so
@@ -1315,6 +1326,7 @@ class MutationTable(BaseExtraTable):
         :return: The ID of the newly added mutation
         :rtype: int
         """
+        self._check_not_frozen()
         if not isinstance(derived_state, str):
             raise TypeError(f"derived_state must be a string, not {derived_state!r}")
         if time is None:
@@ -1487,9 +1499,12 @@ class Tables:
         self.allele_complements = types.MappingProxyType(dict(self.allele_complements))
         self._frozen = True
 
-    def __setattr__(self, attr, value):
+    def _check_not_frozen(self):
         if self._frozen:
-            raise AttributeError("Trying to set attribute on a frozen (read-only) instance")
+            raise ValueError(FROZEN_MESSAGE)
+
+    def __setattr__(self, attr, value):
+        self._check_not_frozen()
         return super().__setattr__(attr, value)
 
     def clear(self):
@@ -1537,6 +1552,7 @@ class Tables:
         at the same node, chromosome and position keep their existing order (which
         defines the order in which they occurred).
         """
+        self._check_not_frozen()
         self._sort_mutations()
         # index to sort edges so they are sorted by child time
         # and grouped by child id. Within each group with the same child ID,
@@ -1915,6 +1931,7 @@ class Tables:
         """
         Add a value to all times (nodes and mutations)
         """
+        self._check_not_frozen()
         self.nodes._data["time"] += timedelta
         self.nodes._changed()
         known = ~is_unknown_time(self.mutations.time)
