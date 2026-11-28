@@ -674,6 +674,26 @@ class TestSingleOrigin:
         assert counts[0] == 0
         assert counts[1] > 10
 
+    def test_second_parent_when_the_others_have_no_weight(self):
+        # Two genomes, of lengths 1 and 2: with a target of 2 and very strong selection, the
+        # weight of the genome of length 1 is 0, but it must still be the second parent
+        # when the other is the first (choosing again until a different parent comes up
+        # would never end)
+        gig = sim_single_origin(
+            2,
+            3,
+            duplication_rate=0.5,
+            deletion_rate=0,
+            mean_length=2,
+            target_length=2,
+            fitness_width=0.01,
+            recombination_rate=1,
+            min_chain_length=1,
+            max_gap=0,
+            random_seed=1,
+        )
+        assert len(gig.sample_nodes()) == 2
+
     @pytest.mark.parametrize("seed", [1, 2])
     def test_simplifying_periodically_gives_the_same_genomes(self, seed):
         # Simplifying doesn't change the homology between the genomes that are kept, so the

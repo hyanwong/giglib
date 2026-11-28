@@ -132,15 +132,13 @@ def sim_single_origin(
             weights = np.exp(log_fitness - log_fitness.max())
             parent_probabilities = weights / weights.sum()
         else:
-            parent_probabilities = None
+            log_fitness = parent_probabilities = None
         for _ in range(min(2 * len(population), population_size)):
             i = _choose_parent(rng, population, parent_probabilities)
             # The genome the child inherits, as segments [parent, parent_start, length]
             segments = [[population[i], 0, lengths[i]]]
             if recombination_rate > 0 and len(population) > 1 and rng.random() < recombination_rate:
-                j = i
-                while j == i:
-                    j = _choose_parent(rng, population, parent_probabilities)
+                j = _choose_other_parent(rng, i, len(population), log_fitness)
                 shortest = min_chain_length
                 if min_chain_fraction is not None:
                     shortest = min(shortest, min_chain_fraction * min(lengths[i], lengths[j]))
@@ -172,6 +170,21 @@ def _choose_parent(rng, population, parent_probabilities):
     if parent_probabilities is None:
         return rng.integers(len(population))
     return rng.choice(len(population), p=parent_probabilities)
+
+
+def _choose_other_parent(rng, i, num_genomes, log_fitness):
+    """
+    The index of a second parent, other than ``i``: in proportion to the fitness of the
+    other genomes if ``log_fitness`` is given, otherwise uniformly. (Choosing from all the
+    genomes until one other than ``i`` comes up could go on for ever, if the others' weights
+    are all 0: so the weights are computed from the others only, relative to the fittest of
+    them, which has weight 1.)
+    """
+    others = np.delete(np.arange(num_genomes), i)
+    if log_fitness is None:
+        return int(others[rng.integers(len(others))])
+    weights = np.exp(log_fitness[others] - log_fitness[others].max())
+    return int(others[rng.choice(len(others), p=weights / weights.sum())])
 
 
 def _find_crossover(tables, rng, mum, dad, min_chain_length, max_gap):
