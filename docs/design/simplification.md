@@ -2,9 +2,10 @@
 
 # Simplification
 
-**Status: Partly implemented.** {meth}`~giglib.Tables.simplify` keeps the branch points of the
-position tree, region by region, with the algorithm below. Several other choices are left open, to be decided by performance measurements on forward
-simulations (see {ref}`sec_design_simplification_evaluation`).
+**Status: Implemented** ({pr}`241`). {meth}`~giglib.Tables.simplify` keeps the branch points of
+the position tree, region by region, with the algorithm below, and the ends of lineages. Options
+to keep more nodes (by flags, and non-coalescent regions) are proposed in {issue}`244`. The
+measurements are in {pr}`247` (see {ref}`sec_design_simplification_evaluation`).
 Related: {ref}`sec_design_homology_table` (a cache for locating homologous positions, built by
 the same core), {ref}`sec_design_mutations` (which requires simplification to keep duplication nodes),
 {ref}`sec_design_storage` (cached indexes), {issue}`158` (reference lengths).
@@ -294,9 +295,8 @@ conversation about the giglib API, mutations, and storage (November 2026), and i
 
 **Agreed, or leaned towards:**
 
-- Write this design note first, and implement simplification (which removes nodes) after it.
-  Simplification and the homology table of {issue}`140` are bound together, as both compose
-  iedges, with different rules for which nodes to keep.
+- Simplification and the homology table ({ref}`sec_design_homology_table`) are bound together,
+  as both compose iedges, with different rules for which nodes to keep.
 - Coalescence and duplication nodes should be distinguished. The two main reasons are knowing
   which copy of a duplicated region is which, and that only coalescences inform demography
   (raised by Yan Wong).
@@ -319,47 +319,16 @@ conversation about the giglib API, mutations, and storage (November 2026), and i
 - Whether duplication nodes, if kept, should be flagged (e.g. by a simulator), detected, or
   both.
 
-**Suggested next steps:**
-
-1. Implement a first simplification, keeping the branch points, with the algorithm above, and
-   the checks of correctness (see {ref}`sec_design_simplification_evaluation`). Simulators with
-   structural variants now exist to test it on: tandem duplications with unequal crossing-over
-   (a test of the one-crossover simulator), microsatellites, and genomes from a single base pair
-   ({issue}`221`).
-2. Add simplification cases to `evaluation/performance.py` (alongside the cases for
-   {meth}`~giglib.Tables.find_homology`), and measure, e.g. how much faster finding homology is
-   after simplifying.
-3. Make the choices left open here, from the measurements. The homology table
-   ({ref}`sec_design_homology_table`) can then be built on the same core.
-
-**Starting points in the code:**
-
-- {meth}`~giglib.tables.IEdgeTable.squash`: merges adjacent iedges, which simplification will
-  need after composing iedges.
-- {meth}`~giglib.Tables.sample_resolve` (in `giglib/tables.py`): passes intervals of ancestral
-  material up the graph, oldest node last, using the `portion` library to merge intervals. It
-  does not remove nodes, but its structure (a stack of nodes ordered by time) is close to what
-  simplification needs.
-- {meth}`~giglib.Tables.remove_non_ancestral_nodes`: removes nodes, and renumbers the nodes,
-  iedges, indexes and mutations. Simplification will need the same renumbering.
-- {class}`~giglib.PositionMap`: the map from one genome's coordinates to another's, made by an
-  iedge (a shift, reversed for an inversion). All the code that maps positions or intervals
-  through iedges uses it. Maps along a chain of iedges combine into one with
-  {meth}`~giglib.PositionMap.then`, which is what composing iedges needs.
-- {meth}`~giglib.Tables.find_homology`: traces two genomes up to their MRCAs, which is the
-  operation the homology table aims to speed up.
-- `Graph._known_alleles()`: traces positions up through iedges, combining their position maps
-  as it goes, as composing iedges will.
-- {meth}`~giglib.Tables.decapitate`: moves the effect of removed mutations onto remaining nodes,
-  which is similar to moving mutations down when removing a node.
-- The Wright-Fisher simulators in `giglib.tools.simulation` (with inversions only), and the examples in
-  `docs/examples.md`.
+**Done since:** simplification, with the checks of correctness ({pr}`241`, which also keeps the
+ends of lineages, so that samples don't lose missing data at the ends of their genomes), and
+evaluation cases showing that it makes finding homology 2.5 to 40 times faster ({pr}`247`).
+**Next:** the options in {issue}`244`, and the homology table, if measurements show it is needed.
 
 ## Open questions
 
 - Should keeping whole nodes (rather than regions) be an option, if measurements favour it?
 - Should keeping duplication nodes be an option, and if so, how are they found (flagged by a
-  simulator, or detected)?
-- Should simplification optionally keep unary nodes, or other nodes (e.g. those with
-  mutations), as _tskit_'s `simplify()` can?
+  simulator, or detected)? {issue}`244` proposes keeping nodes with given flags.
+- Should simplification optionally keep non-coalescent regions of part-coalescent nodes, or
+  other nodes (e.g. those with mutations), as _tskit_'s `simplify()` can ({issue}`244`)?
 - Should `sample_resolve()` become an option of `simplify()`?

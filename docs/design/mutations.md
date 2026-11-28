@@ -5,8 +5,8 @@
 **Status: Accepted, mostly implemented.** Implemented: the mutations table and the
 `gig.mutations` and `gig.mutations_for_node()` accessors, conversion to and from _tskit_, allele
 complements, `gig.allele_at()` and `gig.haplotype()`, and handling of mutations in
-`sample_resolve()`, `remove_non_ancestral_nodes()` and `decapitate()`. Not yet implemented:
-reference sequences, variants, and simplification that removes nodes.
+`sample_resolve()`, `simplify()`, `remove_non_ancestral_nodes()` and `decapitate()`. Not yet
+implemented: reference sequences and variants.
 Discussion: {issue}`5`. Related: {issue}`140` (portable reference sequences),
 {issue}`126` (pseudo-roots), {issue}`135` (structural change without recombination),
 {issue}`141` (a position class).
@@ -342,9 +342,9 @@ an inversion.
 - Mutations in regions that are not inherited by any sample are removed, as in _tskit_.
   The current {meth}`~giglib.Tables.sample_resolve` does this, and never removes nodes, so
   other mutations stay above the same nodes. Mutations above sample nodes are always kept.
-  Simplification that removes (e.g. unary) nodes is not yet implemented: it would need to
-  move mutations above a removed node down to the corresponding positions in its child. See
-  {ref}`sec_design_simplification`.
+  {meth}`~giglib.Tables.simplify`, which removes nodes, moves the mutations above a bypassed
+  region of a node down to the corresponding positions of the kept node below it (complemented
+  through an odd number of inversions). See {ref}`sec_design_simplification`.
 
 ## Decapitation
 

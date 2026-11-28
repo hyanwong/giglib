@@ -15,8 +15,10 @@ kernelspec:
 
 # Homology
 
-**Status: Proposed.** Homology, as recorded by a GIG, and the mechanisms _giglib_ can provide for
-finding it. How simulators can use it to restrict recombination is in the companion note,
+**Status: Partly implemented.** Homology, as recorded by a GIG, and the mechanisms _giglib_ can
+provide for finding it: {meth}`~giglib.Tables.find_homology` (with its three modes, and for a
+genome with itself), and homology blocks, chains and random homologous positions in
+{mod}`giglib.tools.homology`. How simulators can use it to restrict recombination is in the companion note,
 {ref}`sec_design_recombination`. Chains are a *heuristic*: a testable starting point, not a
 definition of which homology is allelic ({issue}`202`). Related: {issue}`111` (levels of homology),
 {ref}`sec_design_homology_table` ({issue}`140`, {issue}`210`), {issue}`102` (homology of a
@@ -281,8 +283,10 @@ provided by _giglib_, as long as it stays reference-free:
   of the iedges above and below each node (some of which already exist). These would be optional,
   and must not change the answers, only how quickly they are found.
 
-At first, these could be developed in `giglib.tools` (e.g. alongside the simulators of
-`giglib.tools.simulation`), and moved into the core once they have settled, and once it is clear
+Of these, finding homology is in the core ({meth}`~giglib.Tables.find_homology`), and blocks and
+chaining are in {mod}`giglib.tools.homology`, used by the simulators of
+`giglib.tools.simulation`. The homologous positions of a single position, and the caches, are not
+written yet. Tools can be moved into the core once they have settled, and once it is clear
 which of them are needed for efficiency (e.g. caches that need to be kept up to date as tables
 change are better maintained by the tables themselves).
 
