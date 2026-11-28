@@ -200,12 +200,74 @@ for ax, mode in zip(axes, ["closest_homologues", "all"]):
 plt.show()
 ```
 
+## Selection on genome length
+
+With `target_length` and `fitness_width`, there is stabilising selection on genome length: a
+genome of length `n` has fitness `exp(-(n - T)² / (2 Vs))`, where `T` is the target length and
+`Vs` is `fitness_width` squared, and parents are chosen in proportion to their fitness. In a large
+population, mutation (here, duplications and deletions) and selection balance when the variance of
+lengths `V` satisfies `V² = Vm (V + Vs)`. Drift also limits the spread (to about `N Vm`, as above),
+so the spread is a little less than this predicts. As duplications are commoner than deletions,
+mutation pushes lengths up, by about `mean_length × (duplication_rate - deletion_rate)` per
+generation, so the mean settles a little above the target, where selection pulls lengths down as
+much (by about `V / Vs` times the distance from the target).
+
+```{code-cell}
+target_length, fitness_width = 200, 50
+selected = sim_single_origin(
+    N,
+    generations,
+    duplication_rate=duplication_rate,
+    deletion_rate=deletion_rate,
+    mean_length=mean_length,
+    target_length=target_length,
+    fitness_width=fitness_width,
+    random_seed=1,
+)
+```
+
+```{code-cell}
+:tags: [hide-input]
+
+times = selected.tables.nodes.time
+lengths = np.array([selected.sequence_length(n) for n in range(len(selected.nodes))])
+lengths[0] = 1
+in_generation = [lengths[times == generations - g] for g in generation]
+Vs = fitness_width**2
+V = (Vm + np.sqrt(Vm**2 + 4 * Vm * Vs)) / 2  # the balance of mutation and selection
+
+fig, axes = plt.subplots(1, 2, figsize=(11, 4))
+axes[0].fill_between(generation, [x.min() for x in in_generation], [x.max() for x in in_generation], alpha=0.3, label="range")
+axes[0].plot(generation, [x.mean() for x in in_generation], label="mean")
+axes[0].axhline(target_length, linestyle="--", color="black", label="target")
+axes[0].set_xlabel("generation")
+axes[0].set_ylabel("genome length")
+axes[0].legend()
+axes[1].plot(generation, [x.std() for x in in_generation], label="in the simulation")
+axes[1].axhline(np.sqrt(V), linestyle="--", color="black", label="predicted (mutation and selection)")
+axes[1].set_xlabel("generation")
+axes[1].set_ylabel("standard deviation of genome length")
+axes[1].legend()
+plt.show()
+```
+
+Once lengths reach the target, the genomes stop growing, but duplications and deletions go on
+replacing each other, so the homology between two genomes is broken up much as before:
+
+```{code-cell}
+simplified_selected = selected.simplify()
+fig, axes = plt.subplots(1, 2, figsize=(11, 5))
+for ax, (u, v) in zip(axes, [(0, 1), (2, 3)]):
+    homology.plot(simplified_selected.tables, u, v, mode="closest_homologues", ax=ax)
+plt.show()
+```
+
 ## Stages
 
 1. **Neutral, clonal, with duplications and deletions** (done). The outputs are the
    distribution of genome lengths, compared with the prediction, and homology plots between
    genomes, between a child and its parent, and of a genome with itself.
-2. **Selection on genome size,** with the same outputs.
+2. **Selection on genome size** (done), with the same outputs.
 3. **Crossovers placed by homology.** Each child has two parents, and a crossover is placed in a
    long chain of closest homology between them, as in the microsatellite simulator. The rule for
    which chains count as allelic will be chosen after looking at the plots from the first two
