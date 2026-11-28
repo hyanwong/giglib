@@ -117,14 +117,16 @@ prevents attributes being set on the tables, so a `Graph` is immutable. Freezing
 to edit, use `gig.dump_tables()`, which returns an editable copy (`Tables.copy()`). Every attempt to
 edit frozen tables (adding rows, sorting, table algorithms, ...) raises the same error, saying so.
 
-**No separate immutable type ({issue}`136`).** _tskit_ has an `ImmutableTableCollection` for the
-tables of a tree sequence. Here, freezing makes one unnecessary: `gig.tables` is a frozen `Tables`,
-which refuses every edit with a clear error, so a second class mirroring the reading parts of
-`Tables` would add more to keep consistent, for no extra safety. This may change with a compiled
-core ({ref}`sec_design_storage_core`): the tables would then live in compiled memory, owned by the
-graph, and `gig.tables` would either copy them into Python (slow for large graphs) or give a
-read-only view of them, which is naturally a separate type, as in _tskit_. `gig.dump_tables()` would
-stay the way to get editable tables.
+**No separate immutable type ({issue}`136`).** Here, freezing makes one unnecessary: `gig.tables`
+is a frozen `Tables`, which refuses every edit with a clear error, so a second class mirroring the
+reading parts of `Tables` would add more to keep consistent, for no extra safety. This is likely to
+change with a compiled core ({ref}`sec_design_storage_core`), as it did in _tskit_. There, a tree
+sequence's tables are held in C memory, so before version 1.0, `ts.tables` returned a copy (slow
+for large tree sequences, and not even read-only). Since 1.0, it returns an
+`ImmutableTableCollection`, a zero-copy, read-only view of that memory, and `ts.dump_tables()`
+returns an editable copy. A compiled core could instead check a frozen flag in each editing method,
+as now, but a read-only view type is the natural design. Either way, `gig.dump_tables()` would stay
+the way to get editable tables.
 
 ## Public contract
 
