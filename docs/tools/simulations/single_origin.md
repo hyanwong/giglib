@@ -185,17 +185,26 @@ for ax, (u, v) in zip(axes, [(0, 1), (2, 3)]):
 plt.show()
 ```
 
-The same idea applies within a single genome ({issue}`135`): a dot plot of a genome against itself
-would have the genome's homology with itself on the diagonal, and its duplications off the
-diagonal, symmetric about it, coloured by when they happened. This needs
-{meth}`~giglib.Tables.find_homology` to allow `u` and `v` to be the same genome, which it doesn't
-yet.
+The same idea applies within a single genome ({issue}`135`). A dot plot of a genome against itself
+has each position's homology with itself on the diagonal (at the time of the genome, 0), and its
+paralogous homology off the diagonal, symmetric about it. Two copies of a region meet in the genome
+that was duplicated, so each line off the diagonal is coloured by when that duplication happened.
+The closest homologues of each position are its nearest paralogues; all the homology adds the
+older copies, back to the single base:
+
+```{code-cell}
+fig, axes = plt.subplots(1, 2, figsize=(11, 5))
+for ax, mode in zip(axes, ["closest_homologues", "all"]):
+    homology.plot(simplified.tables, 0, 0, mode=mode, ax=ax)
+    ax.set_title(mode)
+plt.show()
+```
 
 ## Stages
 
 1. **Neutral, clonal, with duplications and deletions** (done). The outputs are the
    distribution of genome lengths, compared with the prediction, and homology plots between
-   genomes, and between a child and its parent.
+   genomes, between a child and its parent, and of a genome with itself.
 2. **Selection on genome size,** with the same outputs.
 3. **Crossovers placed by homology.** Each child has two parents, and a crossover is placed in a
    long chain of closest homology between them, as in the microsatellite simulator. The rule for
